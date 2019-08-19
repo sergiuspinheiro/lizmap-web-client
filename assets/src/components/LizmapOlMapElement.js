@@ -18,6 +18,9 @@ export default class LizmapOlMapElement extends HTMLElement {
         this._OLMap = null;
         this._OLlayerGroup = null;
         this._mapId = '';
+
+        // When its value is false, avoid firing moveend event when setting zoom or center
+        this._moveendListenerEnabled = true;
     }
 
     get mapId() {
@@ -86,8 +89,12 @@ export default class LizmapOlMapElement extends HTMLElement {
 
         // Detect zoom changes
         this._OLMap.on('moveend', () => {
-            LizmapMapManager.getMap(this.mapId).zoom = this._OLMap.getView().getZoom();
-            LizmapMapManager.getMap(this.mapId).center = this._OLMap.getView().getCenter();
+            if (this._moveendListenerEnabled){
+                LizmapMapManager.getMap(this.mapId).zoom = this._OLMap.getView().getZoom();
+                LizmapMapManager.getMap(this.mapId).center = this._OLMap.getView().getCenter();
+            }else{
+                this._moveendListenerEnabled = true;
+            }
         }
         );
     }
@@ -128,12 +135,12 @@ export default class LizmapOlMapElement extends HTMLElement {
     }
 
     onZoomSet(event) {
-        // TODO : Set without firing 'moveend' event
+        this._moveendListenerEnabled = false;
         this._OLMap.getView().setZoom(event.zoom);
     }
 
     onCenterSet(event) {
-        // TODO : Set without firing 'moveend' event
+        this._moveendListenerEnabled = false;
         this._OLMap.getView().setCenter(event.center);
     }
 
