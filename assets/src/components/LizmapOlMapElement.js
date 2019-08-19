@@ -39,6 +39,9 @@ export default class LizmapOlMapElement extends HTMLElement {
         MainEventDispatcher.addListener(this.onZoomSet.bind(this),
             { type: 'map-zoom-set', mapId: this.mapId });
 
+        MainEventDispatcher.addListener(this.onCenterSet.bind(this),
+            { type: 'map-center-set', mapId: this.mapId });
+
         MainEventDispatcher.addListener(this.onMinMaxResolutionSet.bind(this),
             { type: 'map-min-max-resolution-set', mapId: this.mapId });
     }
@@ -56,9 +59,11 @@ export default class LizmapOlMapElement extends HTMLElement {
         MainEventDispatcher.removeListener(this.onZoomSet.bind(this),
             { type: 'map-zoom-set', mapId: this.mapId });
 
+        MainEventDispatcher.removeListener(this.onCenterSet.bind(this),
+            { type: 'map-center-set', mapId: this.mapId });
+
         MainEventDispatcher.removeListener(this.onMinMaxResolutionSet.bind(this),
             { type: 'map-min-max-resolution-set', mapId: this.mapId });
-
     }
 
     onLoadedMapConfig(event) {
@@ -72,12 +77,19 @@ export default class LizmapOlMapElement extends HTMLElement {
 
         this._OLMap.getView().fit(event.config.options.initialExtent);
 
+        // Cache initial center and zoom
+        LizmapMapManager.getMap(this.mapId).initialCenter = this._OLMap.getView().getCenter();
+        LizmapMapManager.getMap(this.mapId).initialZoom = this._OLMap.getView().getZoom();
+
         // Set zoom
         LizmapMapManager.getMap(this.mapId).zoom = this._OLMap.getView().getZoom();
 
         // Detect zoom changes
-        this._OLMap.on('moveend', () => LizmapMapManager.getMap(this.mapId).zoom = this._OLMap.getView().getZoom());
-
+        this._OLMap.on('moveend', () => {
+            LizmapMapManager.getMap(this.mapId).zoom = this._OLMap.getView().getZoom();
+            LizmapMapManager.getMap(this.mapId).center = this._OLMap.getView().getCenter();
+        }
+        );
     }
 
     onLoadedBaseLayers(event) {
@@ -116,7 +128,13 @@ export default class LizmapOlMapElement extends HTMLElement {
     }
 
     onZoomSet(event) {
+        // TODO : Set without firing 'moveend' event
         this._OLMap.getView().setZoom(event.zoom);
+    }
+
+    onCenterSet(event) {
+        // TODO : Set without firing 'moveend' event
+        this._OLMap.getView().setCenter(event.center);
     }
 
     onMinMaxResolutionSet(event) {

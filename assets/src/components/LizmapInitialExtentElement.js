@@ -13,7 +13,7 @@ export default class LizmapInitialExtentElement extends HTMLElement {
         shadowRoot.innerHTML = `
             <style>
             :host{
-                top: 90px;
+                top: 100px;
                 right: 20px;
                 position: absolute;
                 z-index: 1;
@@ -31,9 +31,18 @@ export default class LizmapInitialExtentElement extends HTMLElement {
             </style>`;
 
         const initialExtentButton = document.createElement('button');
+
+        // Set icon
         const iconDef = findIconDefinition({ prefix: 'fas', iconName: 'expand-arrows-alt' });
         const i = icon(iconDef);
         initialExtentButton.appendChild(i.node[0]);
+
+        // Listen click event
+        initialExtentButton.addEventListener('click', () => {
+            LizmapMapManager.getMap(this.mapId).center = LizmapMapManager.getMap(this.mapId).initialCenter;
+            LizmapMapManager.getMap(this.mapId).zoom = LizmapMapManager.getMap(this.mapId).initialZoom;
+        });
+
         shadowRoot.appendChild(initialExtentButton);
     }
 

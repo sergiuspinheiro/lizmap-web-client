@@ -26,11 +26,11 @@ export default class LizmapZoomElement extends HTMLElement {
         const zoomout = document.createElement('button');
         zoomout.innerHTML = '-';
 
-        zoomin.addEventListener('click', (event) => {
+        zoomin.addEventListener('click', () => {
             LizmapMapManager.getMap(this.mapId).zoomIn();
         });
 
-        zoomout.addEventListener('click', (event) => {
+        zoomout.addEventListener('click', () => {
             LizmapMapManager.getMap(this.mapId).zoomOut();
         });
 

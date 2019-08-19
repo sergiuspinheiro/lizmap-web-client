@@ -9,14 +9,19 @@ export default class LizmapMap {
         this._repositoryName = repository;
         this._projectName = project;
 
-        this._zoom;
-        this._minResolution;
-        this._maxResolution;
+        this._center = [null, null];
+        this._zoom = -1;
 
-        // FIXME : Set with LizmapOlMapElement.js.
+        this._minResolution = -1;
+        this._maxResolution = -1;
+
+        // FIXME : Set with help of LizmapOlMapElement.js.
         // Is it possible to set them directly in this class ?
-        this._minZoom;
-        this._maxZoom;
+        this._minZoom = -1;
+        this._maxZoom = -1;
+
+        this.initialCenter = [null, null];
+        this.initialZoom = -1;
     }
 
     setConfig(config) {
@@ -71,6 +76,26 @@ export default class LizmapMap {
                 type: "map-zoom-set",
                 mapId: this._mapId,
                 zoom: this.zoom
+            });
+        }
+    }
+
+    get center() {
+        return this._center;
+    }
+
+    /**
+     * @param {Array} center
+     */
+    set center(center) {
+        // Avoid infinite loop
+        if (this._center[0] !== center[0] && this._center[1] !== center[1]) {
+            this._center = [...center];
+
+            MainEventDispatcher.dispatch({
+                type: "map-center-set",
+                mapId: this._mapId,
+                center: this.center
             });
         }
     }
