@@ -22,6 +22,7 @@ export default class LizmapZoomByRectangleElement extends HTMLElement {
                     display:block;
                     width: 30px;
                     height: 30px;
+                    padding: 0;
                 }
                 button.active{
                     background: white;

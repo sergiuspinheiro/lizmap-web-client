@@ -17,16 +17,12 @@ export default class LizmapInitialExtentElement extends HTMLElement {
                 right: 20px;
                 position: absolute;
                 z-index: 1;
-                background: white;
             }
             button{
                 display:block;
                 width: 30px;
                 height: 30px;
                 padding: 0;
-            }
-            svg{
-                height: 26px;
             }
             </style>`;
 
