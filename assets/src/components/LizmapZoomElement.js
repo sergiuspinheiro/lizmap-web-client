@@ -1,5 +1,9 @@
 import { LizmapMapManager } from "../modules/LizmapGlobals";
 
+import { library, findIconDefinition, icon } from '@fortawesome/fontawesome-svg-core';
+import { faPlus, faMinus } from '@fortawesome/free-solid-svg-icons';
+library.add(faPlus, faMinus);
+
 export default class LizmapZoomElement extends HTMLElement {
     constructor() {
         super();
@@ -22,9 +26,14 @@ export default class LizmapZoomElement extends HTMLElement {
             </style>`;
 
         const zoomin = document.createElement('button');
-        zoomin.innerHTML = '+';
         const zoomout = document.createElement('button');
-        zoomout.innerHTML = '-';
+
+        // Set icon
+        let iconPlus = icon(findIconDefinition({ prefix: 'fa', iconName: 'plus' }));
+        zoomin.appendChild(iconPlus.node[0]);
+
+        let iconMinus = icon(findIconDefinition({ prefix: 'fa', iconName: 'minus' }));
+        zoomout.appendChild(iconMinus.node[0]);
 
         zoomin.addEventListener('click', () => {
             LizmapMapManager.getMap(this.mapId).zoomIn();
