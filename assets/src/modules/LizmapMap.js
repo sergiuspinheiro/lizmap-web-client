@@ -22,6 +22,9 @@ export default class LizmapMap {
 
         this.initialCenter = [null, null];
         this.initialZoom = -1;
+
+        // UI state
+        this._zoomByRectangleActive = false;
     }
 
     setConfig(config) {
@@ -89,7 +92,7 @@ export default class LizmapMap {
      */
     set center(center) {
         // Avoid infinite loop
-        if (this._center[0] !== center[0] && this._center[1] !== center[1]) {
+        if (this._center[0] !== center[0] || this._center[1] !== center[1]) {
             this._center = [...center];
 
             MainEventDispatcher.dispatch({
@@ -130,5 +133,20 @@ export default class LizmapMap {
         if (this.zoom > this._minZoom) {
             this.zoom = this.zoom - 1;
         }
+    }
+
+    // UI
+    zoomByRectangleToggle(force){
+        if(force !== undefined){
+            this._zoomByRectangleActive = force;
+        }else{
+            this._zoomByRectangleActive = !this._zoomByRectangleActive;
+        }
+
+        MainEventDispatcher.dispatch({
+            type: "ui-zoom-by-rectangle-set",
+            mapId: this._mapId,
+            zoomByRectangleActive: this._zoomByRectangleActive
+        });
     }
 }

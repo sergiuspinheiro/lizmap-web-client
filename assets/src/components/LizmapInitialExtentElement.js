@@ -1,4 +1,4 @@
-import { LizmapMapManager, MainEventDispatcher } from "../modules/LizmapGlobals";
+import { LizmapMapManager } from "../modules/LizmapGlobals";
 
 import { library, findIconDefinition, icon } from '@fortawesome/fontawesome-svg-core';
 import { faExpandArrowsAlt } from '@fortawesome/free-solid-svg-icons';
@@ -13,7 +13,7 @@ export default class LizmapInitialExtentElement extends HTMLElement {
         shadowRoot.innerHTML = `
             <style>
             :host{
-                top: 100px;
+                top: 140px;
                 right: 20px;
                 position: absolute;
                 z-index: 1;

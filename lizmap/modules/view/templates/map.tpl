@@ -1,3 +1,4 @@
+<lizmap-zoom-by-rectangle map-id="mainmap"></lizmap-zoom-by-rectangle>
 
 <lizmap-zoom map-id="mainmap"></lizmap-zoom>
 

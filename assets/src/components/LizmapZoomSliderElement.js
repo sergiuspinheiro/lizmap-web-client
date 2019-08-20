@@ -9,7 +9,7 @@ export default class LizmapZoomSliderElement extends HTMLElement {
         shadowRoot.innerHTML = `
             <style>
             :host{
-                top: 70px;
+                top: 110px;
                 right: 20px;
                 position: absolute;
                 z-index: 1;

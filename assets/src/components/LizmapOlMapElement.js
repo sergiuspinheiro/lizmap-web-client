@@ -9,6 +9,9 @@ import TileLayer from 'ol/layer/Tile.js';
 import OSM from 'ol/source/OSM.js';
 import Stamen from "ol/source/Stamen";
 
+import { DragZoom } from 'ol/interaction.js';
+import { always as alwaysCondition, shiftKeyOnly as shiftKeyOnlyCondition } from 'ol/events/condition.js';
+
 import { LizmapMapManager, MainEventDispatcher } from "../modules/LizmapGlobals";
 
 export default class LizmapOlMapElement extends HTMLElement {
@@ -18,9 +21,6 @@ export default class LizmapOlMapElement extends HTMLElement {
         this._OLMap = null;
         this._OLlayerGroup = null;
         this._mapId = '';
-
-        // When its value is false, avoid firing moveend event when setting zoom or center
-        this._moveendListenerEnabled = true;
     }
 
     get mapId() {
@@ -47,6 +47,9 @@ export default class LizmapOlMapElement extends HTMLElement {
 
         MainEventDispatcher.addListener(this.onMinMaxResolutionSet.bind(this),
             { type: 'map-min-max-resolution-set', mapId: this.mapId });
+
+        MainEventDispatcher.addListener(this.onZoomByRectangleSet.bind(this),
+            { type: 'ui-zoom-by-rectangle-set', mapId: this.mapId });
     }
 
     disconnectedCallback() {
@@ -67,6 +70,9 @@ export default class LizmapOlMapElement extends HTMLElement {
 
         MainEventDispatcher.removeListener(this.onMinMaxResolutionSet.bind(this),
             { type: 'map-min-max-resolution-set', mapId: this.mapId });
+
+        MainEventDispatcher.removeListener(this.onZoomByRectangleSet.bind(this),
+            { type: 'ui-zoom-by-rectangle-set', mapId: this.mapId });
     }
 
     onLoadedMapConfig(event) {
@@ -89,12 +95,9 @@ export default class LizmapOlMapElement extends HTMLElement {
 
         // Detect zoom changes
         this._OLMap.on('moveend', () => {
-            if (this._moveendListenerEnabled){
-                LizmapMapManager.getMap(this.mapId).zoom = this._OLMap.getView().getZoom();
-                LizmapMapManager.getMap(this.mapId).center = this._OLMap.getView().getCenter();
-            }else{
-                this._moveendListenerEnabled = true;
-            }
+            LizmapMapManager.getMap(this.mapId).zoom = this._OLMap.getView().getZoom();
+            LizmapMapManager.getMap(this.mapId).center = this._OLMap.getView().getCenter();
+            LizmapMapManager.getMap(this.mapId).zoomByRectangleToggle(false);
         }
         );
     }
@@ -135,12 +138,10 @@ export default class LizmapOlMapElement extends HTMLElement {
     }
 
     onZoomSet(event) {
-        this._moveendListenerEnabled = false;
         this._OLMap.getView().setZoom(event.zoom);
     }
 
     onCenterSet(event) {
-        this._moveendListenerEnabled = false;
         this._OLMap.getView().setCenter(event.center);
     }
 
@@ -152,5 +153,22 @@ export default class LizmapOlMapElement extends HTMLElement {
         this._OLMap.getView().setMaxZoom(maxZoom);
 
         LizmapMapManager.getMap(this.mapId).setMinMaxZoom(minZoom, maxZoom);
+    }
+
+    onZoomByRectangleSet(event) {
+        if (event.zoomByRectangleActive) {
+            this._OLMap.getInteractions().forEach(function (interaction) {
+                if (interaction instanceof DragZoom) {
+                    interaction.condition_ = alwaysCondition;
+                }
+            });
+        } else {
+            this._OLMap.getInteractions().forEach(function (interaction) {
+                if (interaction instanceof DragZoom) {
+                    interaction.condition_ = shiftKeyOnlyCondition;
+                }
+            });
+        }
+
     }
 }

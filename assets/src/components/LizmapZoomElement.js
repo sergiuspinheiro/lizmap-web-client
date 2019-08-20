@@ -9,7 +9,7 @@ export default class LizmapZoomElement extends HTMLElement {
         shadowRoot.innerHTML = `
             <style>
                 :host{
-                    top: 10px;
+                    top: 45px;
                     right: 20px;
                     position: absolute;
                     z-index: 1;
