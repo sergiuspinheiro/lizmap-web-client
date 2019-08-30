@@ -7,7 +7,8 @@
     "watch": "webpack --watch --config webpack.dev.js"
   },
   "devDependencies": {
-    "@fortawesome/fontawesome-free": "^5.10.1",
+    "@fortawesome/fontawesome-free": "^5.10.2",
+    "@fortawesome/free-regular-svg-icons": "^5.10.2",
     "css-loader": "^3.2.0",
     "html-loader": "^0.5.5",
     "ol": "^5.3.3",

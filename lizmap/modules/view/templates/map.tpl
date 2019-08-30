@@ -6,6 +6,8 @@
 
 <lizmap-initial-extent map-id="mainmap"></lizmap-initial-extent>
 
+<lizmap-geolocation-extent map-id="mainmap"></lizmap-geolocation-extent>
+
 <lizmap-olmap id="mainmap" map-id="mainmap"></lizmap-olmap>
 
 <div id="baselayers-example">
