@@ -8,10 +8,13 @@ export default class LizmapZoomSliderElement extends HTMLElement {
     connectedCallback() {
         this._mapId = this.getAttribute('map-id');
 
-        this.style = "background: white";
-
         this._inputRange = document.createElement('input');
-        this._inputRange.type = 'range';
+        this._inputRange.type = "range";
+
+        // Set zoom slider orientation as vertical
+        // https://developer.mozilla.org/en-US/docs/Web/HTML/Element/input/range#Change_the_orientation
+        this.style = "display: inline-block;width: 30px;height: 100px;padding: 0;";
+        this._inputRange.style = "width: 100px;height: 30px;margin: 0;transform-origin: 50px 50px;transform: rotate(-90deg);";
 
         // Set zoom value on input change
         this._inputRange.addEventListener('change', (event) => {
