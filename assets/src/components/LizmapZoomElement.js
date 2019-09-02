@@ -7,33 +7,33 @@ library.add(faPlus, faMinus);
 export default class LizmapZoomElement extends HTMLElement {
     constructor() {
         super();
+    }
 
-        const shadowRoot = this.attachShadow({ mode: 'open' });
-
-        shadowRoot.innerHTML = `
-            <style>
-                :host{
-                    top: 45px;
-                    right: 20px;
-                    position: absolute;
-                    z-index: 1;
-                }
-                button{
-                    display:block;
-                    width: 30px;
-                    height: 30px;
-                    padding: 0;
-                }
-            </style>`;
+    connectedCallback() {
+        this._mapId = this.getAttribute('map-id');
 
         const zoomin = document.createElement('button');
         const zoomout = document.createElement('button');
 
+        zoomin.type = "button";
+        zoomin.classList = "btn btn-danger btn-sm d-block mb-1";
+
+        zoomout.type = "button";
+        zoomout.classList = "btn btn-danger btn-sm d-block";
+
         // Set icon
-        let iconPlus = icon(findIconDefinition({ prefix: 'fa', iconName: 'plus' }));
+        let iconPlus = icon(findIconDefinition({ prefix: 'fa', iconName: 'plus' }), {
+            transform: {
+                size: 30
+            }
+        });
         zoomin.appendChild(iconPlus.node[0]);
 
-        let iconMinus = icon(findIconDefinition({ prefix: 'fa', iconName: 'minus' }));
+        let iconMinus = icon(findIconDefinition({ prefix: 'fa', iconName: 'minus' }), {
+            transform: {
+                size: 30
+            }
+        });
         zoomout.appendChild(iconMinus.node[0]);
 
         zoomin.addEventListener('click', () => {
@@ -44,12 +44,8 @@ export default class LizmapZoomElement extends HTMLElement {
             LizmapMapManager.getMap(this.mapId).zoomOut();
         });
 
-        shadowRoot.appendChild(zoomin);
-        shadowRoot.appendChild(zoomout);
-    }
-
-    connectedCallback() {
-        this._mapId = this.getAttribute('map-id');
+        this.appendChild(zoomin);
+        this.appendChild(zoomout);
     }
 
     get mapId() {
