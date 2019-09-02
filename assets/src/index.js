@@ -1,3 +1,5 @@
+import 'bootstrap/dist/css/bootstrap.min.css';
+
 import LizmapOlMapElement from './components/LizmapOlMapElement.js';
 import LizmapBaseLayersElement from './components/LizmapBaseLayersElement.js';
 import LizmapZoomByRectangleElement from './components/LizmapZoomByRectangleElement.js';
