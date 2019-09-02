@@ -3,19 +3,12 @@ import { LizmapMapManager, MainEventDispatcher } from "../modules/LizmapGlobals"
 export default class LizmapZoomSliderElement extends HTMLElement {
     constructor() {
         super();
+    }
 
-        const shadowRoot = this.attachShadow({ mode: 'open' });
+    connectedCallback() {
+        this._mapId = this.getAttribute('map-id');
 
-        shadowRoot.innerHTML = `
-            <style>
-            :host{
-                top: 110px;
-                right: 20px;
-                position: absolute;
-                z-index: 1;
-                background: white;
-            }
-            </style>`;
+        this.style = "background: white";
 
         this._inputRange = document.createElement('input');
         this._inputRange.type = 'range';
@@ -25,12 +18,7 @@ export default class LizmapZoomSliderElement extends HTMLElement {
             LizmapMapManager.getMap(this.mapId).zoom = this.rangeValue;
         });
 
-        shadowRoot.appendChild(this._inputRange);
-
-    }
-
-    connectedCallback() {
-        this._mapId = this.getAttribute('map-id');
+        this.appendChild(this._inputRange);
 
         MainEventDispatcher.addListener(this.onZoomSet.bind(this),
             { type: 'map-zoom-set', mapId: this.mapId });

@@ -18,16 +18,14 @@ body {
   background-color: white;
 }
 
-lizmap-initial-extent {
-  top: 140px;
-  right: 20px;
+#navbar {
   position: absolute;
   z-index: 1;
+  top: 20px;
+  right: 20px;
 }
 
-lizmap-zoom {
-  top: 45px;
-  right: 20px;
-  position: absolute;
-  z-index: 1;
+#navbar>* {
+  margin-bottom: 4px;
+  display: block;
 }

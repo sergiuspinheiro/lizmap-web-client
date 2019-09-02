@@ -1,12 +1,15 @@
-<lizmap-zoom-by-rectangle map-id="mainmap"></lizmap-zoom-by-rectangle>
 
-<lizmap-zoom map-id="mainmap"></lizmap-zoom>
+<div id="navbar">
+  <lizmap-zoom-by-rectangle map-id="mainmap"></lizmap-zoom-by-rectangle>
 
-<lizmap-zoom-slider map-id="mainmap"></lizmap-zoom-slider>
+  <lizmap-zoom map-id="mainmap"></lizmap-zoom>
 
-<lizmap-initial-extent map-id="mainmap"></lizmap-initial-extent>
+  <lizmap-zoom-slider map-id="mainmap"></lizmap-zoom-slider>
 
-<lizmap-geolocation-extent map-id="mainmap"></lizmap-geolocation-extent>
+  <lizmap-initial-extent map-id="mainmap"></lizmap-initial-extent>
+
+  <lizmap-geolocation-extent map-id="mainmap"></lizmap-geolocation-extent>
+</div>
 
 <lizmap-olmap id="mainmap" map-id="mainmap"></lizmap-olmap>
 

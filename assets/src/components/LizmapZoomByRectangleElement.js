@@ -1,39 +1,27 @@
 import { LizmapMapManager, MainEventDispatcher } from "../modules/LizmapGlobals";
 
 import { library, findIconDefinition, icon } from '@fortawesome/fontawesome-svg-core';
-import { faSquare } from '@fortawesome/free-solid-svg-icons';
+import { faSquare } from '@fortawesome/free-regular-svg-icons';
 library.add(faSquare);
 
 export default class LizmapZoomByRectangleElement extends HTMLElement {
     constructor() {
         super();
+    }
 
-        const shadowRoot = this.attachShadow({ mode: 'open' });
-
-        shadowRoot.innerHTML = `
-            <style>
-                :host{
-                    top: 10px;
-                    right: 20px;
-                    position: absolute;
-                    z-index: 1;
-                }
-                button{
-                    display:block;
-                    width: 30px;
-                    height: 30px;
-                    padding: 0;
-                }
-                button.active{
-                    background: white;
-                }
-            </style>`;
+    connectedCallback() {
+        this._mapId = this.getAttribute('map-id');
 
         this._zoomByRectangleButton = document.createElement('button');
+        this._zoomByRectangleButton.classList = "btn btn-danger btn-sm";
 
         // Set icon
-        const iconDef = findIconDefinition({ prefix: 'fa', iconName: 'square' });
-        const i = icon(iconDef);
+        const iconDef = findIconDefinition({ prefix: 'far', iconName: 'square' });
+        const i = icon(iconDef, {
+            transform: {
+                size: 30
+            }
+        });
         this._zoomByRectangleButton.appendChild(i.node[0]);
 
         // Listen click event
@@ -41,11 +29,7 @@ export default class LizmapZoomByRectangleElement extends HTMLElement {
             LizmapMapManager.getMap(this.mapId).zoomByRectangleToggle();
         });
 
-        shadowRoot.appendChild(this._zoomByRectangleButton);
-    }
-
-    connectedCallback() {
-        this._mapId = this.getAttribute('map-id');
+        this.appendChild(this._zoomByRectangleButton);
 
         MainEventDispatcher.addListener(this.onZoomByRectangleSet.bind(this),
             { type: 'ui-zoom-by-rectangle-set', mapId: this.mapId });
