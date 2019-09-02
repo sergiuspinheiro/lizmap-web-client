@@ -16,9 +16,9 @@
     "ol": "^5.3.3",
     "popper.js": "^1.15.0",
     "style-loader": "^1.0.0",
-    "webpack": "^4.39.1",
-    "webpack-cli": "^3.3.6",
-    "webpack-merge": "^4.2.1"
+    "webpack": "^4.39.3",
+    "webpack-cli": "^3.3.7",
+    "webpack-merge": "^4.2.2"
   },
   "keywords": [],
   "author": "",
