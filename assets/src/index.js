@@ -1,4 +1,5 @@
 import 'bootstrap/dist/css/bootstrap.min.css';
+import 'bootstrap/js/dist/button';
 
 import LizmapOlMapElement from './components/LizmapOlMapElement.js';
 import LizmapBaseLayersElement from './components/LizmapBaseLayersElement.js';

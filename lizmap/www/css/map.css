@@ -1,10 +1,26 @@
-html, body, lizmap-olmap {width: 100%; height: 100%;}
-lizmap-olmap{display: block;}
-body{margin: 0}
+html, body, lizmap-olmap {
+  width: 100%;
+  height: 100%;
+}
 
-#baselayers-example{
+lizmap-olmap {
+  display: block;
+}
+
+body {
+  margin: 0
+}
+
+#baselayers-example {
   position: absolute;
   top: 100px;
-    width:200px;
+  width: 200px;
   background-color: white;
+}
+
+lizmap-initial-extent {
+  top: 140px;
+  right: 20px;
+  position: absolute;
+  z-index: 1;
 }

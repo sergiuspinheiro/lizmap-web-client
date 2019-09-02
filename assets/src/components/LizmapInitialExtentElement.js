@@ -7,30 +7,23 @@ library.add(faExpandArrowsAlt);
 export default class LizmapInitialExtentElement extends HTMLElement {
     constructor() {
         super();
+    }
 
-        const shadowRoot = this.attachShadow({ mode: 'open' });
+    connectedCallback() {
+        this._mapId = this.getAttribute('map-id');
 
-        shadowRoot.innerHTML = `
-            <style>
-            :host{
-                top: 140px;
-                right: 20px;
-                position: absolute;
-                z-index: 1;
-            }
-            button{
-                display:block;
-                width: 30px;
-                height: 30px;
-                padding: 0;
-            }
-            </style>`;
-
+        // Create button
         const initialExtentButton = document.createElement('button');
+        initialExtentButton.type = "button";
+        initialExtentButton.classList = "btn btn-danger btn-sm";
 
         // Set icon
         const iconDef = findIconDefinition({ prefix: 'fas', iconName: 'expand-arrows-alt' });
-        const i = icon(iconDef);
+        const i = icon(iconDef, {
+            transform: {
+                size: 30
+            }
+        });
         initialExtentButton.appendChild(i.node[0]);
 
         // Listen click event
@@ -39,11 +32,7 @@ export default class LizmapInitialExtentElement extends HTMLElement {
             LizmapMapManager.getMap(this.mapId).zoom = LizmapMapManager.getMap(this.mapId).initialZoom;
         });
 
-        shadowRoot.appendChild(initialExtentButton);
-    }
-
-    connectedCallback() {
-        this._mapId = this.getAttribute('map-id');
+        this.appendChild(initialExtentButton);
     }
 
     disconnectedCallback() {
