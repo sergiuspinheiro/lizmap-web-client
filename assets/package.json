@@ -9,9 +9,12 @@
   "devDependencies": {
     "@fortawesome/fontawesome-free": "^5.10.2",
     "@fortawesome/free-regular-svg-icons": "^5.10.2",
+    "bootstrap": "^4.3.1",
     "css-loader": "^3.2.0",
     "html-loader": "^0.5.5",
+    "jquery": "^3.4.1",
     "ol": "^5.3.3",
+    "popper.js": "^1.15.0",
     "style-loader": "^1.0.0",
     "webpack": "^4.39.1",
     "webpack-cli": "^3.3.6",
