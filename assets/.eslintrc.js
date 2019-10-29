@@ -1,11 +1,9 @@
-{
+module.exports = {
     "env": {
         "browser": true,
         "es6": true
     },
-    "extends": [
-        "eslint:recommended"
-    ],
+    "extends": ["eslint:recommended", "openlayers"],
     "globals": {
         "Atomics": "readonly",
         "SharedArrayBuffer": "readonly"
@@ -15,6 +13,5 @@
         "sourceType": "module"
     },
     "rules": {
-        "semi": 2
     }
-}
+};

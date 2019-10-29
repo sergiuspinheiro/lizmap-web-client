@@ -5,7 +5,8 @@
   "description": "",
   "scripts": {
     "build": "webpack --config webpack.prod.js",
-    "watch": "webpack --watch --config webpack.dev.js"
+    "watch": "webpack --watch --config webpack.dev.js",
+    "pretest": "eslint src"
   },
   "devDependencies": {
     "@fortawesome/fontawesome-free": "^5.11.2",
@@ -15,6 +16,7 @@
     "bootstrap": "^4.3.1",
     "css-loader": "^3.2.0",
     "eslint": "^6.6.0",
+    "eslint-config-openlayers": "^12.0.0",
     "html-loader": "^0.5.5",
     "jquery": "^3.4.1",
     "ol": "^6.1.0",
