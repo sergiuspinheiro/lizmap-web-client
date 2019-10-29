@@ -27,7 +27,7 @@ export default class EventDispatcher {
     addListener (listener, supportedEvents ) {
 
         if (supportedEvents === undefined) {
-            supportedEvents = "*"
+            supportedEvents = "*";
         }
         let append = (event) => {
             if ("string" === typeof event) {
@@ -65,7 +65,7 @@ export default class EventDispatcher {
     removeListener (listener, supportedEvents) {
 
         if (supportedEvents === undefined) {
-            supportedEvents = "*"
+            supportedEvents = "*";
         }
         let remove = (event) => {
             if ("string" === typeof event) {

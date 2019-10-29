@@ -41,6 +41,6 @@ export default class LizmapLayerGroup {
             type: 'map-base-layers-visibility',
             mapId : this._mapId,
             layers : this._lizmapLayers
-        })
+        });
     }
 }

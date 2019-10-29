@@ -110,7 +110,7 @@ export default class LizmapOlMapElement extends HTMLElement {
                     layerId: layer.layerId,
                     visible: layer.visible,
                     source: new OSM()
-                })
+                });
             } else if (layer.layerId === 'osmStamenToner') {
                 olLayer = new TileLayer({
                     layerId: layer.layerId,
