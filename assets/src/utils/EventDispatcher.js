@@ -142,5 +142,5 @@ export default class EventDispatcher {
             this._listeners["*"].forEach((listener) => listener(event));
         }
     }
-};
+}
 

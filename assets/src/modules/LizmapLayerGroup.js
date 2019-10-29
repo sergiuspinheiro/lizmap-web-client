@@ -1,5 +1,3 @@
-import LizmapLayer from './LizmapLayer.js';
-import LayerGroup from 'ol/layer/Group';
 import {MainEventDispatcher} from "./LizmapGlobals";
 
 // attribut selected
@@ -23,7 +21,7 @@ export default class LizmapLayerGroup {
         return {
             next: () => ({ value: this._lizmapLayers[++index], done: !(index in this._lizmapLayers) })
         };
-    };
+    }
 
     get layers () {
         return this._lizmapLayers;

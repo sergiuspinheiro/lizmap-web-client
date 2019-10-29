@@ -24,6 +24,7 @@ const LizmapMapManager = {
         }
 
         let config = await loadMapConfig(configURL, repository, project);
+        // eslint-disable-next-line require-atomic-updates
         maps[mapId] = new LizmapMap(mapId, repository, project);
         maps[mapId].setConfig(config);
         return maps[mapId];

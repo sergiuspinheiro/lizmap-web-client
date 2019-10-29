@@ -53,7 +53,7 @@ export default class LizmapMap {
             baseLayerGroup: this._baseLayerGroup
         });
 
-        if (config.options.hasOwnProperty('minScale') && config.options.hasOwnProperty('maxScale')) {
+        if (Object.prototype.hasOwnProperty.call(config.options, "minScale") && Object.prototype.hasOwnProperty.call(config.options, "maxScale")) {
             this._minResolution = config.options.minScale * INCHTOMM / (1000 * 90 * window.devicePixelRatio);
             this._maxResolution = config.options.maxScale * INCHTOMM / (1000 * 90 * window.devicePixelRatio);
 

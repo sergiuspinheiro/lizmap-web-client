@@ -8,7 +8,7 @@ import LizmapZoomElement from './components/LizmapZoomElement.js';
 import LizmapZoomSliderElement from './components/LizmapZoomSliderElement.js';
 import LizmapInitialExtentElement from './components/LizmapInitialExtentElement.js';
 import LizmapGeolocationElement from './components/LizmapGeolocationElement.js';
-import { LizmapMapManager, MainEventDispatcher } from "./modules/LizmapGlobals";
+import { LizmapMapManager, MainEventDispatcher } from './modules/LizmapGlobals';
 
 window.customElements.define('lizmap-olmap', LizmapOlMapElement);
 window.customElements.define('lizmap-baselayers', LizmapBaseLayersElement);
