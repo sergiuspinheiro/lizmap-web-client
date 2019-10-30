@@ -3,16 +3,16 @@ import 'ol/ol.css';
 // OLMap and not Map to avoid collision with global object Map
 import OLMap from 'ol/Map.js';
 import View from 'ol/View.js';
-import { defaults as defaultControls } from 'ol/control.js';
-import LayerGroup from "ol/layer/Group";
+import {defaults as defaultControls} from 'ol/control.js';
+import LayerGroup from 'ol/layer/Group.js';
 import TileLayer from 'ol/layer/Tile.js';
 import OSM from 'ol/source/OSM.js';
-import Stamen from "ol/source/Stamen";
+import Stamen from 'ol/source/Stamen.js';
 
-import { DragZoom } from 'ol/interaction.js';
-import { always as alwaysCondition, shiftKeyOnly as shiftKeyOnlyCondition } from 'ol/events/condition.js';
+import {DragZoom} from 'ol/interaction.js';
+import {always as alwaysCondition, shiftKeyOnly as shiftKeyOnlyCondition} from 'ol/events/condition.js';
 
-import { LizmapMapManager, MainEventDispatcher } from "../modules/LizmapGlobals";
+import {LizmapMapManager, MainEventDispatcher} from '../modules/LizmapGlobals.js';
 
 export default class LizmapOlMapElement extends HTMLElement {
     constructor() {
@@ -31,55 +31,55 @@ export default class LizmapOlMapElement extends HTMLElement {
         this._mapId = this.getAttribute('map-id');
 
         MainEventDispatcher.addListener(this.onLoadedMapConfig.bind(this),
-            { type: 'map-config-loaded', mapId: this.mapId });
+            {type: 'map-config-loaded', mapId: this.mapId});
 
         MainEventDispatcher.addListener(this.onLoadedBaseLayers.bind(this),
-            { type: 'map-base-layers-loaded', mapId: this.mapId });
+            {type: 'map-base-layers-loaded', mapId: this.mapId});
 
         MainEventDispatcher.addListener(this.onBaseLayerVisibility.bind(this),
-            { type: 'map-base-layers-visibility', mapId: this.mapId });
+            {type: 'map-base-layers-visibility', mapId: this.mapId});
 
         MainEventDispatcher.addListener(this.onZoomSet.bind(this),
-            { type: 'map-zoom-set', mapId: this.mapId });
+            {type: 'map-zoom-set', mapId: this.mapId});
 
         MainEventDispatcher.addListener(this.onCenterSet.bind(this),
-            { type: 'map-center-set', mapId: this.mapId });
+            {type: 'map-center-set', mapId: this.mapId});
 
         MainEventDispatcher.addListener(this.onMinMaxResolutionSet.bind(this),
-            { type: 'map-min-max-resolution-set', mapId: this.mapId });
+            {type: 'map-min-max-resolution-set', mapId: this.mapId});
 
         MainEventDispatcher.addListener(this.onZoomByRectangleSet.bind(this),
-            { type: 'ui-zoom-by-rectangle-set', mapId: this.mapId });
+            {type: 'ui-zoom-by-rectangle-set', mapId: this.mapId});
     }
 
     disconnectedCallback() {
         MainEventDispatcher.removeListener(this.onLoadedMapConfig.bind(this),
-            { type: 'map-config-loaded', mapId: this.mapId });
+            {type: 'map-config-loaded', mapId: this.mapId});
 
         MainEventDispatcher.removeListener(this.onLoadedBaseLayers.bind(this),
-            { type: 'map-base-layers-loaded', mapId: this.mapId });
+            {type: 'map-base-layers-loaded', mapId: this.mapId});
 
         MainEventDispatcher.removeListener(this.onBaseLayerVisibility.bind(this),
-            { type: 'map-base-layers-visibility', mapId: this.mapId });
+            {type: 'map-base-layers-visibility', mapId: this.mapId});
 
         MainEventDispatcher.removeListener(this.onZoomSet.bind(this),
-            { type: 'map-zoom-set', mapId: this.mapId });
+            {type: 'map-zoom-set', mapId: this.mapId});
 
         MainEventDispatcher.removeListener(this.onCenterSet.bind(this),
-            { type: 'map-center-set', mapId: this.mapId });
+            {type: 'map-center-set', mapId: this.mapId});
 
         MainEventDispatcher.removeListener(this.onMinMaxResolutionSet.bind(this),
-            { type: 'map-min-max-resolution-set', mapId: this.mapId });
+            {type: 'map-min-max-resolution-set', mapId: this.mapId});
 
         MainEventDispatcher.removeListener(this.onZoomByRectangleSet.bind(this),
-            { type: 'ui-zoom-by-rectangle-set', mapId: this.mapId });
+            {type: 'ui-zoom-by-rectangle-set', mapId: this.mapId});
     }
 
     onLoadedMapConfig(event) {
         this._mapId = event.mapId;
 
         this._OLMap = new OLMap({
-            controls: defaultControls({ zoom: false }),
+            controls: defaultControls({zoom: false}),
             target: this,
             view: new View()
         });
@@ -103,7 +103,7 @@ export default class LizmapOlMapElement extends HTMLElement {
     }
 
     onLoadedBaseLayers(event) {
-        let OLLayers = event.baseLayerGroup.layers.map((layer) => {
+        const OLLayers = event.baseLayerGroup.layers.map((layer) => {
             let olLayer;
             if (layer.layerId === 'osmMapnik') {
                 olLayer = new TileLayer({
@@ -131,7 +131,7 @@ export default class LizmapOlMapElement extends HTMLElement {
     }
 
     onBaseLayerVisibility(event) {
-        let olLayers = this._OLlayerGroup.getLayers();
+        const olLayers = this._OLlayerGroup.getLayers();
         event.layers.forEach((lzmLayer, idx) => {
             olLayers.item(idx).setVisible(lzmLayer.visible);
         });
@@ -157,13 +157,13 @@ export default class LizmapOlMapElement extends HTMLElement {
 
     onZoomByRectangleSet(event) {
         if (event.zoomByRectangleActive) {
-            this._OLMap.getInteractions().forEach(function (interaction) {
+            this._OLMap.getInteractions().forEach(function(interaction) {
                 if (interaction instanceof DragZoom) {
                     interaction.condition_ = alwaysCondition;
                 }
             });
         } else {
-            this._OLMap.getInteractions().forEach(function (interaction) {
+            this._OLMap.getInteractions().forEach(function(interaction) {
                 if (interaction instanceof DragZoom) {
                     interaction.condition_ = shiftKeyOnlyCondition;
                 }

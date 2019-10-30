@@ -1,4 +1,4 @@
-import {LizmapMapManager, MainEventDispatcher} from '../modules/LizmapGlobals';
+import {LizmapMapManager, MainEventDispatcher} from '../modules/LizmapGlobals.js';
 
 export default class LizmapZoomSliderElement extends HTMLElement {
     constructor() {
@@ -42,12 +42,12 @@ export default class LizmapZoomSliderElement extends HTMLElement {
         return this._mapId;
     }
 
-    get rangeValue(){
+    get rangeValue() {
         return parseInt(this._inputRange.value, 10);
     }
 
     onZoomSet(event) {
-        if (this.rangeValue !== event.zoom){
+        if (this.rangeValue !== event.zoom) {
             this._inputRange.value = event.zoom;
         }
     }

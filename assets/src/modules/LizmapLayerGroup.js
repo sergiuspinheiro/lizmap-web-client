@@ -1,4 +1,4 @@
-import {MainEventDispatcher} from "./LizmapGlobals";
+import {MainEventDispatcher} from './LizmapGlobals.js';
 
 // attribut selected
 export default class LizmapLayerGroup {
@@ -19,11 +19,11 @@ export default class LizmapLayerGroup {
         let index = -1;
 
         return {
-            next: () => ({ value: this._lizmapLayers[++index], done: !(index in this._lizmapLayers) })
+            next: () => ({value: this._lizmapLayers[++index], done: !(index in this._lizmapLayers)})
         };
     }
 
-    get layers () {
+    get layers() {
         return this._lizmapLayers;
     }
 
@@ -39,8 +39,8 @@ export default class LizmapLayerGroup {
         }
         MainEventDispatcher.dispatch({
             type: 'map-base-layers-visibility',
-            mapId : this._mapId,
-            layers : this._lizmapLayers
+            mapId: this._mapId,
+            layers: this._lizmapLayers
         });
     }
 }

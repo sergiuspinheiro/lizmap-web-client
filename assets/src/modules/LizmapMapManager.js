@@ -1,4 +1,4 @@
-import LizmapMap from './LizmapMap';
+import LizmapMap from './LizmapMap.js';
 
 /**
  *
@@ -18,24 +18,24 @@ const maps = {};
 
 const LizmapMapManager = {
 
-    createMap: async function (mapId, configURL, repository, project) {
+    createMap: async function(mapId, configURL, repository, project) {
         if (mapId in maps) {
             return maps[mapId];
         }
 
-        let config = await loadMapConfig(configURL, repository, project);
+        const config = await loadMapConfig(configURL, repository, project);
         // eslint-disable-next-line require-atomic-updates
         maps[mapId] = new LizmapMap(mapId, repository, project);
         maps[mapId].setConfig(config);
         return maps[mapId];
     },
 
-    getMap: function (mapId) {
+    getMap: function(mapId) {
         if (mapId in maps) {
             return maps[mapId];
         }
     }
 };
 
-export { LizmapMapManager as default };
+export {LizmapMapManager as default};
 

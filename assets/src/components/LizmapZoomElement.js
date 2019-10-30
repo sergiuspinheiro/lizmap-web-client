@@ -1,7 +1,7 @@
-import { LizmapMapManager } from "../modules/LizmapGlobals";
+import {LizmapMapManager} from '../modules/LizmapGlobals.js';
 
-import { library, findIconDefinition, icon } from '@fortawesome/fontawesome-svg-core';
-import { faPlus, faMinus } from '@fortawesome/free-solid-svg-icons';
+import {library, findIconDefinition, icon} from '@fortawesome/fontawesome-svg-core';
+import {faPlus, faMinus} from '@fortawesome/free-solid-svg-icons';
 library.add(faPlus, faMinus);
 
 export default class LizmapZoomElement extends HTMLElement {
@@ -15,21 +15,21 @@ export default class LizmapZoomElement extends HTMLElement {
         const zoomin = document.createElement('button');
         const zoomout = document.createElement('button');
 
-        zoomin.type = "button";
-        zoomin.classList = "btn btn-danger btn-sm d-block mb-1";
+        zoomin.type = 'button';
+        zoomin.classList = 'btn btn-danger btn-sm d-block mb-1';
 
-        zoomout.type = "button";
-        zoomout.classList = "btn btn-danger btn-sm d-block";
+        zoomout.type = 'button';
+        zoomout.classList = 'btn btn-danger btn-sm d-block';
 
         // Set icon
-        let iconPlus = icon(findIconDefinition({ prefix: 'fa', iconName: 'plus' }), {
+        const iconPlus = icon(findIconDefinition({prefix: 'fa', iconName: 'plus'}), {
             transform: {
                 size: 30
             }
         });
         zoomin.appendChild(iconPlus.node[0]);
 
-        let iconMinus = icon(findIconDefinition({ prefix: 'fa', iconName: 'minus' }), {
+        const iconMinus = icon(findIconDefinition({prefix: 'fa', iconName: 'minus'}), {
             transform: {
                 size: 30
             }

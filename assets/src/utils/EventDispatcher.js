@@ -13,7 +13,7 @@
  */
 export default class EventDispatcher {
 
-    constructor () {
+    constructor() {
         this._listeners = {};
     }
 
@@ -24,13 +24,13 @@ export default class EventDispatcher {
      * @param {Array|String|Object} supportedEvents events on which the listener will
      *                       be called. if undefined or "*", it will be called for any events
      */
-    addListener (listener, supportedEvents ) {
+    addListener(listener, supportedEvents) {
 
         if (supportedEvents === undefined) {
-            supportedEvents = "*";
+            supportedEvents = '*';
         }
-        let append = (event) => {
-            if ("string" === typeof event) {
+        const append = (event) => {
+            if ('string' === typeof event) {
                 event = {
                     type: event
                 };
@@ -44,13 +44,12 @@ export default class EventDispatcher {
 
         if (Array.isArray(supportedEvents)) {
             supportedEvents.forEach((event) => {
-                if (event === "*") {
+                if (event === '*') {
                     return;
                 }
                 append(event);
             });
-        }
-        else {
+        } else {
             append(supportedEvents);
         }
     }
@@ -62,21 +61,21 @@ export default class EventDispatcher {
      * @param {Array|String} supportedEvents list of events from which the listener
      *                       will be removed. if undefined or "*", it will be removed from any events
      */
-    removeListener (listener, supportedEvents) {
+    removeListener(listener, supportedEvents) {
 
         if (supportedEvents === undefined) {
-            supportedEvents = "*";
+            supportedEvents = '*';
         }
-        let remove = (event) => {
-            if ("string" === typeof event) {
+        const remove = (event) => {
+            if ('string' === typeof event) {
                 event = {
                     type: event
                 };
             }
             if (event.type in this._listeners) {
-                let properties = Object.getOwnPropertyNames(event);
+                const properties = Object.getOwnPropertyNames(event);
                 this._listeners[event.type] = this._listeners[event.type].filter((item) => {
-                    let [listener, expectedEvent] = item;
+                    const [listener, expectedEvent] = item;
                     let match = true;
                     properties.forEach((propName) => {
                         if (!match || propName == 'type') {
@@ -93,11 +92,9 @@ export default class EventDispatcher {
 
         if (Array.isArray(supportedEvents)) {
             supportedEvents.forEach(remove);
-        }
-        else if (supportedEvents == "*") {
+        } else if (supportedEvents == '*') {
             Object.getOwnPropertyNames(this._listeners).forEach(remove);
-        }
-        else {
+        } else {
             remove(supportedEvents);
         }
     }
@@ -110,20 +107,20 @@ export default class EventDispatcher {
      *                               case other properties are parameters for
      *                               listeners.
      */
-    dispatch (event) {
-        if ('string' == typeof event ) {
+    dispatch(event) {
+        if ('string' == typeof event) {
             event = {
                 type: event
             };
         }
 
-        if (event.type == "*") {
-            throw Error("Notification for all events is not allowed");
+        if (event.type == '*') {
+            throw Error('Notification for all events is not allowed');
         }
 
         if (event.type in this._listeners) {
             this._listeners[event.type].forEach((item) => {
-                let [listener, expectedEvent] = item;
+                const [listener, expectedEvent] = item;
                 let match = true;
                 Object.getOwnPropertyNames(expectedEvent).forEach((propName) => {
                     if (!match || propName == 'type') {
@@ -138,8 +135,8 @@ export default class EventDispatcher {
                 }
             });
         }
-        if ("*" in this._listeners) {
-            this._listeners["*"].forEach((listener) => listener(event));
+        if ('*' in this._listeners) {
+            this._listeners['*'].forEach((listener) => listener(event));
         }
     }
 }

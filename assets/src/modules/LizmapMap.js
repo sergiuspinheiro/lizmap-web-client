@@ -1,6 +1,6 @@
-import { INCHTOMM, MainEventDispatcher } from "./LizmapGlobals";
-import LizmapLayerGroup from "./LizmapLayerGroup";
-import LizmapLayer from "./LizmapLayer";
+import {INCHTOMM, MainEventDispatcher} from './LizmapGlobals.js';
+import LizmapLayerGroup from './LizmapLayerGroup.js';
+import LizmapLayer from './LizmapLayer.js';
 
 export default class LizmapMap {
 
@@ -30,35 +30,35 @@ export default class LizmapMap {
     setConfig(config) {
         this._config = config;
         MainEventDispatcher.dispatch({
-            type: "map-config-loaded",
+            type: 'map-config-loaded',
             mapId: this._mapId,
             config: this._config
         });
 
-        let baseLayers = [];
-        for (let option in config.options) {
+        const baseLayers = [];
+        for (const option in config.options) {
             if (option === 'osmMapnik') {
-                baseLayers.push(new LizmapLayer(option, 'OSM', config.options.startupBaselayer === "osm-mapnik"));
+                baseLayers.push(new LizmapLayer(option, 'OSM', config.options.startupBaselayer === 'osm-mapnik'));
             }
             if (option === 'osmStamenToner') {
-                baseLayers.push(new LizmapLayer(option, 'OSM Toner', config.options.startupBaselayer === "osm-stamen-toner"));
+                baseLayers.push(new LizmapLayer(option, 'OSM Toner', config.options.startupBaselayer === 'osm-stamen-toner'));
             }
         }
 
-        this._baseLayerGroup = new LizmapLayerGroup(this._mapId, baseLayers, { mutuallyExclusive: true });
+        this._baseLayerGroup = new LizmapLayerGroup(this._mapId, baseLayers, {mutuallyExclusive: true});
 
         MainEventDispatcher.dispatch({
-            type: "map-base-layers-loaded",
+            type: 'map-base-layers-loaded',
             mapId: this._mapId,
             baseLayerGroup: this._baseLayerGroup
         });
 
-        if (Object.prototype.hasOwnProperty.call(config.options, "minScale") && Object.prototype.hasOwnProperty.call(config.options, "maxScale")) {
+        if (Object.prototype.hasOwnProperty.call(config.options, 'minScale') && Object.prototype.hasOwnProperty.call(config.options, 'maxScale')) {
             this._minResolution = config.options.minScale * INCHTOMM / (1000 * 90 * window.devicePixelRatio);
             this._maxResolution = config.options.maxScale * INCHTOMM / (1000 * 90 * window.devicePixelRatio);
 
             MainEventDispatcher.dispatch({
-                type: "map-min-max-resolution-set",
+                type: 'map-min-max-resolution-set',
                 mapId: this._mapId,
                 minResolution: this._minResolution,
                 maxResolution: this._maxResolution
@@ -76,7 +76,7 @@ export default class LizmapMap {
             this._zoom = zoom;
 
             MainEventDispatcher.dispatch({
-                type: "map-zoom-set",
+                type: 'map-zoom-set',
                 mapId: this._mapId,
                 zoom: this.zoom
             });
@@ -96,7 +96,7 @@ export default class LizmapMap {
             this._center = [...center];
 
             MainEventDispatcher.dispatch({
-                type: "map-center-set",
+                type: 'map-center-set',
                 mapId: this._mapId,
                 center: this.center
             });
@@ -112,7 +112,7 @@ export default class LizmapMap {
         this._maxZoom = maxZoom !== undefined ? maxZoom : this._maxZoom;
 
         MainEventDispatcher.dispatch({
-            type: "map-min-max-zoom-set",
+            type: 'map-min-max-zoom-set',
             mapId: this._mapId,
             minZoom: this._minZoom,
             maxZoom: this._maxZoom
@@ -136,15 +136,15 @@ export default class LizmapMap {
     }
 
     // UI
-    zoomByRectangleToggle(force){
-        if(force !== undefined){
+    zoomByRectangleToggle(force) {
+        if (force !== undefined) {
             this._zoomByRectangleActive = force;
-        }else{
+        } else {
             this._zoomByRectangleActive = !this._zoomByRectangleActive;
         }
 
         MainEventDispatcher.dispatch({
-            type: "ui-zoom-by-rectangle-set",
+            type: 'ui-zoom-by-rectangle-set',
             mapId: this._mapId,
             zoomByRectangleActive: this._zoomByRectangleActive
         });

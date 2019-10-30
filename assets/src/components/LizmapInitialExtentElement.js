@@ -1,7 +1,7 @@
-import { LizmapMapManager } from "../modules/LizmapGlobals";
+import {LizmapMapManager} from '../modules/LizmapGlobals.js';
 
-import { library, findIconDefinition, icon } from '@fortawesome/fontawesome-svg-core';
-import { faExpandArrowsAlt } from '@fortawesome/free-solid-svg-icons';
+import {library, findIconDefinition, icon} from '@fortawesome/fontawesome-svg-core';
+import {faExpandArrowsAlt} from '@fortawesome/free-solid-svg-icons';
 library.add(faExpandArrowsAlt);
 
 export default class LizmapInitialExtentElement extends HTMLElement {
@@ -14,11 +14,11 @@ export default class LizmapInitialExtentElement extends HTMLElement {
 
         // Create button
         const initialExtentButton = document.createElement('button');
-        initialExtentButton.type = "button";
-        initialExtentButton.classList = "btn btn-danger btn-sm";
+        initialExtentButton.type = 'button';
+        initialExtentButton.classList = 'btn btn-danger btn-sm';
 
         // Set icon
-        const iconDef = findIconDefinition({ prefix: 'fas', iconName: 'expand-arrows-alt' });
+        const iconDef = findIconDefinition({prefix: 'fas', iconName: 'expand-arrows-alt'});
         const i = icon(iconDef, {
             transform: {
                 size: 30
