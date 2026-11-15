@@ -2395,6 +2395,14 @@ class Project
             2
         );
 
+        $catalogTpl = new \jTpl();
+        $dockable[] = new \lizmapMapDockItem(
+            'catalog',
+            $this->appContext->getLocale('view~map.catalog.navbar.title'),
+            $catalogTpl->fetch('view~map_catalog'),
+            2
+        );
+
         if ($this->hasEditionLayersForCurrentUser()) {
             $tpl = new \jTpl();
             $dockable[] = new \lizmapMapDockItem(
