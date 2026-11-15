@@ -4698,3 +4698,67 @@ lizmap-catalog .catalog-layer-preview dl {
 lizmap-catalog .catalog-layer-preview dd {
   margin: 0;
 }
+
+/* Layer tree arrangement */
+#switcher-layers-actions #layers-arrange.active {
+  background-color: #333;
+}
+
+lizmap-treeview .tree-arrange-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 4px;
+  font-size: 0.9em;
+  border: 1px dashed #999;
+}
+
+lizmap-treeview ul.arranging li[draggable="true"] > div {
+  cursor: grab;
+}
+
+lizmap-treeview li.dragging {
+  opacity: 0.5;
+}
+
+lizmap-treeview li.drop-before {
+  box-shadow: 0 -2px 0 #1f78b4;
+}
+
+lizmap-treeview li.drop-after {
+  box-shadow: 0 2px 0 #1f78b4;
+}
+
+lizmap-treeview .tree-icon-button {
+  cursor: pointer;
+}
+
+lizmap-treeview .tree-icon-picker {
+  margin: 4px 0 4px 24px;
+  padding: 4px;
+  background: #fff;
+  border: 1px solid #ccc;
+}
+
+lizmap-treeview .tree-icon-row {
+  display: flex;
+  gap: 2px;
+}
+
+lizmap-treeview .tree-icon-preset {
+  padding: 2px;
+  line-height: 0;
+  background: none;
+  border: 1px solid transparent;
+}
+
+lizmap-treeview .tree-icon-preset:hover {
+  border-color: #333;
+}
+
+lizmap-treeview .tree-icon-upload {
+  display: block;
+  margin-top: 4px;
+}

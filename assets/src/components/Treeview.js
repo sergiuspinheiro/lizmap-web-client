@@ -10,6 +10,7 @@ import { mainLizmap, mainEventDispatcher } from '../modules/Globals.js';
 import { Utils } from '../modules/Utils.js';
 import { MapLayerLoadStatus } from '../modules/state/MapLayer.js';
 import { MEDIA_REGEX } from '../utils/Constants.js';
+import TreeArrangement, { ICON_COLORS, ICON_SHAPE_NAMES, MAX_ICON_LENGTH, presetIcon } from '../modules/TreeArrangement.js';
 
 import { html, render } from 'lit-html';
 
@@ -23,9 +24,23 @@ export default class Treeview extends HTMLElement {
         super();
         this._itemNameSelected;
         this._clickTimestamp;
+        // Name of the item whose icon picker is open
+        this._iconPickerFor = null;
+        // Item being dragged in arrange mode: {parent, name}
+        this._dragged = null;
     }
 
     connectedCallback() {
+        const params = globalThis.lizUrls?.params || {};
+        this._arrangement = new TreeArrangement(`lizmap-tree-arrangement-${params.repository}-${params.project}`);
+        this._arrangeButton = document.getElementById('layers-arrange');
+        this._arrangeHandler = () => {
+            this._arrangement.active = !this._arrangement.active;
+            this._iconPickerFor = null;
+            this._arrangeButton?.classList.toggle('active', this._arrangement.active);
+            this._onChange();
+        };
+        this._arrangeButton?.addEventListener('click', this._arrangeHandler);
 
         this._onChange = () => {
             if (this._freeze) return;
@@ -104,7 +119,12 @@ export default class Treeview extends HTMLElement {
 
         this._layerTemplate = (layer, parent) =>
             html`
-        <li data-testid="${layer.name}" class="${this._isVisible(layer) ? '' : 'not-visible'}">
+        <li data-testid="${layer.name}" class="${this._isVisible(layer) ? '' : 'not-visible'}"
+            draggable="${this._arrangement.active ? 'true' : 'false'}"
+            @dragstart=${(e) => this._dragStart(e, layer, parent)}
+            @dragover=${(e) => this._dragOver(e, layer, parent)}
+            @drop=${(e) => this._drop(e, layer, parent)}
+            @dragend=${() => this._dragEnd()}>
             ${layer.symbologyChildrenCount && layer.layerConfig.legendImageOption !== "disabled"
                 ? html`<div class="expandable ${layer.expanded ? 'expanded' : ''}" @click=${() => layer.expanded = !layer.expanded}></div>`
                 : ''
@@ -119,9 +139,10 @@ export default class Treeview extends HTMLElement {
                     @dblclick=${() =>this._dblclickItem(layer)}
                     >
                 <div class="node ${layer.isFiltered ? 'filtered' : ''}">
-                    <img class="legend" src="${layer.icon}">
+                    <img class="legend" src="${this._arrangement.icon(layer.name) ?? layer.icon}">
                     <label for="node-${layer.name}" >${layer.layerConfig.title}</label>
                     <div class="layer-actions">
+                        ${this._iconButtonTemplate(layer)}
                         <a href="${this._createDocLink(layer.name)}" target="_blank" title="${lizDict['tree.button.link']}">
                             <i class="icon-share"></i>
                         </a>
@@ -136,6 +157,7 @@ export default class Treeview extends HTMLElement {
                     </div>
                 </div>
             </div>
+            ${this._iconPickerFor === layer.name ? this._iconPickerTemplate(layer) : ''}
             ${(layer.symbologyChildrenCount && layer.layerConfig.legendImageOption !== "disabled")
                 ? html`
                     <ul class="symbols">
@@ -147,7 +169,12 @@ export default class Treeview extends HTMLElement {
 
         this._groupTemplate = (group, parent) =>
             html`
-        <li data-testid="${group.name}" class="${this._isVisible(group) ? '' : 'not-visible'}">
+        <li data-testid="${group.name}" class="${this._isVisible(group) ? '' : 'not-visible'}"
+            draggable="${this._arrangement.active ? 'true' : 'false'}"
+            @dragstart=${(e) => this._dragStart(e, group, parent)}
+            @dragover=${(e) => this._dragOver(e, group, parent)}
+            @drop=${(e) => this._drop(e, group, parent)}
+            @dragend=${() => this._dragEnd()}>
             <div class="expandable ${group.expanded ? 'expanded' : ''}" @click=${() => group.expanded = !group.expanded}></div>
             <div class="${group.checked ? 'checked' : ''} ${group.type} ${group.name === this._itemNameSelected ? 'selected' : ''}">
                 ${mainLizmap.initialConfig.options.hideGroupCheckbox
@@ -159,6 +186,9 @@ export default class Treeview extends HTMLElement {
                       @dblclick=${() => this._dblclickItem(group)} >`
                 }
                 <div class="node ${group.isFiltered ? 'filtered' : ''}">
+                    ${this._arrangement.icon(group.name)
+                        ? html`<img class="legend" src="${this._arrangement.icon(group.name)}">`
+                        : ''}
                     ${mainLizmap.initialConfig.options.hideGroupCheckbox
                         ? html`<label for="node-${group.name}" >${group.layerConfig.title}</label>`
                         : html`<label
@@ -166,6 +196,7 @@ export default class Treeview extends HTMLElement {
                           @dblclick=${() => this._dblclickItem(group)} } >${group.layerConfig.title}</label>`
                     }
                     <div class="layer-actions">
+                        ${this._iconButtonTemplate(group)}
                         <a href="${this._createDocLink(group.name)}" target="_blank" title="${lizDict['tree.button.link']}">
                             <i class="icon-share"></i>
                         </a>
@@ -180,8 +211,9 @@ export default class Treeview extends HTMLElement {
                     </div>
                 </div>
             </div>
+            ${this._iconPickerFor === group.name ? this._iconPickerTemplate(group) : ''}
             <ul>
-                ${group.children.map(item => html`
+                ${this._arrangement.sortChildren(group.name, group.children).map(item => html`
                     ${item.type === 'group' ? html`${this._groupTemplate(item, group)}` : ''}
                     ${item.type === 'layer' ? html`${this._layerTemplate(item, group)}` : ''}
                 `)}
@@ -190,8 +222,9 @@ export default class Treeview extends HTMLElement {
 
         this._rootTemplate = layerTreeRoot =>
             html`
-        <ul>
-            ${layerTreeRoot.children.map(item => html`
+        ${this._arrangement.active ? this._arrangeBarTemplate(layerTreeRoot) : ''}
+        <ul class="${this._arrangement.active ? 'arranging' : ''}">
+            ${this._arrangement.sortChildren('', layerTreeRoot.children).map(item => html`
                 ${item.type === 'group' ? html`${this._groupTemplate(item, layerTreeRoot)}` : ''}
                 ${item.type === 'layer' ? html`${this._layerTemplate(item, layerTreeRoot)}` : ''}
                 ${item.type === 'ext-group' && item.childrenCount ? html`${this._extGroupTemplate(item)}` : ''}
@@ -199,6 +232,9 @@ export default class Treeview extends HTMLElement {
         </ul>`;
 
         render(this._rootTemplate(mainLizmap.state.layerTree), this);
+        if (this._arrangement.isCustomized) {
+            this._arrangement.applyDrawingOrder(mainLizmap.state.layerTree, mainLizmap.map);
+        }
 
         mainLizmap.state.layerTree.addListener(
             this._onChange,
@@ -220,6 +256,7 @@ export default class Treeview extends HTMLElement {
     }
 
     disconnectedCallback() {
+        this._arrangeButton?.removeEventListener('click', this._arrangeHandler);
         mainLizmap.state.layerTree.removeListener(
             this._onChange,
             [
@@ -241,6 +278,136 @@ export default class Treeview extends HTMLElement {
         mainEventDispatcher.removeListener(
             this._onChange, ['resolution.changed']
         );
+    }
+
+    /**
+     * Key of a parent group in the arrangement: the root has no name
+     * @param {object} parent - the parent group state
+     * @returns {string} the key
+     */
+    _parentKey(parent) {
+        return parent === mainLizmap.state.layerTree ? '' : parent.name;
+    }
+
+    _dragStart(e, item, parent) {
+        if (!this._arrangement.active || this._dragged) {
+            return;
+        }
+        // Nested items: only the innermost one is dragged
+        e.stopPropagation();
+        this._dragged = { parent, name: item.name };
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', item.name);
+        e.currentTarget.classList.add('dragging');
+    }
+
+    _dragOver(e, item, parent) {
+        if (!this._dragged || this._dragged.parent !== parent) {
+            return;
+        }
+        // Items can only be moved inside their group
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = 'move';
+        const li = e.currentTarget;
+        const rect = li.getBoundingClientRect();
+        const after = e.clientY > rect.top + rect.height / 2;
+        this.querySelectorAll('.drop-before, .drop-after').forEach(el => el.classList.remove('drop-before', 'drop-after'));
+        if (item.name !== this._dragged.name) {
+            li.classList.add(after ? 'drop-after' : 'drop-before');
+        }
+    }
+
+    _drop(e, item, parent) {
+        if (!this._dragged || this._dragged.parent !== parent) {
+            return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        const rect = e.currentTarget.getBoundingClientRect();
+        const after = e.clientY > rect.top + rect.height / 2;
+        const parentKey = this._parentKey(parent);
+        const siblings = this._arrangement.sortChildren(parentKey, parent.children).map(child => child.name);
+        if (this._arrangement.move(parentKey, siblings, this._dragged.name, item.name, after)) {
+            this._arrangement.applyDrawingOrder(mainLizmap.state.layerTree, mainLizmap.map);
+        }
+        this._dragEnd();
+    }
+
+    _dragEnd() {
+        this._dragged = null;
+        this.querySelectorAll('.dragging, .drop-before, .drop-after')
+            .forEach(el => el.classList.remove('dragging', 'drop-before', 'drop-after'));
+        this._onChange();
+    }
+
+    _iconButtonTemplate(item) {
+        if (!this._arrangement.active) {
+            return '';
+        }
+        return html`<i class="icon-picture tree-icon-button" title="${lizDict['tree.arrange.icon']}"
+            @click=${() => {
+                this._iconPickerFor = this._iconPickerFor === item.name ? null : item.name;
+                this._onChange();
+            }}></i>`;
+    }
+
+    _iconPickerTemplate(item) {
+        return html`
+        <div class="tree-icon-picker">
+            ${ICON_SHAPE_NAMES.map(shape => html`
+                <div class="tree-icon-row">
+                    ${ICON_COLORS.map(color => {
+                        const url = presetIcon(shape, color);
+                        return html`<button type="button" class="tree-icon-preset" title="${shape} ${color}"
+                            @click=${() => this._setIcon(item, url)}><img src="${url}" alt=""></button>`;
+                    })}
+                </div>`)}
+            <label class="tree-icon-upload">${lizDict['tree.arrange.icon.upload']}
+                <input type="file" accept="image/png,image/svg+xml,image/jpeg,image/gif,image/webp"
+                    @change=${(e) => this._uploadIcon(item, e.target)}>
+            </label>
+            ${this._arrangement.icon(item.name)
+                ? html`<button type="button" class="btn btn-sm tree-icon-reset"
+                    @click=${() => this._setIcon(item, null)}>${lizDict['tree.arrange.icon.reset']}</button>`
+                : ''}
+        </div>`;
+    }
+
+    _arrangeBarTemplate(layerTreeRoot) {
+        return html`
+        <div class="tree-arrange-bar">
+            <span>${lizDict['tree.arrange.help']}</span>
+            ${this._arrangement.isCustomized
+                ? html`<button type="button" class="btn btn-sm tree-arrange-reset" @click=${() => {
+                    this._arrangement.reset(layerTreeRoot, mainLizmap.map);
+                    this._iconPickerFor = null;
+                    this._onChange();
+                }}>${lizDict['tree.arrange.reset']}</button>`
+                : ''}
+        </div>`;
+    }
+
+    _setIcon(item, url) {
+        this._arrangement.setIcon(item.name, url);
+        this._iconPickerFor = null;
+        this._onChange();
+    }
+
+    _uploadIcon(item, input) {
+        const file = input.files?.[0];
+        if (!file) {
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+            if (reader.result.length > MAX_ICON_LENGTH) {
+                lizMap.addMessage(lizDict['tree.arrange.icon.toobig'], 'warning', true);
+                return;
+            }
+            this._setIcon(item, reader.result);
+        };
+        reader.readAsDataURL(file);
     }
 
     set itemNameSelected(itemName) {
