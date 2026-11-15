@@ -11,6 +11,7 @@ import { html, render } from 'lit-html';
 import TileLayer from 'ol/layer/Tile.js';
 import TileWMS from 'ol/source/TileWMS.js';
 import { getRenderPixel } from 'ol/render.js';
+import WMSCapabilities from 'ol/format/WMSCapabilities.js';
 
 /**
  * Layer comparator (swipe): displays one layer on the left of a draggable
@@ -19,7 +20,8 @@ import { getRenderPixel } from 'ol/render.js';
  * Compared layers are rendered by dedicated OpenLayers layers added to the
  * tools group. They share the source of the project layers, so the layer
  * tree state is never modified. External WMS layers can also be added,
- * either with an URL and a layer name, or with a `Title|wms|url|layer` line.
+ * by reading the WMS capabilities and picking a layer, or with an
+ * `url|layer` or `Title|wms|url|layer` line.
  * @class
  * @name LayerCompare
  * @augments HTMLElement
@@ -36,6 +38,10 @@ export default class LayerCompare extends HTMLElement {
         this._externalLayers = new Map();
         this._compareLayers = [];
         this._divider = null;
+        // Layers read from the WMS capabilities: [{name, title}]
+        this._wmsLayers = [];
+        this._wmsUrl = '';
+        this._loading = false;
     }
 
     connectedCallback() {
@@ -116,7 +122,10 @@ export default class LayerCompare extends HTMLElement {
         const parts = url.split('|');
         if (parts.length >= 4 && parts[1].trim().toLowerCase() === 'wms') {
             [title, , url, layerName] = parts.map(p => p.trim());
+        } else if (parts.length === 2) {
+            [url, layerName] = parts.map(p => p.trim());
         }
+        url = LayerCompare.cleanWmsUrl(url);
         layerName = (layerName || '').trim();
         if (!/^https?:\/\//.test(url) || !layerName) {
             return null;
@@ -133,6 +142,53 @@ export default class LayerCompare extends HTMLElement {
             this._externalLayers.set(name, { title: title || layerName, olLayer });
         }
         return name;
+    }
+
+    /**
+     * Remove the OGC request parameters from a WMS URL, e.g. a GetCapabilities URL.
+     * @param {string} url - WMS URL
+     * @returns {string} the service URL
+     */
+    static cleanWmsUrl(url) {
+        try {
+            const u = new URL(url);
+            for (const key of [...u.searchParams.keys()]) {
+                if (['service', 'request', 'version'].includes(key.toLowerCase())) {
+                    u.searchParams.delete(key);
+                }
+            }
+            return u.toString().replace(/\?$/, '');
+        } catch {
+            return url;
+        }
+    }
+
+    /**
+     * Read the layers of a WMS service from its capabilities.
+     * @param {string} url - WMS URL
+     * @returns {Promise<Array<{name: string, title: string}>>} the named layers
+     */
+    static async fetchWmsLayers(url) {
+        const u = new URL(LayerCompare.cleanWmsUrl(url));
+        u.searchParams.set('SERVICE', 'WMS');
+        u.searchParams.set('REQUEST', 'GetCapabilities');
+        const response = await fetch(u);
+        if (!response.ok) {
+            throw new Error(response.statusText);
+        }
+        const capabilities = new WMSCapabilities().read(await response.text());
+        const layers = [];
+        const walk = (layer) => {
+            if (!layer) {
+                return;
+            }
+            if (layer.Name) {
+                layers.push({ name: layer.Name, title: layer.Title || layer.Name });
+            }
+            (layer.Layer || []).forEach(walk);
+        };
+        walk(capabilities?.Capability?.Layer);
+        return layers;
     }
 
     /**
@@ -244,16 +300,49 @@ export default class LayerCompare extends HTMLElement {
         this._divider = divider;
     }
 
-    _onAddExternal() {
+    async _onLoadCapabilities() {
         const urlInput = this.querySelector('.layercompare-ext-url');
-        const nameInput = this.querySelector('.layercompare-ext-layer');
-        const name = this.addExternalWms(urlInput.value, nameInput.value);
+        const value = urlInput.value.trim();
+        // Lines with a layer name are added directly
+        if (value.includes('|')) {
+            this._addExternal(this.addExternalWms(value));
+            urlInput.value = '';
+            return;
+        }
+        if (!/^https?:\/\//.test(value)) {
+            lizMap.addMessage(lizDict['layercompare.external.invalid'], 'danger', true);
+            return;
+        }
+        this._loading = true;
+        this._render();
+        try {
+            this._wmsLayers = await LayerCompare.fetchWmsLayers(value);
+            this._wmsUrl = LayerCompare.cleanWmsUrl(value);
+            if (!this._wmsLayers.length) {
+                lizMap.addMessage(lizDict['layercompare.external.nolayer'], 'warning', true);
+            }
+        } catch (error) {
+            console.error(error);
+            this._wmsLayers = [];
+            lizMap.addMessage(lizDict['layercompare.external.error'], 'danger', true);
+        }
+        this._loading = false;
+        this._render();
+    }
+
+    _onAddWmsLayer() {
+        const select = this.querySelector('.layercompare-ext-layer');
+        const layer = this._wmsLayers.find(l => l.name === select.value);
+        if (layer) {
+            this._addExternal(this.addExternalWms(this._wmsUrl, layer.name, layer.title));
+        }
+    }
+
+    _addExternal(name) {
         if (!name) {
             lizMap.addMessage(lizDict['layercompare.external.invalid'], 'danger', true);
             return;
         }
-        urlInput.value = '';
-        nameInput.value = '';
         // External layers fill the left side, then the right side, alternately
         if (this._externalLayers.size % 2 === 1) {
             this._leftName = name;
@@ -312,12 +401,21 @@ export default class LayerCompare extends HTMLElement {
                 </button>
                 <details class="layercompare-external">
                     <summary>${lizDict['layercompare.external.title']}</summary>
-                    <input type="text" class="form-control layercompare-ext-url"
-                        placeholder="${lizDict['layercompare.external.url']}">
-                    <input type="text" class="form-control layercompare-ext-layer"
-                        placeholder="${lizDict['layercompare.external.layer']}">
-                    <button type="button" class="btn btn-sm layercompare-ext-add"
-                        @click=${() => this._onAddExternal()}>${lizDict['layercompare.external.add']}</button>
+                    <div class="input-group">
+                        <input type="text" class="form-control layercompare-ext-url"
+                            placeholder="${lizDict['layercompare.external.url']}"
+                            @keydown=${(e) => e.key === 'Enter' && this._onLoadCapabilities()}>
+                        <button type="button" class="btn btn-sm layercompare-ext-load" ?disabled=${this._loading}
+                            @click=${() => this._onLoadCapabilities()}>${lizDict['layercompare.external.load']}</button>
+                    </div>
+                    ${this._wmsLayers.length ? html`
+                        <div class="input-group">
+                            <select class="form-select layercompare-ext-layer">
+                                ${this._wmsLayers.map(l => html`<option value=${l.name}>${l.title}</option>`)}
+                            </select>
+                            <button type="button" class="btn btn-sm layercompare-ext-add"
+                                @click=${() => this._onAddWmsLayer()}>${lizDict['layercompare.external.add']}</button>
+                        </div>` : ''}
                 </details>
             </div>`, this);
     }
