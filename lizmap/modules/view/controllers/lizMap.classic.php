@@ -304,6 +304,16 @@ class lizMapCtrl extends jController
             $lizUrls['removeCache'] = jUrl::get('admin~maps:removeLayerCache');
         }
 
+        // Map views (layer order and catalog layers) saved by connected users
+        if (jAuth::isConnected()) {
+            $lizUrls['mapViews'] = array(
+                'list' => jUrl::get('lizmap~mapview:index'),
+                'get' => jUrl::get('lizmap~mapview:get'),
+                'save' => jUrl::get('lizmap~mapview:save'),
+                'delete' => jUrl::get('lizmap~mapview:delete'),
+            );
+        }
+
         if (jAcl2::check('lizmap.admin.access') || jAcl2::check('lizmap.admin.server.information.view')) {
             $lizUrls['repositoryAdmin'] = jUrl::getFull('admin~maps:index');
         }

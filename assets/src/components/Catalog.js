@@ -36,6 +36,8 @@ export default class Catalog extends HTMLElement {
         this._filter = '';
         // Project layers already loaded: "repo~project" => {title, wmsUrl, layers} or 'loading'
         this._projects = new Map();
+        // Project layers requests: "repo~project" => Promise
+        this._pending = new Map();
         // External groups created by the catalog: "repo~project" => ExternalMapGroupState
         this._groups = new Map();
         // Preview: {project, layer}
@@ -111,11 +113,20 @@ export default class Catalog extends HTMLElement {
      * @param {object} project - the project from the catalog list
      * @returns {Promise<void>}
      */
-    async loadProject(project) {
-        const key = project.key;
-        if (this._projects.has(key)) {
-            return;
+    loadProject(project) {
+        if (!this._pending.has(project.key)) {
+            this._pending.set(project.key, this._fetchProject(project));
         }
+        return this._pending.get(project.key);
+    }
+
+    /**
+     * Fetch the layers of a project
+     * @param {object} project - the project from the catalog list
+     * @returns {Promise<void>}
+     */
+    async _fetchProject(project) {
+        const key = project.key;
         this._projects.set(key, 'loading');
         this._render();
         try {
@@ -131,6 +142,61 @@ export default class Catalog extends HTMLElement {
             this._projects.set(key, { key, title: project.title, layers: [], error: true });
         }
         this._render();
+    }
+
+    /**
+     * Layers added from the catalog, to save them in a map view
+     * @type {Array<{repository: string, project: string, layer: string}>}
+     */
+    get addedLayers() {
+        const list = [];
+        for (const [key, group] of this._groups) {
+            const [repository, project] = key.split('~');
+            // Children are listed from the top of the group
+            for (const item of [...group.children].reverse()) {
+                list.push({ repository, project, layer: item.name });
+            }
+        }
+        return list;
+    }
+
+    /**
+     * Replace the layers added from the catalog by the layers of a saved
+     * map view. Layers the user can no longer access are ignored.
+     * @param {Array<{repository: string, project: string, layer: string}>} list - the layers to add
+     * @returns {Promise<number>} the number of layers added
+     */
+    async restore(list) {
+        for (const group of this._groups.values()) {
+            group.clean();
+            mainLizmap.state.rootMapGroup.removeExternalGroup(group.name);
+        }
+        this._groups.clear();
+        if (!Array.isArray(list) || list.length === 0) {
+            this._render();
+            return 0;
+        }
+        if (this._repositories === null || this._repositories === 'loading') {
+            await this.load();
+        }
+        let count = 0;
+        for (const item of list) {
+            const repository = (this._repositories || []).find(r => r.id === item.repository);
+            const project = repository?.projects.find(p => p.id === item.project);
+            if (!project) {
+                continue;
+            }
+            project.key = repository.id + '~' + project.id;
+            await this.loadProject(project);
+            const loaded = this._projects.get(project.key);
+            const layer = loaded?.layers?.find(l => l.name === item.layer);
+            if (layer && !this.isAdded(loaded, layer)) {
+                this.addLayer(loaded, layer);
+                count++;
+            }
+        }
+        this._render();
+        return count;
     }
 
     /**

@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 
-import TreeArrangement, { presetIcon } from 'assets/src/modules/TreeArrangement.js';
+import TreeArrangement from 'assets/src/modules/TreeArrangement.js';
 
 describe('TreeArrangement', function () {
     let storage;
@@ -39,18 +39,16 @@ describe('TreeArrangement', function () {
             .to.deep.equal(['a', 'b', 'c']);
     });
 
-    it('Stores custom icons and resets', function () {
+    it('Exports, replaces and resets the order', function () {
         const arrangement = new TreeArrangement('test');
-        const icon = presetIcon('circle', '#e41a1c');
-        expect(icon).to.match(/^data:image\/svg\+xml;base64,/);
-        arrangement.setIcon('layer', icon);
-        expect(new TreeArrangement('test').icon('layer')).to.equal(icon);
-        arrangement.setIcon('layer', null);
-        expect(arrangement.icon('layer')).to.be.undefined;
-        expect(storage).to.not.have.property('test');
-
         arrangement.move('', ['a', 'b'], 'b', 'a', false);
-        arrangement.reset(null);
+        expect(arrangement.order).to.deep.equal({ '': ['b', 'a'] });
+
+        arrangement.setOrder({ g: ['y', 'x', 3], bad: 'x' }, null, null);
+        expect(arrangement.order).to.deep.equal({ g: ['y', 'x'] });
+        expect(new TreeArrangement('test').order).to.deep.equal({ g: ['y', 'x'] });
+
+        arrangement.reset(null, null);
         expect(arrangement.isCustomized).to.be.false;
         expect(storage).to.not.have.property('test');
     });
