@@ -5,38 +5,9 @@
  * @license MPL-2.0
  */
 
-/** Colors of the preset icons */
-export const ICON_COLORS = ['#e41a1c', '#ff7f00', '#ffd92f', '#4daf4a', '#1f78b4', '#984ea3', '#a65628', '#555555'];
-
-/** Shapes of the preset icons, as SVG elements */
-const ICON_SHAPES = {
-    circle: color => `<circle cx="8" cy="8" r="6" fill="${color}" stroke="#333"/>`,
-    square: color => `<rect x="2" y="2" width="12" height="12" fill="${color}" stroke="#333"/>`,
-    triangle: color => `<path d="M8 2 L14 14 L2 14 Z" fill="${color}" stroke="#333"/>`,
-    line: color => `<path d="M2 12 L6 5 L10 10 L14 3" fill="none" stroke="${color}" stroke-width="2.5"/>`,
-};
-
-/** Maximum size of an uploaded icon, as a data URL */
-export const MAX_ICON_LENGTH = 100000;
-
 /**
- * Build a preset icon as an SVG data URL
- * @param {string} shape - one of the ICON_SHAPES keys
- * @param {string} color - CSS color
- * @returns {string} the data URL
- */
-export function presetIcon(shape, color) {
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">${ICON_SHAPES[shape](color)}</svg>`;
-    return 'data:image/svg+xml;base64,' + btoa(svg);
-}
-
-/** @type {string[]} */
-export const ICON_SHAPE_NAMES = Object.keys(ICON_SHAPES);
-
-/**
- * User arrangement of the layer tree: order of the items inside each group
- * and custom icons of layers and groups. It is stored in the browser, per
- * project, and does not change the project.
+ * User arrangement of the layer tree: order of the items inside each group.
+ * It is stored in the browser, per project, and does not change the project.
  * @class
  * @name TreeArrangement
  */
@@ -50,19 +21,16 @@ export default class TreeArrangement {
         this._active = false;
         // parent name => ordered children names
         this._order = {};
-        // item name => icon URL
-        this._icons = {};
         try {
             const saved = JSON.parse(window.localStorage.getItem(storageKey) || '{}');
             this._order = saved.order || {};
-            this._icons = saved.icons || {};
         } catch (error) {
             console.warn(error);
         }
     }
 
     /**
-     * Arrange mode: drag handles and icon pickers are displayed
+     * Arrange mode: the items can be dragged
      * @type {boolean}
      */
     get active() {
@@ -78,13 +46,13 @@ export default class TreeArrangement {
      * @type {boolean}
      */
     get isCustomized() {
-        return Object.keys(this._order).length > 0 || Object.keys(this._icons).length > 0;
+        return Object.keys(this._order).length > 0;
     }
 
     _save() {
         try {
             if (this.isCustomized) {
-                window.localStorage.setItem(this._storageKey, JSON.stringify({ order: this._order, icons: this._icons }));
+                window.localStorage.setItem(this._storageKey, JSON.stringify({ order: this._order }));
             } else {
                 window.localStorage.removeItem(this._storageKey);
             }
@@ -136,26 +104,28 @@ export default class TreeArrangement {
     }
 
     /**
-     * Custom icon of an item
-     * @param {string} name - the layer or group name
-     * @returns {string|undefined} the icon URL
+     * The user order: parent name => ordered children names
+     * @type {object}
      */
-    icon(name) {
-        return this._icons[name];
+    get order() {
+        return structuredClone(this._order);
     }
 
     /**
-     * Set or remove the custom icon of an item
-     * @param {string} name - the layer or group name
-     * @param {string|null} url - the icon URL, null to remove it
+     * Replace the user order, for instance by a saved configuration
+     * @param {object} order - parent name => ordered children names
+     * @param {object} layerTreeRoot - the layer tree root, to apply the drawing order
+     * @param {object} map - the Lizmap OpenLayers map
      */
-    setIcon(name, url) {
-        if (url) {
-            this._icons[name] = url;
-        } else {
-            delete this._icons[name];
+    setOrder(order, layerTreeRoot, map) {
+        this._order = {};
+        for (const [parent, names] of Object.entries(order || {})) {
+            if (Array.isArray(names)) {
+                this._order[parent] = names.filter(name => typeof name === 'string');
+            }
         }
         this._save();
+        this.applyDrawingOrder(layerTreeRoot, map);
     }
 
     /**
@@ -165,7 +135,6 @@ export default class TreeArrangement {
      */
     reset(layerTreeRoot, map) {
         this._order = {};
-        this._icons = {};
         this._save();
         this.applyDrawingOrder(layerTreeRoot, map);
     }

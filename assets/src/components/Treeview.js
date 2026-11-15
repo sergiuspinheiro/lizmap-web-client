@@ -10,7 +10,7 @@ import { mainLizmap, mainEventDispatcher } from '../modules/Globals.js';
 import { Utils } from '../modules/Utils.js';
 import { MapLayerLoadStatus } from '../modules/state/MapLayer.js';
 import { MEDIA_REGEX } from '../utils/Constants.js';
-import TreeArrangement, { ICON_COLORS, ICON_SHAPE_NAMES, MAX_ICON_LENGTH, presetIcon } from '../modules/TreeArrangement.js';
+import TreeArrangement from '../modules/TreeArrangement.js';
 
 import { html, render } from 'lit-html';
 
@@ -24,8 +24,6 @@ export default class Treeview extends HTMLElement {
         super();
         this._itemNameSelected;
         this._clickTimestamp;
-        // Name of the item whose icon picker is open
-        this._iconPickerFor = null;
         // Item being dragged in arrange mode: {parent, name}
         this._dragged = null;
     }
@@ -36,7 +34,6 @@ export default class Treeview extends HTMLElement {
         this._arrangeButton = document.getElementById('layers-arrange');
         this._arrangeHandler = () => {
             this._arrangement.active = !this._arrangement.active;
-            this._iconPickerFor = null;
             this._arrangeButton?.classList.toggle('active', this._arrangement.active);
             this._onChange();
         };
@@ -139,10 +136,9 @@ export default class Treeview extends HTMLElement {
                     @dblclick=${() =>this._dblclickItem(layer)}
                     >
                 <div class="node ${layer.isFiltered ? 'filtered' : ''}">
-                    <img class="legend" src="${this._arrangement.icon(layer.name) ?? layer.icon}">
+                    <img class="legend" src="${layer.icon}">
                     <label for="node-${layer.name}" >${layer.layerConfig.title}</label>
                     <div class="layer-actions">
-                        ${this._iconButtonTemplate(layer)}
                         <a href="${this._createDocLink(layer.name)}" target="_blank" title="${lizDict['tree.button.link']}">
                             <i class="icon-share"></i>
                         </a>
@@ -157,7 +153,6 @@ export default class Treeview extends HTMLElement {
                     </div>
                 </div>
             </div>
-            ${this._iconPickerFor === layer.name ? this._iconPickerTemplate(layer) : ''}
             ${(layer.symbologyChildrenCount && layer.layerConfig.legendImageOption !== "disabled")
                 ? html`
                     <ul class="symbols">
@@ -186,9 +181,6 @@ export default class Treeview extends HTMLElement {
                       @dblclick=${() => this._dblclickItem(group)} >`
                 }
                 <div class="node ${group.isFiltered ? 'filtered' : ''}">
-                    ${this._arrangement.icon(group.name)
-                        ? html`<img class="legend" src="${this._arrangement.icon(group.name)}">`
-                        : ''}
                     ${mainLizmap.initialConfig.options.hideGroupCheckbox
                         ? html`<label for="node-${group.name}" >${group.layerConfig.title}</label>`
                         : html`<label
@@ -196,7 +188,6 @@ export default class Treeview extends HTMLElement {
                           @dblclick=${() => this._dblclickItem(group)} } >${group.layerConfig.title}</label>`
                     }
                     <div class="layer-actions">
-                        ${this._iconButtonTemplate(group)}
                         <a href="${this._createDocLink(group.name)}" target="_blank" title="${lizDict['tree.button.link']}">
                             <i class="icon-share"></i>
                         </a>
@@ -211,7 +202,6 @@ export default class Treeview extends HTMLElement {
                     </div>
                 </div>
             </div>
-            ${this._iconPickerFor === group.name ? this._iconPickerTemplate(group) : ''}
             <ul>
                 ${this._arrangement.sortChildren(group.name, group.children).map(item => html`
                     ${item.type === 'group' ? html`${this._groupTemplate(item, group)}` : ''}
@@ -281,6 +271,21 @@ export default class Treeview extends HTMLElement {
     }
 
     /**
+     * The user arrangement of the tree
+     * @type {TreeArrangement}
+     */
+    get arrangement() {
+        return this._arrangement;
+    }
+
+    /**
+     * Render the tree again, for instance after loading a saved map view
+     */
+    refresh() {
+        this._onChange();
+    }
+
+    /**
      * Key of a parent group in the arrangement: the root has no name
      * @param {object} parent - the parent group state
      * @returns {string} the key
@@ -341,39 +346,6 @@ export default class Treeview extends HTMLElement {
         this._onChange();
     }
 
-    _iconButtonTemplate(item) {
-        if (!this._arrangement.active) {
-            return '';
-        }
-        return html`<i class="icon-picture tree-icon-button" title="${lizDict['tree.arrange.icon']}"
-            @click=${() => {
-                this._iconPickerFor = this._iconPickerFor === item.name ? null : item.name;
-                this._onChange();
-            }}></i>`;
-    }
-
-    _iconPickerTemplate(item) {
-        return html`
-        <div class="tree-icon-picker">
-            ${ICON_SHAPE_NAMES.map(shape => html`
-                <div class="tree-icon-row">
-                    ${ICON_COLORS.map(color => {
-                        const url = presetIcon(shape, color);
-                        return html`<button type="button" class="tree-icon-preset" title="${shape} ${color}"
-                            @click=${() => this._setIcon(item, url)}><img src="${url}" alt=""></button>`;
-                    })}
-                </div>`)}
-            <label class="tree-icon-upload">${lizDict['tree.arrange.icon.upload']}
-                <input type="file" accept="image/png,image/svg+xml,image/jpeg,image/gif,image/webp"
-                    @change=${(e) => this._uploadIcon(item, e.target)}>
-            </label>
-            ${this._arrangement.icon(item.name)
-                ? html`<button type="button" class="btn btn-sm tree-icon-reset"
-                    @click=${() => this._setIcon(item, null)}>${lizDict['tree.arrange.icon.reset']}</button>`
-                : ''}
-        </div>`;
-    }
-
     _arrangeBarTemplate(layerTreeRoot) {
         return html`
         <div class="tree-arrange-bar">
@@ -381,33 +353,11 @@ export default class Treeview extends HTMLElement {
             ${this._arrangement.isCustomized
                 ? html`<button type="button" class="btn btn-sm tree-arrange-reset" @click=${() => {
                     this._arrangement.reset(layerTreeRoot, mainLizmap.map);
-                    this._iconPickerFor = null;
                     this._onChange();
                 }}>${lizDict['tree.arrange.reset']}</button>`
                 : ''}
+            <lizmap-mapviews></lizmap-mapviews>
         </div>`;
-    }
-
-    _setIcon(item, url) {
-        this._arrangement.setIcon(item.name, url);
-        this._iconPickerFor = null;
-        this._onChange();
-    }
-
-    _uploadIcon(item, input) {
-        const file = input.files?.[0];
-        if (!file) {
-            return;
-        }
-        const reader = new FileReader();
-        reader.onload = () => {
-            if (reader.result.length > MAX_ICON_LENGTH) {
-                lizMap.addMessage(lizDict['tree.arrange.icon.toobig'], 'warning', true);
-                return;
-            }
-            this._setIcon(item, reader.result);
-        };
-        reader.readAsDataURL(file);
     }
 
     set itemNameSelected(itemName) {

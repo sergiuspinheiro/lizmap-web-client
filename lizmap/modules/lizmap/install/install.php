@@ -57,6 +57,9 @@ class lizmapModuleInstaller extends jInstallerModule
             $this->useDbProfile('jauth');
             $this->execSQLScript('sql/lizgeobookmark');
 
+            // Add map views table (layer tree order and catalog layers saved by users)
+            $this->execSQLScript('sql/lizmapview');
+
         }
     }
 }
