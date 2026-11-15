@@ -26,6 +26,11 @@ class mapviewCtrl extends jController
      */
     public function index()
     {
+        return $this->safely('doIndex');
+    }
+
+    protected function doIndex()
+    {
         $rep = $this->getResponse('json');
         $map = $this->checkMap($rep);
         if ($map === null) {
@@ -47,6 +52,11 @@ class mapviewCtrl extends jController
      * @return jResponseJson
      */
     public function get()
+    {
+        return $this->safely('doGet');
+    }
+
+    protected function doGet()
     {
         $rep = $this->getResponse('json');
         $map = $this->checkMap($rep);
@@ -75,12 +85,17 @@ class mapviewCtrl extends jController
      */
     public function save()
     {
+        return $this->safely('doSave');
+    }
+
+    protected function doSave()
+    {
         $rep = $this->getResponse('json');
         $map = $this->checkMap($rep);
         if ($map === null) {
             return $rep;
         }
-        if ($this->request->method != 'POST') {
+        if (!$this->request->isPostMethod()) {
             return $this->error($rep, 405, 'POST required');
         }
         $name = trim(strip_tags((string) $this->param('name', '')));
@@ -118,12 +133,17 @@ class mapviewCtrl extends jController
      */
     public function delete()
     {
+        return $this->safely('doDelete');
+    }
+
+    protected function doDelete()
+    {
         $rep = $this->getResponse('json');
         $map = $this->checkMap($rep);
         if ($map === null) {
             return $rep;
         }
-        if ($this->request->method != 'POST') {
+        if (!$this->request->isPostMethod()) {
             return $this->error($rep, 405, 'POST required');
         }
         $dao = $this->dao();
@@ -135,6 +155,25 @@ class mapviewCtrl extends jController
         $rep->data = array('deleted' => (int) $record->id);
 
         return $rep;
+    }
+
+    /**
+     * Run an action, logging database errors.
+     *
+     * @param string $method the action implementation
+     *
+     * @return jResponseJson
+     */
+    protected function safely($method)
+    {
+        try {
+            return $this->{$method}();
+        } catch (\Throwable $e) {
+            jLog::log('Map views: '.$e->getMessage(), 'lizmapadmin');
+            jLog::logEx($e, 'error');
+
+            return $this->error($this->getResponse('json'), 500, $e->getMessage());
+        }
     }
 
     /**

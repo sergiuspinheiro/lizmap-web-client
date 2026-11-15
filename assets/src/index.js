@@ -35,6 +35,7 @@ import Panoramax from './components/Panoramax.js';
 import LayerCompare from './components/LayerCompare.js';
 import Catalog from './components/Catalog.js';
 import MapViews from './components/MapViews.js';
+import { initDockResizer } from './modules/DockResizer.js';
 
 import { mainLizmap, mainEventDispatcher } from './modules/Globals.js';
 import executeJSFromServer from './modules/ExecuteJSFromServer.js';
@@ -136,6 +137,8 @@ const definedCustomElements = () => {
          *     'lizmap.uicreated'
          * );
          */
+    initDockResizer();
+
     lizMap.mainEventDispatcher.dispatch('lizmap.uicreated');
 }
 
