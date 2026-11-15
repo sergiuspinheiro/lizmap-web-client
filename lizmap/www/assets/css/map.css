@@ -884,7 +884,7 @@ lizmap-layercompare .layercompare-external {
     margin-top: 10px;
 }
 
-lizmap-layercompare .layercompare-external input {
+lizmap-layercompare .layercompare-external .input-group {
     margin-bottom: 4px;
 }
 
