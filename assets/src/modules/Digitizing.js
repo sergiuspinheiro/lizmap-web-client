@@ -51,6 +51,9 @@ import proj4 from "proj4";
 
 import Transform from "ol-ext/interaction/Transform.js";
 
+/** Extensions of the files converted to GeoJSON on the server with GDAL/OGR */
+export const SERVER_IMPORT_EXTENSIONS = ['dxf', 'gpkg', 'gml', 'csv', 'kmz', 'sqlite', 'geojsonl', 'geojsons'];
+
 /**
  * Enum for digitizing tools
  * @enum {string}
@@ -2076,6 +2079,14 @@ export class Digitizing {
         // Get file extension
         const fileExtension = file.name.split('.').pop().toLowerCase();
 
+        // Formats converted on the server
+        if (SERVER_IMPORT_EXTENSIONS.includes(fileExtension)) {
+            this._importFromServer(file)
+                .then(features => this._addImportedFeatures(features))
+                .catch(error => this._lizmap3.addMessage(error.message, 'danger', true));
+            return;
+        }
+
         // Prepare for flatgeobuf
         let projFGB;
 
@@ -2141,9 +2152,17 @@ export class Digitizing {
                         // Remove features default style to display layer style
                         OL6features = (new KML({ extractStyles: false })).readFeatures(fileContent, options);
                     } else if (fileExtension === 'zip') {
-                        const geojson = await shp(fileContent);
+                        // Zipped shapefile, else other zipped formats converted on the server
+                        let geojson = null;
+                        try {
+                            geojson = await shp(fileContent);
+                        } catch (error) {
+                            console.info(error);
+                        }
                         if (geojson) {
                             OL6features = (new GeoJSON()).readFeatures(geojson, options);
+                        } else {
+                            OL6features = await this._importFromServer(file);
                         }
                     } else if (fileExtension === 'fgb') {
                         let features = [];
@@ -2192,22 +2211,7 @@ export class Digitizing {
                     this._lizmap3.addMessage(error, 'danger', true)
                 }
 
-                if (OL6features) {
-                    // Add imported features to map
-                    this._drawSource.addFeatures(OL6features);
-                    // And zoom to their bounding extent
-                    const featuresGeometry = OL6features.map(feature => feature.getGeometry());
-                    const featuresGeometryCollection = new GeometryCollection(featuresGeometry);
-                    this._map.zoomToGeometryOrExtent(featuresGeometryCollection.getExtent());
-
-                    // since a feature is added on the map,
-                    // we should emit the "featureDrawn" event anyway, no matter which tool is currently selected.
-                    // Check first if the listener is already registered on source, before manually trigger
-                    // the callback.
-                    if (!this._drawSource.hasListener("addfeature")) {
-                        this._addFeatureSaveDispatchListener();
-                    }
-                }
+                this._addImportedFeatures(OL6features);
             };
         })(this);
 
@@ -2218,5 +2222,60 @@ export class Digitizing {
         } else {
             reader.readAsText(file);
         }
+    }
+
+    /**
+     * Add imported features to the map and zoom to them
+     * @param {Feature[]|undefined} OL6features - the imported features
+     */
+    _addImportedFeatures(OL6features) {
+        if (OL6features) {
+            // Add imported features to map
+            this._drawSource.addFeatures(OL6features);
+            // And zoom to their bounding extent
+            const featuresGeometry = OL6features.map(feature => feature.getGeometry());
+            const featuresGeometryCollection = new GeometryCollection(featuresGeometry);
+            this._map.zoomToGeometryOrExtent(featuresGeometryCollection.getExtent());
+
+            // since a feature is added on the map,
+            // we should emit the "featureDrawn" event anyway, no matter which tool is currently selected.
+            // Check first if the listener is already registered on source, before manually trigger
+            // the callback.
+            if (!this._drawSource.hasListener("addfeature")) {
+                this._addFeatureSaveDispatchListener();
+            }
+        }
+    }
+
+    /**
+     * Convert a file to GeoJSON with GDAL/OGR on the server, for formats
+     * that can't be read in the browser (DXF, GeoPackage, CSV, GML...)
+     * @param {Blob} file - the file to import
+     * @returns {Promise<Feature[]>} the features in the map projection
+     */
+    async _importFromServer(file) {
+        const params = globalThis.lizUrls.params;
+        const formData = new FormData();
+        formData.append('repository', params.repository);
+        formData.append('project', params.project);
+        formData.append('file', file);
+        // CSV without CRS are read in WGS 84 and DXF in the map CRS
+        formData.append('crs', file.name.toLowerCase().endsWith('.dxf') ? this._lizmap3.map.getProjection() : '');
+        const response = await fetch(globalThis.lizUrls.convert, { method: 'POST', body: formData });
+        if (!response.ok) {
+            const message = response.status === 501
+                ? lizDict['digitizing.import.server.unavailable']
+                : lizDict['digitizing.import.server.error'];
+            throw new Error(message);
+        }
+        const geojson = await response.json();
+        const features = (new GeoJSON()).readFeatures(geojson, {
+            dataProjection: 'EPSG:4326',
+            featureProjection: this._lizmap3.map.getProjection()
+        });
+        if (features.length === 0) {
+            throw new Error(lizDict['digitizing.import.server.empty']);
+        }
+        return features;
     }
 }
