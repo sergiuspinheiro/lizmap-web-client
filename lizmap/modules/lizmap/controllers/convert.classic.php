@@ -47,7 +47,7 @@ class convertCtrl extends jController
             return $this->error($rep, 404, 'Unknown project');
         }
 
-        if ($this->request->method != 'POST' || !isset($_FILES['file'])) {
+        if (!$this->request->isPostMethod() || !isset($_FILES['file'])) {
             return $this->error($rep, 400, 'No file');
         }
         $file = $_FILES['file'];

@@ -146,7 +146,7 @@ export default class Catalog extends HTMLElement {
 
     /**
      * Layers added from the catalog, to save them in a map view
-     * @type {Array<{repository: string, project: string, layer: string}>}
+     * @type {Array<{repository: string, project: string, layer: string, style: string, opacity: number}>}
      */
     get addedLayers() {
         const list = [];
@@ -154,7 +154,13 @@ export default class Catalog extends HTMLElement {
             const [repository, project] = key.split('~');
             // Children are listed from the top of the group
             for (const item of [...group.children].reverse()) {
-                list.push({ repository, project, layer: item.name });
+                list.push({
+                    repository,
+                    project,
+                    layer: item.name,
+                    style: item.olLayer.getSource().getParams().STYLES || '',
+                    opacity: item.opacity,
+                });
             }
         }
         return list;
@@ -191,7 +197,7 @@ export default class Catalog extends HTMLElement {
             const loaded = this._projects.get(project.key);
             const layer = loaded?.layers?.find(l => l.name === item.layer);
             if (layer && !this.isAdded(loaded, layer)) {
-                this.addLayer(loaded, layer);
+                this.addLayer(loaded, layer, { style: item.style, opacity: item.opacity });
                 count++;
             }
         }
@@ -214,8 +220,9 @@ export default class Catalog extends HTMLElement {
      * Add a catalog layer to the map, in the external group of its project
      * @param {object} project - the loaded project
      * @param {object} layer - the layer
+     * @param {{style?: string, opacity?: number}} settings - the layer style and opacity
      */
-    addLayer(project, layer) {
+    addLayer(project, layer, settings = {}) {
         if (this.isAdded(project, layer)) {
             lizMap.addMessage(lizDict['catalog.layer.already'], 'info', true);
             return;
@@ -225,7 +232,7 @@ export default class Catalog extends HTMLElement {
                 url: project.wmsUrl,
                 params: {
                     LAYERS: layer.wmsName,
-                    STYLES: '',
+                    STYLES: this._validStyle(layer, settings.style),
                     FORMAT: layer.imageFormat || 'image/png',
                     TRANSPARENT: true,
                 },
@@ -245,7 +252,96 @@ export default class Catalog extends HTMLElement {
         }
         const layerState = group.addOlLayer(layer.name, olLayer);
         layerState.wmsTitle = layer.title;
+        if (typeof settings.opacity === 'number' && settings.opacity >= 0 && settings.opacity <= 1) {
+            layerState.opacity = settings.opacity;
+        }
+        this._registerPopup();
         this._render();
+    }
+
+    /**
+     * A style of the layer, the default one if unknown
+     * @param {object} layer - the layer
+     * @param {string|undefined} style - the wanted style
+     * @returns {string} the style name, empty for the default style
+     */
+    _validStyle(layer, style) {
+        return (layer.styles || []).includes(style) ? style : '';
+    }
+
+    /**
+     * The map layer state of an added catalog layer
+     * @param {object} project - the loaded project
+     * @param {object} layer - the layer
+     * @returns {object|undefined} the OlMapLayerState
+     */
+    layerState(project, layer) {
+        return this._groups.get(project.key)?.children.find(item => item.name === layer.name);
+    }
+
+    /**
+     * Change the style of an added layer
+     * @param {object} project - the loaded project
+     * @param {object} layer - the layer
+     * @param {string} style - the style name
+     */
+    setStyle(project, layer, style) {
+        const source = this.layerState(project, layer)?.olLayer.getSource();
+        source?.updateParams({ STYLES: this._validStyle(layer, style) });
+        this._render();
+    }
+
+    /**
+     * Query the visible catalog layers with popups when the user clicks on
+     * the map, with the popup configuration of their project.
+     */
+    _registerPopup() {
+        if (this._popupRegistered || !mainLizmap.popup) {
+            return;
+        }
+        this._popupRegistered = true;
+        mainLizmap.popup.addFeatureInfoProvider(() => {
+            const requests = [];
+            for (const [key, group] of this._groups) {
+                const project = this._projects.get(key);
+                if (!project?.layers || !group.visibility) {
+                    continue;
+                }
+                const layers = [];
+                const styles = [];
+                for (const item of group.children) {
+                    const layer = project.layers.find(l => l.name === item.name);
+                    if (layer?.popup && item.visibility) {
+                        layers.push(layer.wmsName);
+                        styles.push(item.olLayer.getSource().getParams().STYLES || '');
+                    }
+                }
+                if (layers.length) {
+                    requests.push({ repository: project.repository, project: project.project, layers, styles });
+                }
+            }
+            return requests;
+        });
+    }
+
+    /**
+     * GetLegendGraphic URL of a layer
+     * @param {object} project - the loaded project
+     * @param {object} layer - the layer
+     * @param {string} style - the style name
+     * @returns {string} the URL
+     */
+    legendUrl(project, layer, style) {
+        const params = new URLSearchParams({
+            SERVICE: 'WMS',
+            VERSION: '1.3.0',
+            REQUEST: 'GetLegendGraphic',
+            LAYER: layer.wmsName,
+            STYLE: style || '',
+            FORMAT: 'image/png',
+            TRANSPARENT: 'true',
+        });
+        return project.wmsUrl + (project.wmsUrl.includes('?') ? '&' : '?') + params.toString();
     }
 
     /**
@@ -351,8 +447,38 @@ export default class Catalog extends HTMLElement {
                     : html`<button type="button" class="btn btn-sm btn-primary catalog-add" title="${lizDict['catalog.layer.add']}"
                         @click=${() => this.addLayer(project, layer)}><i class="icon-plus icon-white"></i></button>`}
             </span>
+            ${added ? this._settingsTemplate(project, layer) : ''}
             ${previewed ? this._previewTemplate(project, layer) : ''}
         </li>`;
+    }
+
+    _settingsTemplate(project, layer) {
+        const state = this.layerState(project, layer);
+        if (!state) {
+            return '';
+        }
+        const style = state.olLayer.getSource().getParams().STYLES || '';
+        return html`
+        <div class="catalog-layer-settings">
+            ${(layer.styles || []).length > 1 ? html`
+                <label>${lizDict['catalog.layer.style']}
+                    <select class="catalog-style form-select form-select-sm"
+                        @change=${(e) => this.setStyle(project, layer, e.target.value)}>
+                        ${layer.styles.map(name => html`
+                            <option value="${name}" ?selected=${style === name}>${name}</option>`)}
+                    </select>
+                </label>` : ''}
+            <label>${lizDict['catalog.layer.opacity']}
+                <input type="range" class="catalog-opacity" min="0" max="100" step="10"
+                    .value=${String(Math.round(state.opacity * 100))}
+                    @input=${(e) => { state.opacity = Number(e.target.value) / 100; }}>
+            </label>
+            <img class="catalog-legend" alt="" loading="lazy" src="${this.legendUrl(project, layer, style)}">
+            <p class="catalog-layer-info">
+                ${layer.popup ? html`<span class="badge text-bg-secondary">${lizDict['catalog.layer.popup']}</span>` : ''}
+                ${layer.attributeTable ? html`<a href="${project.mapUrl}" target="_blank">${lizDict['catalog.layer.attributetable']}</a>` : ''}
+            </p>
+        </div>`;
     }
 
     _previewTemplate(project, layer) {

@@ -96,6 +96,7 @@ class catalogCtrl extends jController
         }
 
         $config = $project->getUpdatedConfig();
+        $attributeLayers = property_exists($config, 'attributeLayers') ? (array) $config->attributeLayers : array();
         $layers = array();
         foreach ($config->layers as $layer) {
             $isGroupAsLayer = property_exists($layer, 'groupAsLayer')
@@ -116,6 +117,9 @@ class catalogCtrl extends jController
                 'crs' => property_exists($layer, 'crs') ? $layer->crs : '',
                 'baseLayer' => property_exists($layer, 'baseLayer') && filter_var($layer->baseLayer, FILTER_VALIDATE_BOOLEAN),
                 'imageFormat' => property_exists($layer, 'imageFormat') ? $layer->imageFormat : 'image/png',
+                'styles' => property_exists($layer, 'styles') ? array_values((array) $layer->styles) : array(),
+                'popup' => property_exists($layer, 'popup') && filter_var($layer->popup, FILTER_VALIDATE_BOOLEAN),
+                'attributeTable' => array_key_exists($layer->name, $attributeLayers),
             );
         }
 
@@ -124,6 +128,7 @@ class catalogCtrl extends jController
             'project' => $projectKey,
             'title' => $project->getTitle(),
             'wmsUrl' => jUrl::getFull('lizmap~service:index', array('repository' => $repository, 'project' => $projectKey)),
+            'mapUrl' => jUrl::get('view~map:index', array('repository' => $repository, 'project' => $projectKey)),
             'layers' => $layers,
         );
 

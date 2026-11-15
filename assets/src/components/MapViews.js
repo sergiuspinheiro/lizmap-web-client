@@ -47,7 +47,13 @@ export default class MapViews extends HTMLElement {
             ? await fetch(url, { method: 'POST', body: this._params(extra) })
             : await fetch(url + '?' + this._params(extra).toString());
         if (!response.ok) {
-            throw new Error(response.statusText);
+            let message = response.statusText;
+            try {
+                message = (await response.json()).error || message;
+            } catch {
+                // Not a JSON response
+            }
+            throw new Error(message);
         }
         return response.json();
     }
@@ -59,7 +65,7 @@ export default class MapViews extends HTMLElement {
             await action();
         } catch (error) {
             console.error(error);
-            lizMap.addMessage(lizDict['mapviews.error'], 'danger', true);
+            lizMap.addMessage(lizDict['mapviews.error'] + ' (' + error.message + ')', 'danger', true);
         }
         this._busy = false;
         this._render();

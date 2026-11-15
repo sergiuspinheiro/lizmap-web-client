@@ -32,6 +32,7 @@
     <div id="dock">
       {zone 'view~map_dock', array('repository'=>$repository,'project'=>$project,'dockable'=>$dockable)}
     </div>
+    <div id="dock-resizer" title="{@view~map.dock.resize.title@}"></div>
 
     <div id="sub-dock">
     </div>
