@@ -33,6 +33,7 @@ import TypeAHead from './components/TypeAHead.js';
 import GroupPopupByLayer from './components/GroupPopupByLayer.js';
 import Panoramax from './components/Panoramax.js';
 import LayerCompare from './components/LayerCompare.js';
+import Catalog from './components/Catalog.js';
 
 import { mainLizmap, mainEventDispatcher } from './modules/Globals.js';
 import executeJSFromServer from './modules/ExecuteJSFromServer.js';
@@ -115,6 +116,7 @@ const definedCustomElements = () => {
     window.customElements.define('lizmap-group-popup-layer', GroupPopupByLayer);
     window.customElements.define('lizmap-panoramax', Panoramax);
     window.customElements.define('lizmap-layercompare', LayerCompare);
+    window.customElements.define('lizmap-catalog', Catalog);
 
     /**
          * At this point the user interface is fully loaded.

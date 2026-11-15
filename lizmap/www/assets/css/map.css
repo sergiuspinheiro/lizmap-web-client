@@ -4612,3 +4612,89 @@ These lines will be removed in the future, when the minimum target version will 
   margin-top: 0.5em;
   margin-left: auto;
 }
+
+/* Geographic data catalog */
+#mapmenu .nav-list > li.catalog .icon {
+  background-image: none;
+  background-color: white;
+  mask-image: url("../svg/catalog.svg");
+  mask-size: 18px 18px;
+  mask-position: center center;
+  mask-repeat: no-repeat;
+}
+
+#mapmenu .nav-list > li.catalog.active .icon,
+#mapmenu .nav-list > li.catalog a:hover .icon {
+  background-image: none;
+  background-color: #333;
+}
+
+lizmap-catalog {
+  display: block;
+  padding: 6px;
+}
+
+lizmap-catalog .catalog-help {
+  margin: 6px 0;
+  font-size: 0.9em;
+  opacity: 0.8;
+}
+
+lizmap-catalog .catalog-repository h4 {
+  margin: 10px 0 4px;
+}
+
+lizmap-catalog .catalog-project summary {
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+lizmap-catalog .catalog-layers {
+  list-style: none;
+  margin: 0 0 6px 12px;
+  padding: 0;
+}
+
+lizmap-catalog .catalog-layer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+  cursor: grab;
+}
+
+lizmap-catalog .catalog-layer-title {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+lizmap-catalog .catalog-layer.added .catalog-layer-title {
+  font-weight: bold;
+}
+
+lizmap-catalog .catalog-layer-preview {
+  flex-basis: 100%;
+  padding: 6px;
+  border-left: 3px solid #ccc;
+  cursor: default;
+}
+
+lizmap-catalog .catalog-thumbnail {
+  display: block;
+  max-width: 100%;
+  margin-bottom: 6px;
+  background: #fff;
+  border: 1px solid #ccc;
+}
+
+lizmap-catalog .catalog-layer-preview dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 8px;
+  margin: 0 0 6px;
+}
+
+lizmap-catalog .catalog-layer-preview dd {
+  margin: 0;
+}
