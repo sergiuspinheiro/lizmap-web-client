@@ -212,6 +212,7 @@ class lizMapCtrl extends jController
             'nominatim' => jUrl::get('lizmap~osm:nominatim'),
             'ign' => jUrl::get('lizmap~ign:address'),
             'edition' => jUrl::get('lizmap~edition:getFeature'),
+            'convert' => jUrl::get('lizmap~convert:index'),
             'editableFeatures' => jUrl::get('lizmap~edition:editableFeatures'),
             'unlinkChild' => jUrl::get('lizmap~edition:unlinkChild'),
             'permalink' => jUrl::getFull('view~map:index'),

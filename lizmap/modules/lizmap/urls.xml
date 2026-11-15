@@ -2,6 +2,7 @@
 <suburls xmlns="http://jelix.org/ns/suburls/1.0">
     <url pathinfo="/" action="default:index"/>
     <url pathinfo="/catalog"     controller="catalog"/>
+    <url pathinfo="/convert"     controller="convert"/>
     <url pathinfo="/datatables"  controller="datatables"/>
     <url pathinfo="/edition"     controller="edition"/>
     <url pathinfo="/features"    controller="features"/>
