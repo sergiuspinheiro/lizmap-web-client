@@ -39,18 +39,23 @@
 
 
 [lizmapAi]
-;; AI assistant of the data catalog (search in natural language and layer analysis), with Claude.
-;; It needs an Anthropic API key: https://console.anthropic.com/
+;; AI assistant of the data catalog (search in natural language and layer analysis).
+;; Claude by default, with an Anthropic API key: https://console.anthropic.com/
 ;; Only the metadata of the layers the user can see and aggregated statistics of the attributes
-;; (no rows, no geometries) are sent to the Anthropic API.
+;; (no rows, no geometries) are sent to the AI provider.
 ;enabled=on
-;; the API key, or leave it empty and set the ANTHROPIC_API_KEY environment variable of PHP
-;apiKey=
-;model=claude-opus-5-5
-;; claude (default), or ollama to use a model running on a server of yours (nothing leaves your network);
-;; with ollama, set model to a model pulled on that server, e.g. qwen3:14b, and its URL:
+;; provider: claude (default), openai, mistral, gemini, ollama (a model running on a server of yours,
+;; nothing leaves your network) or openai-compatible (LM Studio, vLLM, Groq, OpenRouter...)
 ;provider=claude
-;ollamaUrl=http://localhost:11434
+;; the API key, or leave it empty and set the environment variable of PHP:
+;; ANTHROPIC_API_KEY, OPENAI_API_KEY, MISTRAL_API_KEY or GEMINI_API_KEY. Not needed for ollama.
+;apiKey=
+;; the model: claude-opus-5-5 by default with Claude, required with the other providers,
+;; e.g. qwen3:14b with ollama
+;model=
+;; the API URL: for ollama (default http://localhost:11434, http://host.docker.internal:11434 from Docker)
+;; and openai-compatible (e.g. http://localhost:1234/v1)
+;url=
 ;; let anonymous users use the assistant (each request has a cost)
 ;allowAnonymous=off
 ;; send aggregated statistics of the attributes for the layer analysis (off: metadata only)
