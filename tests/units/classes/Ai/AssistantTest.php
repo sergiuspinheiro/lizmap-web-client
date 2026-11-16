@@ -109,4 +109,28 @@ class AssistantTest extends TestCase
         $this->assertEquals(50, $input['statistics']['limit']);
         $this->assertEquals('pt_PT', $input['language']);
     }
+
+    public function testOllamaProvider(): void
+    {
+        // A local model needs no API key, but a model name
+        $assistant = new Assistant(array('enabled' => 'on', 'provider' => 'ollama'));
+        $this->assertEquals('ollama', $assistant->provider());
+        $this->assertFalse($assistant->isEnabled());
+
+        $assistant = new Assistant(array('enabled' => 'on', 'provider' => 'Ollama', 'model' => 'qwen3:14b'));
+        $this->assertTrue($assistant->isEnabled());
+
+        $body = $assistant->ollamaRequestBody('system', array(
+            array('type' => 'text', 'text' => 'catalog'),
+            array('type' => 'text', 'text' => 'question'),
+        ), array('type' => 'object'));
+        $this->assertEquals('qwen3:14b', $body['model']);
+        $this->assertFalse($body['stream']);
+        $this->assertEquals(array('type' => 'object'), $body['format']);
+        $this->assertEquals('system', $body['messages'][0]['content']);
+        $this->assertEquals("catalog\n\nquestion", $body['messages'][1]['content']);
+
+        $assistant = new Assistant(array('enabled' => 'on', 'apiKey' => 'key'));
+        $this->assertEquals('claude', $assistant->provider());
+    }
 }
