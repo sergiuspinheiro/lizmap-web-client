@@ -47,6 +47,10 @@
 ;; the API key, or leave it empty and set the ANTHROPIC_API_KEY environment variable of PHP
 ;apiKey=
 ;model=claude-opus-5-5
+;; claude (default), or ollama to use a model running on a server of yours (nothing leaves your network);
+;; with ollama, set model to a model pulled on that server, e.g. qwen3:14b, and its URL:
+;provider=claude
+;ollamaUrl=http://localhost:11434
 ;; let anonymous users use the assistant (each request has a cost)
 ;allowAnonymous=off
 ;; send aggregated statistics of the attributes for the layer analysis (off: metadata only)

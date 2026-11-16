@@ -15,6 +15,11 @@
  *     ; or the ANTHROPIC_API_KEY environment variable of PHP-FPM
  *     apiKey=
  *     model=claude-opus-5-5
+ *     ; claude (default) or ollama, a model running on a server of yours:
+ *     ; nothing leaves your network
+ *     provider=claude
+ *     ; URL of the Ollama server, with provider=ollama (model is then e.g. qwen3:14b)
+ *     ollamaUrl=http://localhost:11434
  *     ; let anonymous users use the assistant (costs!)
  *     allowAnonymous=off
  *     ; send aggregated statistics of the attributes for the layer analysis
@@ -61,10 +66,13 @@ class Assistant
         if ($apiKey === '') {
             $apiKey = (string) getenv('ANTHROPIC_API_KEY');
         }
+        $provider = strtolower(trim((string) ($config['provider'] ?? ''))) === 'ollama' ? 'ollama' : 'claude';
         $this->config = array(
+            'provider' => $provider,
+            'ollamaUrl' => rtrim(trim((string) ($config['ollamaUrl'] ?? '')) ?: 'http://localhost:11434', '/'),
             'enabled' => $bool($config['enabled'] ?? null, false),
             'apiKey' => $apiKey,
-            'model' => trim((string) ($config['model'] ?? '')) ?: self::DEFAULT_MODEL,
+            'model' => trim((string) ($config['model'] ?? '')) ?: ($provider === 'ollama' ? '' : self::DEFAULT_MODEL),
             'allowAnonymous' => $bool($config['allowAnonymous'] ?? null, false),
             'sendStatistics' => $bool($config['sendStatistics'] ?? null, true),
             'maxFeatures' => max(1, (int) ($config['maxFeatures'] ?? 1000)),
@@ -78,7 +86,19 @@ class Assistant
      */
     public function isEnabled()
     {
+        if ($this->config['provider'] === 'ollama') {
+            return $this->config['enabled'] && $this->config['model'] !== '';
+        }
+
         return $this->config['enabled'] && $this->config['apiKey'] !== '';
+    }
+
+    /**
+     * @return string claude or ollama
+     */
+    public function provider()
+    {
+        return $this->config['provider'];
     }
 
     /**
@@ -336,6 +356,87 @@ EOT;
     }
 
     /**
+     * Ask the configured provider, and get the JSON answer matching the schema.
+     *
+     * @param string $system  the system prompt
+     * @param array  $content the user message content blocks
+     * @param array  $schema  the JSON schema of the answer
+     * @param string $effort  the effort level (Claude only)
+     *
+     * @return array the decoded answer
+     *
+     * @throws AssistantException
+     */
+    protected function ask($system, array $content, array $schema, $effort)
+    {
+        if ($this->config['provider'] === 'ollama') {
+            return $this->askOllama($system, $content, $schema);
+        }
+
+        return $this->askClaude($system, $content, $schema, $effort);
+    }
+
+    /**
+     * Ask a model served by Ollama (https://ollama.com), with its native chat API.
+     *
+     * @param string $system  the system prompt
+     * @param array  $content the user message content blocks
+     * @param array  $schema  the JSON schema of the answer
+     *
+     * @return array the decoded answer
+     *
+     * @throws AssistantException
+     */
+    protected function askOllama($system, array $content, array $schema)
+    {
+        $body = $this->ollamaRequestBody($system, $content, $schema);
+
+        try {
+            $client = new \GuzzleHttp\Client(array('timeout' => 300));
+            $response = $client->post($this->config['ollamaUrl'].'/api/chat', array('json' => $body));
+        } catch (\GuzzleHttp\Exception\ConnectException $e) {
+            throw new AssistantException('The Ollama server cannot be reached', 0, $e);
+        } catch (\GuzzleHttp\Exception\GuzzleException $e) {
+            throw new AssistantException('The Ollama request failed: '.$e->getMessage(), 0, $e);
+        }
+
+        $data = json_decode((string) $response->getBody(), true);
+        $answer = is_array($data) ? json_decode((string) ($data['message']['content'] ?? ''), true) : null;
+        if (!is_array($answer)) {
+            throw new AssistantException('The AI assistant answer is not valid');
+        }
+
+        return $answer;
+    }
+
+    /**
+     * The body of an Ollama chat request.
+     *
+     * @param string $system  the system prompt
+     * @param array  $content the user message content blocks
+     * @param array  $schema  the JSON schema of the answer
+     *
+     * @return array the request body
+     */
+    public function ollamaRequestBody($system, array $content, array $schema)
+    {
+        $text = implode("\n\n", array_map(static function ($block) {
+            return (string) ($block['text'] ?? '');
+        }, $content));
+
+        return array(
+            'model' => $this->config['model'],
+            'stream' => false,
+            // Structured output: the answer follows the JSON schema
+            'format' => $schema,
+            'messages' => array(
+                array('role' => 'system', 'content' => $system),
+                array('role' => 'user', 'content' => $text),
+            ),
+        );
+    }
+
+    /**
      * Ask Claude, and get the JSON answer matching the schema.
      *
      * @param string $system  the system prompt
@@ -347,7 +448,7 @@ EOT;
      *
      * @throws AssistantException
      */
-    protected function ask($system, array $content, array $schema, $effort)
+    protected function askClaude($system, array $content, array $schema, $effort)
     {
         if (!class_exists('\Anthropic\Client')) {
             throw new AssistantException('The Anthropic PHP SDK is not installed (composer install in lizmap/)');
