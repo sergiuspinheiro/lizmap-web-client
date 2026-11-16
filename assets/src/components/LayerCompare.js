@@ -59,6 +59,9 @@ export default class LayerCompare extends HTMLElement {
             minidockopened: this._dockHandler,
             minidockclosed: this._dockHandler,
         });
+        // Close button of the mini-dock title, like the other tools
+        this._stopHandler = () => document.getElementById('button-layercompare')?.click();
+        document.getElementById('layercompare-stop')?.addEventListener('click', this._stopHandler);
         this._render();
     }
 
@@ -68,6 +71,7 @@ export default class LayerCompare extends HTMLElement {
             minidockopened: this._dockHandler,
             minidockclosed: this._dockHandler,
         });
+        document.getElementById('layercompare-stop')?.removeEventListener('click', this._stopHandler);
     }
 
     /**
@@ -382,7 +386,7 @@ export default class LayerCompare extends HTMLElement {
             this._rightName = names.find(n => n !== this._leftName) || '';
         }
         const select = (side, value) => html`
-            <select class="form-select layercompare-${side}"
+            <select class="form-select form-select-sm layercompare-${side}"
                 @change=${(e) => this._onSelect(side, e.target.value)}>
                 ${candidates.map(c => html`
                     <option value=${c.name} ?selected=${c.name === value}>${c.title}</option>`)}
@@ -390,27 +394,27 @@ export default class LayerCompare extends HTMLElement {
 
         render(html`
             <div class="menu-content">
-                <label>${lizDict['layercompare.left']}</label>
+                <label class="form-label">${lizDict['layercompare.left']}</label>
                 ${select('left', this._leftName)}
-                <label>${lizDict['layercompare.right']}</label>
+                <label class="form-label">${lizDict['layercompare.right']}</label>
                 ${select('right', this._rightName)}
-                <button type="button" class="btn btn-sm ${this._active ? 'active btn-primary' : ''} layercompare-toggle"
+                <button type="button" class="btn btn-primary w-100 ${this._active ? 'active' : ''} layercompare-toggle"
                     ?disabled=${!this._leftName || !this._rightName}
                     @click=${() => this._active ? this.deactivate() : this.activate()}>
                     ${this._active ? lizDict['layercompare.stop'] : lizDict['layercompare.start']}
                 </button>
                 <details class="layercompare-external">
                     <summary>${lizDict['layercompare.external.title']}</summary>
-                    <div class="input-group">
-                        <input type="text" class="form-control layercompare-ext-url"
+                    <div class="input-group input-group-sm">
+                        <input type="text" class="form-control form-control-sm layercompare-ext-url"
                             placeholder="${lizDict['layercompare.external.url']}"
                             @keydown=${(e) => e.key === 'Enter' && this._onLoadCapabilities()}>
                         <button type="button" class="btn btn-sm layercompare-ext-load" ?disabled=${this._loading}
                             @click=${() => this._onLoadCapabilities()}>${lizDict['layercompare.external.load']}</button>
                     </div>
                     ${this._wmsLayers.length ? html`
-                        <div class="input-group">
-                            <select class="form-select layercompare-ext-layer">
+                        <div class="input-group input-group-sm">
+                            <select class="form-select form-select-sm layercompare-ext-layer">
                                 ${this._wmsLayers.map(l => html`<option value=${l.name}>${l.title}</option>`)}
                             </select>
                             <button type="button" class="btn btn-sm layercompare-ext-add"
