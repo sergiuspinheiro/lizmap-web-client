@@ -4817,33 +4817,23 @@ lizmap-catalog .catalog-external-form {
 
 lizmap-catalog-table {
   display: block;
-  padding: 4px 8px;
+  height: 100%;
 }
 
-lizmap-catalog-table .catalog-table-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
-
-lizmap-catalog-table .catalog-table-toolbar h4 {
-  margin: 0 8px 0 0;
+lizmap-catalog-table .catalog-table-title {
+  margin: 0 8px;
+  font-weight: bold;
 }
 
 lizmap-catalog-table .catalog-table-filter {
-  width: auto;
-  min-width: 200px;
+  width: 200px;
+  margin-right: 4px;
 }
 
-lizmap-catalog-table .catalog-table-scroll {
-  overflow: auto;
-  max-height: 35vh;
+lizmap-catalog-table .attribute-layer-action-bar > a.btn {
+  margin-right: 4px;
 }
 
-lizmap-catalog-table .catalog-table-pages {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 4px;
+lizmap-catalog-table .catalog-table-empty {
+  padding: 4px 8px;
 }
