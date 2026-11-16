@@ -14,6 +14,7 @@ import { transformExtent } from 'ol/proj.js';
 import { openCatalogTable } from './CatalogTable.js';
 import { SERVICE_TYPES, readService, createLayer, serviceBaseUrl, withParams } from '../modules/ExternalServices.js';
 import { base64png } from '../modules/state/SymbologyIcons.js';
+import { getDefaultLayerIcon } from '../modules/state/Symbology.js';
 
 /** Drag and drop data type used to move a catalog layer onto the map */
 export const CATALOG_DRAG_TYPE = 'application/x-lizmap-catalog-layer';
@@ -457,6 +458,15 @@ export default class Catalog extends HTMLElement {
         }
         const layerState = group.addOlLayer(layer.name, olLayer);
         layerState.wmsTitle = layer.title;
+        // Icon of the geometry type, as the project layers, until the legend is read
+        const defaultIcon = getDefaultLayerIcon({
+            type: 'layer',
+            layerType: layer.geometryType && layer.geometryType !== 'none' ? 'vector' : 'raster',
+            geometryType: layer.geometryType && layer.geometryType !== 'none' ? layer.geometryType : null,
+        });
+        if (defaultIcon) {
+            layerState.icon = defaultIcon;
+        }
         if (typeof settings.opacity === 'number' && settings.opacity >= 0 && settings.opacity <= 1) {
             layerState.opacity = settings.opacity;
         }
