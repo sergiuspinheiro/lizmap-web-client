@@ -118,10 +118,13 @@ class AssistantTest extends TestCase
         );
         $schema = array('type' => 'object');
 
-        // A local model needs no API key, but a model name
-        $assistant = new Assistant(array('enabled' => 'on', 'provider' => 'ollama'));
+        // The default: a local model, no API key
+        $assistant = new Assistant(array('enabled' => 'on'));
         $this->assertEquals('ollama', $assistant->provider());
-        $this->assertFalse($assistant->isEnabled());
+        $this->assertTrue($assistant->isEnabled());
+        $request = $assistant->providerRequest('system', $content, $schema);
+        $this->assertEquals('http://localhost:11434/api/chat', $request['url']);
+        $this->assertEquals('qwen3:8b', $request['body']['model']);
         $assistant = new Assistant(array('enabled' => 'on', 'provider' => 'Ollama', 'model' => 'qwen3:14b', 'ollamaUrl' => 'http://host:11434/'));
         $this->assertTrue($assistant->isEnabled());
         $request = $assistant->providerRequest('system', $content, $schema);
@@ -159,9 +162,14 @@ class AssistantTest extends TestCase
         $this->assertEquals('g', $request['headers']['x-goog-api-key']);
         $this->assertEquals($schema, $request['body']['generationConfig']['responseJsonSchema']);
 
-        // Unknown provider: Claude
-        $assistant = new Assistant(array('enabled' => 'on', 'provider' => 'other', 'apiKey' => 'key'));
-        $this->assertEquals('claude', $assistant->provider());
+        // Unknown provider: the default one
+        $assistant = new Assistant(array('enabled' => 'on', 'provider' => 'other'));
+        $this->assertEquals('ollama', $assistant->provider());
+
+        // Claude: the key is required, the model has a default
+        $assistant = new Assistant(array('enabled' => 'on', 'provider' => 'claude'));
+        $this->assertFalse($assistant->isEnabled());
+        $assistant = new Assistant(array('enabled' => 'on', 'provider' => 'claude', 'apiKey' => 'key'));
         $this->assertTrue($assistant->isEnabled());
     }
 
