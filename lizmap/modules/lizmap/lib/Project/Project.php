@@ -2664,13 +2664,16 @@ class Project
             );
         }
 
-        // Attribute table of the layers added from the data catalog
-        $dockable[] = new \lizmapMapDockItem(
-            'catalogtable',
-            $this->appContext->getLocale('view~map.catalogtable.navbar.title'),
-            '<div class="menu-content"><lizmap-catalog-table></lizmap-catalog-table></div>',
-            12
-        );
+        // Attribute table of the layers added from the data catalog: a tab of
+        // the attribute layers dock when the project has one, else its own dock
+        if (!$this->hasAttributeLayers(true)) {
+            $dockable[] = new \lizmapMapDockItem(
+                'catalogtable',
+                $this->appContext->getLocale('view~map.catalogtable.navbar.title'),
+                '<div class="menu-content"><lizmap-catalog-table></lizmap-catalog-table></div>',
+                12
+            );
+        }
 
         if ($this->hasPanoramaxEnabled() && $this->getOption('panoramaxLocation') === 'bottom-dock') {
             $dockable[] = new \lizmapMapDockItem(

@@ -12,6 +12,60 @@ import { html, render } from 'lit-html';
 import GeoJSON from 'ol/format/GeoJSON.js';
 import { transformExtent } from 'ol/proj.js';
 
+/**
+ * Open the attribute table of a catalog layer: in a tab of the attribute
+ * table dock when the project has one, else in the catalog table dock.
+ * @param {object} project - the loaded catalog project
+ * @param {object} layer - the layer
+ * @returns {Promise<void>}
+ */
+export function openCatalogTable(project, layer) {
+    const tabs = document.getElementById('attributeLayers-tabs');
+    const container = document.getElementById('attribute-table-container');
+    if (!tabs || !container) {
+        const li = document.querySelector('#mapmenu li.catalogtable');
+        if (li && !li.classList.contains('active')) {
+            document.getElementById('button-catalogtable')?.click();
+        }
+        return document.querySelector('lizmap-catalog-table')?.show(project, layer);
+    }
+
+    let pane = document.getElementById('attribute-catalog-table');
+    let button = document.getElementById('nav-tab-attribute-catalog-table');
+    if (!pane) {
+        const tab = document.createElement('li');
+        tab.className = 'nav-item';
+        tab.setAttribute('role', 'presentation');
+        tab.innerHTML = `<button id="nav-tab-attribute-catalog-table" class="nav-link" data-bs-toggle="tab"
+            data-bs-target="#attribute-catalog-table" type="button" role="tab"><span class="title"></span>
+            &nbsp;<i class="btn-close-catalog-tab icon-remove icon-white" style="cursor:pointer"></i></button>`;
+        tabs.appendChild(tab);
+        pane = document.createElement('div');
+        pane.id = 'attribute-catalog-table';
+        pane.className = 'tab-pane attribute-content bottom-content';
+        pane.appendChild(document.createElement('lizmap-catalog-table'));
+        container.appendChild(pane);
+        button = tab.querySelector('button');
+        tab.querySelector('.btn-close-catalog-tab').addEventListener('click', (e) => {
+            e.stopPropagation();
+            tab.remove();
+            pane.remove();
+            const summary = document.getElementById('nav-tab-attribute-summary');
+            if (summary) {
+                globalThis.bootstrap.Tab.getOrCreateInstance(summary).show();
+            }
+        });
+    }
+    button.querySelector('.title').textContent = layer.title;
+
+    const li = document.querySelector('#mapmenu li.attributeLayers');
+    if (li && !li.classList.contains('active')) {
+        document.getElementById('button-attributeLayers')?.click();
+    }
+    globalThis.bootstrap.Tab.getOrCreateInstance(button).show();
+    return pane.querySelector('lizmap-catalog-table').show(project, layer);
+}
+
 /** Maximum number of features read */
 const MAX_FEATURES = 1000;
 
@@ -45,19 +99,15 @@ export default class CatalogTable extends HTMLElement {
     }
 
     /**
-     * Display the attribute table of a catalog layer, in the bottom dock
+     * Display the attribute table of a catalog layer
      * @param {object} project - the loaded catalog project
      * @param {object} layer - the layer
      * @returns {Promise<void>}
      */
-    async open(project, layer) {
+    async show(project, layer) {
         this._source = { project, layer };
         this._filter = '';
         this._page = 0;
-        const li = document.querySelector('#mapmenu li.catalogtable');
-        if (li && !li.classList.contains('active')) {
-            document.getElementById('button-catalogtable')?.click();
-        }
         await this.load();
     }
 

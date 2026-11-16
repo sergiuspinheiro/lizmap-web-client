@@ -11,6 +11,7 @@ import { html, render } from 'lit-html';
 import ImageLayer from 'ol/layer/Image.js';
 import ImageWMS from 'ol/source/ImageWMS.js';
 import { transformExtent } from 'ol/proj.js';
+import { openCatalogTable } from './CatalogTable.js';
 import { SERVICE_TYPES, readService, createLayer, serviceBaseUrl, withParams } from '../modules/ExternalServices.js';
 
 /** Drag and drop data type used to move a catalog layer onto the map */
@@ -723,7 +724,7 @@ export default class Catalog extends HTMLElement {
             <p class="catalog-layer-info">
                 ${layer.popup ? html`<span class="badge text-bg-secondary">${lizDict['catalog.layer.popup']}</span>` : ''}
                 ${layer.attributeTable ? html`<button type="button" class="btn btn-sm catalog-table-open"
-                    @click=${() => document.querySelector('lizmap-catalog-table')?.open(project, layer)}>
+                    @click=${() => openCatalogTable(project, layer)}>
                     ${lizDict['catalog.layer.attributetable']}</button>` : ''}
             </p>
         </div>`;
