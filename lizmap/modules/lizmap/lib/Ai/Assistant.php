@@ -545,8 +545,9 @@ EOT;
                     'think' => false,
                     // Structured output: the answer follows the JSON schema
                     'format' => $schema,
-                    // Room for the catalog (the default context is small and cuts it silently)
-                    'options' => array('num_ctx' => 16384),
+                    // Room for the short catalog, and a bounded answer: a model
+                    // that does not stop would block the request until the timeout
+                    'options' => array('num_ctx' => 8192, 'num_predict' => 600),
                     // Keep the model in memory between the questions
                     'keep_alive' => '30m',
                     'messages' => array(
