@@ -120,6 +120,8 @@ class catalogCtrl extends jController
                 'styles' => property_exists($layer, 'styles') ? array_values((array) $layer->styles) : array(),
                 'popup' => property_exists($layer, 'popup') && filter_var($layer->popup, FILTER_VALIDATE_BOOLEAN),
                 'attributeTable' => array_key_exists($layer->name, $attributeLayers),
+                // WFS type name, as given by QGIS Server
+                'typeName' => str_replace(' ', '_', (property_exists($layer, 'shortname') && $layer->shortname) ? $layer->shortname : $layer->name),
             );
         }
 

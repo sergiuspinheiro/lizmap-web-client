@@ -4804,3 +4804,46 @@ lizmap-catalog .catalog-external-form {
   gap: 4px;
   margin: 4px 0;
 }
+
+/* Catalog attribute table (bottom dock) */
+#mapmenu .nav-list > li.catalogtable .icon {
+  background-position: -525px 0;
+}
+
+#mapmenu .nav-list > li.catalogtable.active .icon,
+#mapmenu .nav-list > li.catalogtable a:hover .icon {
+  background-position: -500px 0;
+}
+
+lizmap-catalog-table {
+  display: block;
+  padding: 4px 8px;
+}
+
+lizmap-catalog-table .catalog-table-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+lizmap-catalog-table .catalog-table-toolbar h4 {
+  margin: 0 8px 0 0;
+}
+
+lizmap-catalog-table .catalog-table-filter {
+  width: auto;
+  min-width: 200px;
+}
+
+lizmap-catalog-table .catalog-table-scroll {
+  overflow: auto;
+  max-height: 35vh;
+}
+
+lizmap-catalog-table .catalog-table-pages {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}

@@ -2664,6 +2664,14 @@ class Project
             );
         }
 
+        // Attribute table of the layers added from the data catalog
+        $dockable[] = new \lizmapMapDockItem(
+            'catalogtable',
+            $this->appContext->getLocale('view~map.catalogtable.navbar.title'),
+            '<div class="menu-content"><lizmap-catalog-table></lizmap-catalog-table></div>',
+            12
+        );
+
         if ($this->hasPanoramaxEnabled() && $this->getOption('panoramaxLocation') === 'bottom-dock') {
             $dockable[] = new \lizmapMapDockItem(
                 'panoramax',
