@@ -35,6 +35,7 @@ import Panoramax from './components/Panoramax.js';
 import LayerCompare from './components/LayerCompare.js';
 import Catalog from './components/Catalog.js';
 import MapViews from './components/MapViews.js';
+import CatalogTable from './components/CatalogTable.js';
 import { initDockResizer } from './modules/DockResizer.js';
 
 import { mainLizmap, mainEventDispatcher } from './modules/Globals.js';
@@ -120,6 +121,7 @@ const definedCustomElements = () => {
     window.customElements.define('lizmap-layercompare', LayerCompare);
     window.customElements.define('lizmap-catalog', Catalog);
     window.customElements.define('lizmap-mapviews', MapViews);
+    window.customElements.define('lizmap-catalog-table', CatalogTable);
 
     /**
          * At this point the user interface is fully loaded.

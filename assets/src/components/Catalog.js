@@ -722,7 +722,9 @@ export default class Catalog extends HTMLElement {
             <img class="catalog-legend" alt="" loading="lazy" src="${this.legendUrl(project, layer, style)}">
             <p class="catalog-layer-info">
                 ${layer.popup ? html`<span class="badge text-bg-secondary">${lizDict['catalog.layer.popup']}</span>` : ''}
-                ${layer.attributeTable ? html`<a href="${project.mapUrl}" target="_blank">${lizDict['catalog.layer.attributetable']}</a>` : ''}
+                ${layer.attributeTable ? html`<button type="button" class="btn btn-sm catalog-table-open"
+                    @click=${() => document.querySelector('lizmap-catalog-table')?.open(project, layer)}>
+                    ${lizDict['catalog.layer.attributetable']}</button>` : ''}
             </p>
         </div>`;
     }
