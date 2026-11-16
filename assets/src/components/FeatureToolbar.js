@@ -30,7 +30,7 @@ export default class FeatureToolbar extends HTMLElement {
         [this._layerId, this._fid] = this.getAttribute('value').split('.');
         [this._pivotLayerId, this._parentFeatureId] = (this.getAttribute('pivot-layer') && this.getAttribute('pivot-layer').split(':') ) || [null, null];
         [this._pivotType, this._pivotLayerConfig] = this._pivotLayerId ? lizMap.getLayerConfigById(this._pivotLayerId) : [null, null];
-        [this._featureType, this._layerConfig] = lizMap.getLayerConfigById(this.layerId);
+        [this._featureType, this._layerConfig] = lizMap.getLayerConfigById(this.layerId) || [null, null];
         this._typeName = this._layerConfig?.shortname || this._layerConfig?.typename || this._layerConfig?.name;
         this._parentLayerId = this.getAttribute('parent-layer-id');
 

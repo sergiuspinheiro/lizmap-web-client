@@ -22,8 +22,8 @@ class convertCtrl extends jController
     /**
      * Convert the uploaded file `file` to GeoJSON in EPSG:4326.
      *
-     * Parameters: repository, project (the user must have access to the
-     * project), file (uploaded file) and optional crs (EPSG code of CSV and
+     * Parameters: repository, project (the user must be connected and have
+     * access to the project), file (uploaded file) and optional crs (EPSG code of CSV and
      * DXF files, which have no CRS).
      *
      * @return jResponseJson
@@ -47,12 +47,21 @@ class convertCtrl extends jController
             return $this->error($rep, 404, 'Unknown project');
         }
 
+        // Converting files uses the server resources: only for connected users
+        if (!jAuth::isConnected()) {
+            return $this->error($rep, 401, 'User is not connected');
+        }
+
         if (!$this->request->isPostMethod() || !isset($_FILES['file'])) {
-            return $this->error($rep, 400, 'No file');
+            // An empty $_FILES may come from a request bigger than post_max_size
+            return $this->error($rep, 400, 'No file, or the file is bigger than the server limit ('.ini_get('post_max_size').')');
         }
         $file = $_FILES['file'];
+        if (in_array($file['error'], array(UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE))) {
+            return $this->error($rep, 413, 'The file is bigger than the server upload limit ('.ini_get('upload_max_filesize').')');
+        }
         if ($file['error'] != UPLOAD_ERR_OK || !is_uploaded_file($file['tmp_name'])) {
-            return $this->error($rep, 400, 'Upload error');
+            return $this->error($rep, 400, 'Upload error ('.$file['error'].')');
         }
         if ($file['size'] > self::MAX_UPLOAD_SIZE) {
             return $this->error($rep, 413, 'The file is too big');

@@ -26,6 +26,8 @@ export default class Treeview extends HTMLElement {
         this._clickTimestamp;
         // Item being dragged in arrange mode: {parent, name}
         this._dragged = null;
+        // OpenLayers layers of the catalog layers whose settings are displayed
+        this._catalogSettingsOpen = new WeakSet();
     }
 
     connectedCallback() {
@@ -38,6 +40,8 @@ export default class Treeview extends HTMLElement {
             this._onChange();
         };
         this._arrangeButton?.addEventListener('click', this._arrangeHandler);
+        this._catalogHandler = () => this._onChange();
+        document.addEventListener('lizmapcatalogchanged', this._catalogHandler);
 
         this._onChange = () => {
             if (this._freeze) return;
@@ -54,9 +58,17 @@ export default class Treeview extends HTMLElement {
                     <img class="legend" src="${olLayer.icon}">
                     <label for="node-ol-${olLayer.name}">${olLayer.wmsTitle}</label>
                     <div class="layer-actions">
+                        ${olLayer.olLayer.get('lizmapCatalog')
+                            ? html`<i class="icon-info-sign" title="${lizDict['catalog.layer.settings']}"
+                                @click=${() => this._toggleCatalogSettings(olLayer)}></i>`
+                            : ''}
                     </div>
                 </div>
             </div>
+            ${this._catalogSettingsOpen.has(olLayer.olLayer)
+                ? document.querySelector('lizmap-catalog')?.settingsTemplate(
+                    olLayer.olLayer.get('lizmapCatalog').key, olLayer.olLayer.get('lizmapCatalog').name)
+                : ''}
         </li>`
 
         this._extGroupTemplate = (extGroup) =>
@@ -247,6 +259,7 @@ export default class Treeview extends HTMLElement {
 
     disconnectedCallback() {
         this._arrangeButton?.removeEventListener('click', this._arrangeHandler);
+        document.removeEventListener('lizmapcatalogchanged', this._catalogHandler);
         mainLizmap.state.layerTree.removeListener(
             this._onChange,
             [
@@ -292,6 +305,15 @@ export default class Treeview extends HTMLElement {
      */
     _parentKey(parent) {
         return parent === mainLizmap.state.layerTree ? '' : parent.name;
+    }
+
+    _toggleCatalogSettings(olLayerState) {
+        if (this._catalogSettingsOpen.has(olLayerState.olLayer)) {
+            this._catalogSettingsOpen.delete(olLayerState.olLayer);
+        } else {
+            this._catalogSettingsOpen.add(olLayerState.olLayer);
+        }
+        this._onChange();
     }
 
     _dragStart(e, item, parent) {

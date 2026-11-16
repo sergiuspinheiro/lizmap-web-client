@@ -241,6 +241,8 @@ export default class Catalog extends HTMLElement {
             }),
         });
         olLayer.set('name', layer.name);
+        // Lets the layer tree display the catalog layer settings
+        olLayer.set('lizmapCatalog', { key: project.key, name: layer.name });
 
         let group = this._groups.get(project.key);
         if (!group) {
@@ -452,6 +454,24 @@ export default class Catalog extends HTMLElement {
         </li>`;
     }
 
+    /**
+     * Settings of an added layer, for the layer tree
+     * @param {string} key - the project key, repository~project
+     * @param {string} name - the layer name
+     * @returns {import('lit-html').TemplateResult|string} the template
+     */
+    settingsTemplate(key, name) {
+        const project = this._projects.get(key);
+        const layer = project?.layers?.find(l => l.name === name);
+        return layer ? this._settingsTemplate(project, layer) : '';
+    }
+
+    _render() {
+        this._renderCatalog();
+        // The layer tree displays the settings too
+        document.dispatchEvent(new CustomEvent('lizmapcatalogchanged'));
+    }
+
     _settingsTemplate(project, layer) {
         const state = this.layerState(project, layer);
         if (!state) {
@@ -471,7 +491,7 @@ export default class Catalog extends HTMLElement {
             <label>${lizDict['catalog.layer.opacity']}
                 <input type="range" class="catalog-opacity" min="0" max="100" step="10"
                     .value=${String(Math.round(state.opacity * 100))}
-                    @input=${(e) => { state.opacity = Number(e.target.value) / 100; }}>
+                    @input=${(e) => { state.opacity = Number(e.target.value) / 100; this._render(); }}>
             </label>
             <img class="catalog-legend" alt="" loading="lazy" src="${this.legendUrl(project, layer, style)}">
             <p class="catalog-layer-info">
@@ -525,7 +545,7 @@ export default class Catalog extends HTMLElement {
         </details>`;
     }
 
-    _render() {
+    _renderCatalog() {
         let content;
         if (this._repositories === null || this._repositories === 'loading') {
             content = html`<p class="catalog-loading">${lizDict['catalog.loading']}</p>`;

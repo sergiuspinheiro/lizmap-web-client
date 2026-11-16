@@ -862,7 +862,7 @@ window.lizMap = function() {
                     if ( $('#mapmenu .nav-list > li.popupcontent').hasClass('active') &&
                 $('#popupcontent .lizmapPopupContent').hasClass('noContent') &&
                 config.options.popupLocation != 'right-dock'){
-                        document.getElementById('button-popupcontent').click();
+                        document.getElementById('button-popupcontent')?.click();
                     }
                 },2000);
             }
@@ -873,13 +873,13 @@ window.lizMap = function() {
           && (!mCheckMobile() || ( mCheckMobile() && hasPopupContent ) )
           && (lastLonLatInfo == null || eventLonLatInfo.lon != lastLonLatInfo.lon || eventLonLatInfo.lat != lastLonLatInfo.lat)
             ){
-                document.getElementById('button-popupcontent').click();
+                document.getElementById('button-popupcontent')?.click();
             }
             else if(
                 $('#mapmenu .nav-list > li.popupcontent').hasClass('active')
           && ( mCheckMobile() && hasPopupContent )
             ){
-                document.getElementById('button-popupcontent').click();
+                document.getElementById('button-popupcontent')?.click();
             }
         } else {
             // Hide previous popup
@@ -1515,10 +1515,9 @@ window.lizMap = function() {
             }
         }
         if ( !popupsAvailable ) {
-            if ($('#mapmenu .nav-list > li.popupcontent > a').length ) {
-                $('#mapmenu .nav-list > li.popupcontent').remove();
-            }
-            return null;
+            // Keep the popup dock hidden: layers added from the data catalog
+            // can display popups later
+            $('#mapmenu .nav-list > li.popupcontent').hide();
         }
 
         // Create the dock if needed
@@ -1531,6 +1530,9 @@ window.lizMap = function() {
                 // Initialize dock
                 var pcontent = '<div class="lizmapPopupContent"><h4>'+lizDict['popup.msg.start']+'</h4></div>';
                 addDock(popupContainerId, 'Popup', config.options.popupLocation, pcontent, 'icon-comment');
+                if ( !popupsAvailable ) {
+                    $('#mapmenu .nav-list > li.popupcontent').hide();
+                }
             } else {
                 $('#mapmenu .nav-list > li.popupcontent > a > span.icon').append('<i class="icon-comment icon-white" style="margin-left: 4px;"></i>');
                 $('#mapmenu .nav-list > li.popupcontent > a > span.icon').css('background-image', 'none');
@@ -1652,7 +1654,7 @@ window.lizMap = function() {
                         var pcontent = '<div class="lizmapPopupContent"><h4>'+lizDict['popup.msg.no.result']+'</h4></div>';
                         document.querySelector('#popupcontent div.menu-content').innerHTML = pcontent;
                         if ( $('#mapmenu .nav-list > li.popupcontent').hasClass('active') ){
-                            document.getElementById('button-popupcontent').click();
+                            document.getElementById('button-popupcontent')?.click();
                         }
                         if ( !$('#mapmenu .nav-list > li.popupcontent').hasClass('active') ){
                             $('#mapmenu .nav-list > li.popupcontent').hide();
