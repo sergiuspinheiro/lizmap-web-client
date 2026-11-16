@@ -4805,6 +4805,68 @@ lizmap-catalog .catalog-external-form {
   margin: 4px 0;
 }
 
+/* Catalog AI assistant */
+lizmap-catalog .catalog-ai {
+  margin: 6px 0;
+  padding: 4px 0;
+  border-top: 1px solid rgb(255 255 255 / 60%);
+}
+
+lizmap-catalog .catalog-ai summary {
+  cursor: pointer;
+  font-weight: bold;
+}
+
+lizmap-catalog .catalog-ai-form {
+  display: flex;
+  gap: 4px;
+  align-items: flex-start;
+  margin: 4px 0;
+}
+
+lizmap-catalog .catalog-ai-form textarea,
+lizmap-catalog .catalog-ai-form input {
+  flex: 1;
+}
+
+lizmap-catalog .catalog-ai-answer {
+  margin: 6px 0;
+}
+
+lizmap-catalog .catalog-ai-answer h5 {
+  margin: 6px 0 2px;
+}
+
+lizmap-catalog .catalog-ai-answer ul {
+  margin: 0 0 4px 16px;
+  padding: 0;
+}
+
+lizmap-catalog .catalog-ai-results {
+  margin-left: 0;
+}
+
+lizmap-catalog .catalog-ai-result {
+  cursor: default;
+}
+
+lizmap-catalog .catalog-ai-map {
+  display: block;
+  opacity: 0.8;
+}
+
+lizmap-catalog .catalog-ai-reason,
+lizmap-catalog .catalog-ai-source {
+  flex-basis: 100%;
+  margin: 0 0 4px;
+  font-size: 0.9em;
+  opacity: 0.8;
+}
+
+lizmap-catalog .catalog-ai-analysis {
+  margin-top: 6px;
+}
+
 /* Catalog attribute table (bottom dock) */
 #mapmenu .nav-list > li.catalogtable .icon {
   background-position: -525px 0;

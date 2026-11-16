@@ -36,3 +36,20 @@
 [auth_db]
 ; uncomment to enable authentication with the login or the email
 ;authenticateWith=login-email
+
+
+[lizmapAi]
+;; AI assistant of the data catalog (search in natural language and layer analysis), with Claude.
+;; It needs an Anthropic API key: https://console.anthropic.com/
+;; Only the metadata of the layers the user can see and aggregated statistics of the attributes
+;; (no rows, no geometries) are sent to the Anthropic API.
+;enabled=on
+;; the API key, or leave it empty and set the ANTHROPIC_API_KEY environment variable of PHP
+;apiKey=
+;model=claude-opus-5-5
+;; let anonymous users use the assistant (each request has a cost)
+;allowAnonymous=off
+;; send aggregated statistics of the attributes for the layer analysis (off: metadata only)
+;sendStatistics=on
+;; number of features read for the statistics
+;maxFeatures=1000
