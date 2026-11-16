@@ -204,8 +204,19 @@ class catalogCtrl extends jController
             return $this->error($rep, 400, 'The question must have 1 to 500 characters');
         }
 
+        $start = microtime(true);
+        $index = $this->cachedCatalogIndex();
+        $indexTime = microtime(true) - $start;
+
         try {
-            $rep->data = $assistant->search($question, $this->catalogIndex());
+            $rep->data = $assistant->search($question, $index);
+            jLog::log(sprintf(
+                'AI assistant search: %d layers read in %.1f s, answer of %s in %.1f s',
+                count($index),
+                $indexTime,
+                $assistant->provider(),
+                microtime(true) - $start - $indexTime,
+            ), 'lizmapadmin');
         } catch (AssistantException $e) {
             return $this->assistantError($rep, $e);
         }
@@ -331,6 +342,39 @@ class catalogCtrl extends jController
         $_SESSION['lizmapAiRequests'] = array_values($requests);
 
         return null;
+    }
+
+    /**
+     * The catalog index, cached for some minutes by user: reading every
+     * project of the server is long.
+     *
+     * @return list<array>
+     */
+    protected function cachedCatalogIndex()
+    {
+        $login = jAuth::isConnected() ? jAuth::getUserSession()->login : '__anonymous';
+        $key = 'lizmapAiIndex_'.sha1($login);
+
+        try {
+            $cached = jCache::get($key);
+            if (is_string($cached)) {
+                $index = json_decode($cached, true);
+                if (is_array($index)) {
+                    return $index;
+                }
+            }
+        } catch (\Exception $e) {
+            // No cache: read the projects
+        }
+        $index = $this->catalogIndex();
+
+        try {
+            jCache::set($key, json_encode($index), 900);
+        } catch (\Exception $e) {
+            jLog::logEx($e, 'error');
+        }
+
+        return $index;
     }
 
     /**
