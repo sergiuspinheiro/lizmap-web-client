@@ -13,6 +13,7 @@ import ImageWMS from 'ol/source/ImageWMS.js';
 import { transformExtent } from 'ol/proj.js';
 import { openCatalogTable } from './CatalogTable.js';
 import { SERVICE_TYPES, readService, createLayer, serviceBaseUrl, withParams } from '../modules/ExternalServices.js';
+import { base64png } from '../modules/state/SymbologyIcons.js';
 
 /** Drag and drop data type used to move a catalog layer onto the map */
 export const CATALOG_DRAG_TYPE = 'application/x-lizmap-catalog-layer';
@@ -461,6 +462,42 @@ export default class Catalog extends HTMLElement {
         }
         this._registerPopup();
         this._render();
+        this._loadLegend(project, layer, layerState);
+    }
+
+    /**
+     * Read the legend of a catalog layer for the layer tree: the layer icon
+     * and its symbols, like the layers of the project
+     * @param {object} project - the loaded project
+     * @param {object} layer - the layer
+     * @param {object} layerState - the layer state in the external group
+     * @returns {Promise<void>}
+     */
+    async _loadLegend(project, layer, layerState) {
+        const olLayer = layerState.olLayer;
+        const style = olLayer.getSource().getParams().STYLES || '';
+        try {
+            const response = await fetch(this.legendUrl(project, layer, style, 'application/json'));
+            if (!response.ok) {
+                throw new Error(response.status + ' ' + response.statusText);
+            }
+            const node = (await response.json())?.nodes?.[0];
+            // The style may have changed during the request
+            if (!node || (olLayer.getSource().getParams().STYLES || '') !== style) {
+                return;
+            }
+            const symbols = (node.symbols || [])
+                .filter(symbol => symbol.icon)
+                .map(symbol => ({ title: String(symbol.title ?? ''), icon: base64png + symbol.icon }));
+            const icon = node.icon || (symbols.length === 1 ? symbols[0].icon.slice(base64png.length) : '');
+            if (icon) {
+                layerState.icon = base64png + icon;
+            }
+            olLayer.set('lizmapCatalogSymbols', symbols.length > 1 ? symbols : []);
+            this._render();
+        } catch (error) {
+            console.warn(error);
+        }
     }
 
     /**
@@ -493,6 +530,10 @@ export default class Catalog extends HTMLElement {
         const source = this.layerState(project, layer)?.olLayer.getSource();
         source?.updateParams({ STYLES: this._validStyle(layer, style) });
         this._render();
+        const layerState = this.layerState(project, layer);
+        if (layerState) {
+            this._loadLegend(project, layer, layerState);
+        }
     }
 
     /**
@@ -533,16 +574,17 @@ export default class Catalog extends HTMLElement {
      * @param {object} project - the loaded project
      * @param {object} layer - the layer
      * @param {string} style - the style name
+     * @param {string} [format] - the legend format
      * @returns {string} the URL
      */
-    legendUrl(project, layer, style) {
+    legendUrl(project, layer, style, format = 'image/png') {
         const params = new URLSearchParams({
             SERVICE: 'WMS',
             VERSION: '1.3.0',
             REQUEST: 'GetLegendGraphic',
             LAYER: layer.wmsName,
             STYLE: style || '',
-            FORMAT: 'image/png',
+            FORMAT: format,
             TRANSPARENT: 'true',
         });
         return project.wmsUrl + (project.wmsUrl.includes('?') ? '&' : '?') + params.toString();
