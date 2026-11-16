@@ -8,9 +8,11 @@
 import { mainLizmap } from '../modules/Globals.js';
 import { Utils } from '../modules/Utils.js';
 import { html, render } from 'lit-html';
+import DataTable from 'datatables.net-bs5';
 
 import GeoJSON from 'ol/format/GeoJSON.js';
 import { transformExtent } from 'ol/proj.js';
+import { extend } from 'ol/extent.js';
 
 /**
  * Open the attribute table of a catalog layer: in a tab of the attribute
@@ -46,6 +48,7 @@ export function openCatalogTable(project, layer) {
         pane.appendChild(document.createElement('lizmap-catalog-table'));
         container.appendChild(pane);
         button = tab.querySelector('button');
+        button.addEventListener('shown.bs.tab', () => pane.querySelector('lizmap-catalog-table')?.refreshSize());
         tab.querySelector('.btn-close-catalog-tab').addEventListener('click', (e) => {
             e.stopPropagation();
             tab.remove();
@@ -69,13 +72,22 @@ export function openCatalogTable(project, layer) {
 /** Maximum number of features read */
 const MAX_FEATURES = 1000;
 
-/** Rows displayed per page */
-const PAGE_SIZE = 50;
+/**
+ * Escape a text for HTML
+ * @param {string} text - the text
+ * @returns {string} the escaped text
+ */
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
 
 /**
  * Read only attribute table of a layer added from the data catalog. The
  * features are read with the WFS of the source map, which checks the user
- * rights and the layer filters of the source project.
+ * rights and the layer filters of the source project. The table is built
+ * with DataTables, like the attribute table of the current project.
  * @class
  * @name CatalogTable
  * @augments HTMLElement
@@ -89,13 +101,17 @@ export default class CatalogTable extends HTMLElement {
         this._loading = false;
         this._error = '';
         this._filter = '';
-        this._page = 0;
         this._extentOnly = false;
         this._truncated = false;
+        this._dataTable = null;
     }
 
     connectedCallback() {
         this._render();
+    }
+
+    disconnectedCallback() {
+        this._destroyTable();
     }
 
     /**
@@ -107,7 +123,6 @@ export default class CatalogTable extends HTMLElement {
     async show(project, layer) {
         this._source = { project, layer };
         this._filter = '';
-        this._page = 0;
         await this.load();
     }
 
@@ -139,6 +154,7 @@ export default class CatalogTable extends HTMLElement {
         return url.toString();
     }
 
+
     /**
      * Load the features
      * @returns {Promise<void>}
@@ -149,6 +165,7 @@ export default class CatalogTable extends HTMLElement {
         }
         this._loading = true;
         this._error = '';
+        this._destroyTable();
         this._render();
         try {
             const response = await fetch(this._getFeatureUrl());
@@ -165,8 +182,10 @@ export default class CatalogTable extends HTMLElement {
             this._error = lizDict['catalog.table.error'] + ' (' + error.message + ')';
         }
         this._loading = false;
-        this._page = 0;
         this._render();
+        if (!this._error) {
+            this._buildTable();
+        }
     }
 
     /** @type {string[]} The attribute names */
@@ -182,14 +201,96 @@ export default class CatalogTable extends HTMLElement {
         return columns;
     }
 
-    /** @type {object[]} The features matching the text filter */
+    /** @type {object[]} The features matching the search of the table */
     get filteredFeatures() {
-        if (!this._filter) {
+        if (!this._dataTable) {
             return this._features;
         }
-        const filter = this._filter.toLowerCase();
-        return this._features.filter(feature => Object.values(feature.properties || {})
-            .some(value => value !== null && String(value).toLowerCase().includes(filter)));
+        return this._dataTable.rows({ search: 'applied' }).data().toArray();
+    }
+
+    _destroyTable() {
+        if (this._dataTable) {
+            this._dataTable.destroy();
+            this._dataTable = null;
+        }
+        const content = this.querySelector('.attribute-layer-content');
+        if (content) {
+            content.replaceChildren();
+        }
+    }
+
+    /**
+     * Build the DataTables table of the loaded features
+     */
+    _buildTable() {
+        const content = this.querySelector('.attribute-layer-content');
+        if (!content) {
+            return;
+        }
+        const table = document.createElement('table');
+        table.className = 'attribute-table-table table table-hover table-sm table-striped table-bordered';
+        table.setAttribute('width', '100%');
+        content.replaceChildren(table);
+
+        const columns = [{
+            title: '',
+            data: null,
+            orderable: false,
+            searchable: false,
+            className: 'lizmap-attribute-table-actions',
+            render: (data, type, feature) => feature.geometry
+                ? `<button type="button" class="btn btn-sm catalog-table-zoom" title="${escapeHtml(lizDict['catalog.table.zoom'])}"><i class="icon-zoom-in"></i></button>`
+                : '',
+        }];
+        for (const name of this.columns) {
+            columns.push({
+                title: escapeHtml(name),
+                // A function, as names may contain dots
+                data: feature => feature.properties?.[name] ?? '',
+                render: DataTable.render.text(),
+            });
+        }
+
+        this._dataTable = new DataTable(table, {
+            data: this._features,
+            columns,
+            order: columns.length > 1 ? [[1, 'asc']] : [],
+            language: { url: globalThis['lizUrls']?.['dataTableLanguage'] },
+            deferRender: true,
+            pageLength: 50,
+            scrollY: '95%',
+            search: { search: this._filter },
+            layout: {
+                topStart: null,
+                topEnd: null,
+                bottomStart: ['info', 'pageLength'],
+                bottomEnd: {
+                    paging: {
+                        firstLast: false
+                    }
+                },
+            },
+            initComplete: () => this.refreshSize(),
+        });
+
+        table.addEventListener('click', (event) => {
+            const button = event.target.closest('button.catalog-table-zoom');
+            if (button) {
+                this.zoomToFeature(this._dataTable.row(button.closest('tr')).data());
+            }
+        });
+    }
+
+    /**
+     * Adapt the table height to its container, like the attribute table
+     */
+    refreshSize() {
+        const container = this.closest('[id]');
+        if (container && globalThis.lizMap?.refreshDatatableSize) {
+            globalThis.lizMap.refreshDatatableSize('#' + container.id);
+        }
+        this._dataTable?.columns.adjust();
     }
 
     /**
@@ -197,7 +298,7 @@ export default class CatalogTable extends HTMLElement {
      * @param {object} feature - the GeoJSON feature
      */
     zoomToFeature(feature) {
-        if (!feature.geometry) {
+        if (!feature?.geometry) {
             return;
         }
         const olFeature = new GeoJSON().readFeature(feature, {
@@ -209,19 +310,48 @@ export default class CatalogTable extends HTMLElement {
     }
 
     /**
-     * Download the filtered features as CSV
+     * Zoom to the extent of the features matching the search
      */
-    exportCsv() {
+    zoomToFilteredFeatures() {
+        const features = this.filteredFeatures.filter(feature => feature.geometry);
+        if (!features.length) {
+            return;
+        }
+        const olFeatures = new GeoJSON().readFeatures({ type: 'FeatureCollection', features }, {
+            dataProjection: 'EPSG:4326',
+            featureProjection: mainLizmap.projection,
+        });
+        const extent = olFeatures[0].getGeometry().getExtent().slice();
+        for (const olFeature of olFeatures) {
+            extend(extent, olFeature.getGeometry().getExtent());
+        }
+        mainLizmap.map.getView().fit(extent, { padding: [20, 20, 20, 20], maxZoom: 18 });
+    }
+
+    /**
+     * Download the features matching the search
+     * @param {string} format - CSV or GeoJSON
+     */
+    export(format) {
+        const features = this.filteredFeatures;
+        const name = this._source.layer.name || 'export';
+        if (format === 'GeoJSON') {
+            Utils.downloadFileFromString(
+                JSON.stringify({ type: 'FeatureCollection', features }),
+                'application/geo+json', name + '.geojson'
+            );
+            return;
+        }
         const columns = this.columns;
         const escape = value => {
             const text = value === null || value === undefined ? '' : String(value);
             return /[",\n;]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
         };
         const lines = [columns.map(escape).join(',')];
-        for (const feature of this.filteredFeatures) {
+        for (const feature of features) {
             lines.push(columns.map(c => escape(feature.properties?.[c])).join(','));
         }
-        Utils.downloadFileFromString(lines.join('\n'), 'text/csv', (this._source.layer.name || 'export') + '.csv');
+        Utils.downloadFileFromString(lines.join('\n'), 'text/csv', name + '.csv');
     }
 
     _render() {
@@ -230,60 +360,43 @@ export default class CatalogTable extends HTMLElement {
             return;
         }
         const { project, layer } = this._source;
-        const columns = this.columns;
-        const features = this.filteredFeatures;
-        const pages = Math.max(1, Math.ceil(features.length / PAGE_SIZE));
-        const page = Math.min(this._page, pages - 1);
-        const rows = features.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+        const ready = !this._loading && !this._error;
         render(html`
-            <div class="catalog-table-toolbar">
-                <h4>${layer.title} <small>(${project.title})</small></h4>
-                <input type="search" class="form-control form-control-sm catalog-table-filter"
-                    placeholder="${lizDict['catalog.table.filter']}" .value=${this._filter}
-                    @input=${(e) => { this._filter = e.target.value.trim(); this._page = 0; this._render(); }}>
-                <label class="catalog-table-extent">
-                    <input type="checkbox" .checked=${this._extentOnly}
-                        @change=${(e) => { this._extentOnly = e.target.checked; this.load(); }}>
-                    ${lizDict['catalog.table.extent']}
-                </label>
-                <button type="button" class="btn btn-sm catalog-table-refresh" title="${lizDict['catalog.table.refresh']}"
-                    @click=${() => this.load()}><i class="icon-refresh"></i></button>
-                <button type="button" class="btn btn-sm catalog-table-export" ?disabled=${!features.length}
-                    @click=${() => this.exportCsv()}>CSV</button>
-                <a class="btn btn-sm" href="${project.mapUrl}" target="_blank">${lizDict['catalog.table.edit']}</a>
-            </div>
-            ${this._loading ? html`<p class="catalog-loading">${lizDict['catalog.loading']}</p>` : ''}
-            ${this._error ? html`<p class="catalog-error">${this._error}</p>` : ''}
-            ${!this._loading && !this._error ? html`
-                <p class="catalog-table-count">
-                    ${features.length} / ${this._features.length}
-                    ${this._truncated ? html` (${lizDict['catalog.table.truncated']})` : ''}
-                </p>
-                <div class="catalog-table-scroll">
-                    <table class="table table-sm table-striped table-bordered">
-                        <thead><tr><th></th>${columns.map(c => html`<th>${c}</th>`)}</tr></thead>
-                        <tbody>
-                            ${rows.map(feature => html`
-                                <tr>
-                                    <td>
-                                        <button type="button" class="btn btn-sm catalog-table-zoom" title="${lizDict['catalog.table.zoom']}"
-                                            ?disabled=${!feature.geometry}
-                                            @click=${() => this.zoomToFeature(feature)}><i class="icon-zoom-in"></i></button>
-                                    </td>
-                                    ${columns.map(c => html`<td>${feature.properties?.[c] ?? ''}</td>`)}
-                                </tr>`)}
-                        </tbody>
-                    </table>
+            <div class="attribute-layer-main">
+                <div class="attribute-layer-action-bar">
+                    <button type="button" class="btn btn-sm" ?disabled=${!ready}
+                        title="${lizDict['attributeLayers.toolbar.btn.fit.filtered.extent.title']}"
+                        @click=${() => this.zoomToFilteredFeatures()}><i class="icon-fullscreen"></i></button>
+                    <button type="button" class="btn-filterbyextent-attributeTable btn btn-sm ${this._extentOnly ? 'active' : ''}"
+                        aria-pressed="${this._extentOnly}" title="${lizDict['attributeLayers.toolbar.btn.filterByExtent.title']}"
+                        @click=${() => { this._extentOnly = !this._extentOnly; this.load(); }}>
+                        <svg><use href="${globalThis['lizUrls']?.svgSprite}#filter-square"/></svg>
+                    </button>
+                    <button type="button" class="btn btn-sm" title="${lizDict['catalog.table.refresh']}"
+                        @click=${() => this.load()}><i class="icon-refresh"></i></button>
+                    <a class="btn btn-sm" href="${project.mapUrl}" target="_blank"
+                        title="${lizDict['catalog.table.edit']}"><i class="icon-share"></i></a>
+                    <span class="catalog-table-title">${layer.title} <small>(${project.title})</small></span>
+                    ${this._loading ? html`<span class="attribute-layer-msg">${lizDict['catalog.loading']}</span>` : ''}
+                    ${this._error ? html`<span class="attribute-layer-msg failure">${this._error}</span>` : ''}
+                    ${this._truncated && ready ? html`<span class="attribute-layer-msg">${lizDict['catalog.table.truncated']}</span>` : ''}
+                    <div class="export-formats dropdown float-end" role="group">
+                        <button type="button" class="btn btn-sm dropdown-toggle" data-bs-toggle="dropdown"
+                            aria-expanded="false" ?disabled=${!ready || !this._features.length}>
+                            ${lizDict['attributeLayers.toolbar.btn.data.export.title']}
+                        </button>
+                        <ul class="dropdown-menu" role="menu">
+                            ${['CSV', 'GeoJSON'].map(format => html`
+                                <li><button type="button" class="dropdown-item"
+                                    @click=${() => this.export(format)}>${format}</button></li>`)}
+                        </ul>
+                    </div>
+                    <input type="search" class="form-control form-control-sm float-end catalog-table-filter"
+                        placeholder="${lizDict['catalog.table.filter']}" .value=${this._filter} ?disabled=${!ready}
+                        @input=${(e) => { this._filter = e.target.value; this._dataTable?.search(this._filter).draw(); }}>
                 </div>
-                ${pages > 1 ? html`
-                    <div class="catalog-table-pages">
-                        <button type="button" class="btn btn-sm" ?disabled=${page === 0}
-                            @click=${() => { this._page = page - 1; this._render(); }}>‹</button>
-                        <span>${page + 1} / ${pages}</span>
-                        <button type="button" class="btn btn-sm" ?disabled=${page >= pages - 1}
-                            @click=${() => { this._page = page + 1; this._render(); }}>›</button>
-                    </div>` : ''}
-            ` : ''}
+                <div class="attribute-layer-content"></div>
+            </div>
         `, this);
     }
 }
