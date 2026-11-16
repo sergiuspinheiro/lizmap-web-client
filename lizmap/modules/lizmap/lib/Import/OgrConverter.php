@@ -27,6 +27,9 @@ class OgrConverter
      */
     public const ZIP_EXTENSIONS = array('shp', 'tab', 'mif', 'gpkg', 'dxf', 'gml', 'kml', 'csv', 'geojson', 'json', 'gdb');
 
+    /** Maximum size of the files of a zip archive, in bytes */
+    public const MAX_UNCOMPRESSED_SIZE = 200000000;
+
     /** @var string */
     protected $ogr2ogr;
 
@@ -98,6 +101,17 @@ class OgrConverter
 
         $zip = new \ZipArchive();
         if ($zip->open($path) !== true) {
+            return null;
+        }
+        // Refuse archives expanding to huge files (zip bombs)
+        $uncompressed = 0;
+        for ($i = 0; $i < $zip->numFiles; ++$i) {
+            $stat = $zip->statIndex($i);
+            $uncompressed += $stat ? $stat['size'] : 0;
+        }
+        if ($uncompressed > self::MAX_UNCOMPRESSED_SIZE) {
+            $zip->close();
+
             return null;
         }
         $found = null;

@@ -4749,17 +4749,17 @@ lizmap-mapviews input {
   min-width: 0;
 }
 
-lizmap-catalog .catalog-layer-settings {
+.catalog-layer-settings {
   flex-basis: 100%;
   padding: 4px 0 4px 12px;
   cursor: default;
 }
 
-lizmap-catalog .catalog-layer-settings label {
+.catalog-layer-settings label {
   display: block;
 }
 
-lizmap-catalog .catalog-legend {
+.catalog-legend {
   display: block;
   max-width: 100%;
   background: #fff;

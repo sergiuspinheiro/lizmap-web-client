@@ -2263,9 +2263,21 @@ export class Digitizing {
         formData.append('crs', file.name.toLowerCase().endsWith('.dxf') ? this._lizmap3.map.getProjection() : '');
         const response = await fetch(globalThis.lizUrls.convert, { method: 'POST', body: formData });
         if (!response.ok) {
-            const message = response.status === 501
-                ? lizDict['digitizing.import.server.unavailable']
-                : lizDict['digitizing.import.server.error'];
+            let message = lizDict['digitizing.import.server.error'];
+            if (response.status === 501) {
+                message = lizDict['digitizing.import.server.unavailable'];
+            } else if (response.status === 401) {
+                message = lizDict['digitizing.import.server.login'];
+            } else {
+                try {
+                    const detail = (await response.json()).error;
+                    if (detail) {
+                        message += ' (' + detail + ')';
+                    }
+                } catch {
+                    // Not a JSON response
+                }
+            }
             throw new Error(message);
         }
         const geojson = await response.json();

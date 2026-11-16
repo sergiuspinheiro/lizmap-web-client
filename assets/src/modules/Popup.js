@@ -232,7 +232,13 @@ export default class Popup {
             delete otherParams.FILTERTOKEN;
             delete otherParams.LEGEND_ON;
             delete otherParams.LEGEND_OFF;
-            requests.push(wms.getFeatureInfo(otherParams).catch(error => {
+            requests.push(wms.getFeatureInfo(otherParams).then(html => {
+                // Feature tools (edition, selection, zoom...) need the layer
+                // configuration of the current project: remove them
+                const doc = new DOMParser().parseFromString(html, 'text/html');
+                doc.querySelectorAll('lizmap-feature-toolbar').forEach(el => el.remove());
+                return doc.body.innerHTML;
+            }).catch(error => {
                 console.warn(error);
                 return '';
             }));
