@@ -69,6 +69,9 @@ class Assistant
     /** @var int Maximum number of layers described to the assistant for a search */
     public const MAX_INDEX_LAYERS = 3000;
 
+    /** @var int Maximum number of layers described to a local model for a search */
+    public const MAX_LOCAL_INDEX_LAYERS = 60;
+
     /** @var int Maximum length of an abstract sent to the assistant */
     public const MAX_ABSTRACT_LENGTH = 300;
 
@@ -174,7 +177,9 @@ class Assistant
      */
     public function search($question, array $layers)
     {
-        $layers = array_slice($layers, 0, self::MAX_INDEX_LAYERS);
+        // A local model reads slowly: only the layers closest to the question
+        $max = $this->config['provider'] === 'ollama' ? self::MAX_LOCAL_INDEX_LAYERS : self::MAX_INDEX_LAYERS;
+        $layers = self::closestLayers($question, $layers, $max);
         $byId = array();
         foreach ($layers as $layer) {
             $byId[$layer['id']] = $layer;
@@ -349,6 +354,59 @@ EOT;
     }
 
     /**
+     * The layers closest to the question, when there are too many layers:
+     * the layers sharing words with the question first, then the others.
+     *
+     * @param string $question the user question
+     * @param array  $layers   the layers, from layerIndexEntry()
+     * @param int    $max      the maximum number of layers
+     *
+     * @return array the layers
+     */
+    public static function closestLayers($question, array $layers, $max)
+    {
+        if (count($layers) <= $max) {
+            return $layers;
+        }
+        // Word stems: the first 5 letters, without accents
+        $stems = static function ($text) {
+            $text = mb_strtolower((string) $text);
+            if (function_exists('iconv')) {
+                $ascii = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $text);
+                if ($ascii !== false) {
+                    $text = $ascii;
+                }
+            }
+            $words = preg_split('/[^a-z0-9]+/', $text, -1, PREG_SPLIT_NO_EMPTY);
+            $stems = array();
+            foreach ($words as $word) {
+                if (strlen($word) >= 3) {
+                    $stems[substr($word, 0, 5)] = true;
+                }
+            }
+
+            return $stems;
+        };
+        $questionStems = $stems($question);
+        $scores = array();
+        foreach ($layers as $index => $layer) {
+            $layerStems = $stems(implode(' ', array($layer['title'], $layer['abstract'], $layer['keywords'], $layer['map'], $layer['type'])));
+            $scores[$index] = count(array_intersect_key($questionStems, $layerStems));
+        }
+        // Stable sort by score
+        $indexes = array_keys($layers);
+        usort($indexes, static function ($a, $b) use ($scores) {
+            return $scores[$b] <=> $scores[$a] ?: $a <=> $b;
+        });
+        $closest = array();
+        foreach (array_slice($indexes, 0, $max) as $index) {
+            $closest[] = $layers[$index];
+        }
+
+        return $closest;
+    }
+
+    /**
      * Keep only the results about layers of the catalog, once each.
      *
      * @param mixed $results the results given by the assistant
@@ -458,8 +516,14 @@ EOT;
                 'body' => array(
                     'model' => $model,
                     'stream' => false,
+                    // No reasoning step: much faster without GPU
+                    'think' => false,
                     // Structured output: the answer follows the JSON schema
                     'format' => $schema,
+                    // Room for the catalog (the default context is small and cuts it silently)
+                    'options' => array('num_ctx' => 16384),
+                    // Keep the model in memory between the questions
+                    'keep_alive' => '30m',
                     'messages' => array(
                         array('role' => 'system', 'content' => $system),
                         array('role' => 'user', 'content' => $text),

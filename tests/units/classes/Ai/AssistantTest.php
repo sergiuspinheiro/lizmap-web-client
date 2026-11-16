@@ -125,6 +125,7 @@ class AssistantTest extends TestCase
         $request = $assistant->providerRequest('system', $content, $schema);
         $this->assertEquals('http://localhost:11434/api/chat', $request['url']);
         $this->assertEquals('qwen3:8b', $request['body']['model']);
+        $this->assertFalse($request['body']['think']);
         $assistant = new Assistant(array('enabled' => 'on', 'provider' => 'Ollama', 'model' => 'qwen3:14b', 'ollamaUrl' => 'http://host:11434/'));
         $this->assertTrue($assistant->isEnabled());
         $request = $assistant->providerRequest('system', $content, $schema);
@@ -186,6 +187,24 @@ class AssistantTest extends TestCase
             $result = $assistant->search('q', $this->layers());
             $this->assertEquals('a', $result['answer']);
         }
+    }
+
+    public function testClosestLayers(): void
+    {
+        $layers = array();
+        for ($i = 0; $i < 10; ++$i) {
+            $layers[] = Assistant::layerIndexEntry('r', 'R', 'p', 'Map', array('name' => 'l'.$i, 'title' => 'Layer '.$i, 'geometryType' => 'point'));
+        }
+        $layers[] = Assistant::layerIndexEntry('r', 'R', 'p', 'Map', array('name' => 'bus', 'title' => 'Paragens de autocarro', 'abstract' => 'Rede de transportes'));
+        $layers[] = Assistant::layerIndexEntry('r', 'R', 'p', 'Map', array('name' => 'ortho', 'title' => 'Ortofotomapa 2025'));
+
+        $this->assertCount(12, Assistant::closestLayers('x', $layers, 20));
+        $closest = Assistant::closestLayers('Transporte público', $layers, 3);
+        $this->assertCount(3, $closest);
+        $this->assertEquals('bus', $closest[0]['name']);
+        $this->assertEquals('l0', $closest[1]['name']);
+        $closest = Assistant::closestLayers('ortofotos', $layers, 1);
+        $this->assertEquals('ortho', $closest[0]['name']);
     }
 }
 
