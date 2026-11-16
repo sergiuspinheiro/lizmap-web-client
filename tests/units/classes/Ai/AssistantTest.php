@@ -124,7 +124,7 @@ class AssistantTest extends TestCase
         $this->assertTrue($assistant->isEnabled());
         $request = $assistant->providerRequest('system', $content, $schema);
         $this->assertEquals('http://localhost:11434/api/chat', $request['url']);
-        $this->assertEquals('qwen3:8b', $request['body']['model']);
+        $this->assertEquals('gemma3:4b', $request['body']['model']);
         $this->assertFalse($request['body']['think']);
         $assistant = new Assistant(array('enabled' => 'on', 'provider' => 'Ollama', 'model' => 'qwen3:14b', 'ollamaUrl' => 'http://host:11434/'));
         $this->assertTrue($assistant->isEnabled());
