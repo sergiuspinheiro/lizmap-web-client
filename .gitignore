@@ -64,6 +64,7 @@ lizmap/www/assets/js/search.js
 lizmap/www/assets/js/switcher-layers-actions.js
 lizmap/www/assets/js/timemanager.js
 lizmap/www/assets/js/view.js
+lizmap/www/assets/js/*.wasm
 
 # Docs
 docs/.build
