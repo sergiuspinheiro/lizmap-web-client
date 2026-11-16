@@ -58,16 +58,16 @@ export default class Treeview extends HTMLElement {
                     <img class="legend" src="${olLayer.icon}">
                     <label for="node-ol-${olLayer.name}">${olLayer.wmsTitle}</label>
                     <div class="layer-actions">
-                        ${olLayer.olLayer.get('lizmapCatalog')
+                        ${this._olOf(olLayer)?.get('lizmapCatalog')
                             ? html`<i class="icon-info-sign" title="${lizDict['catalog.layer.settings']}"
                                 @click=${() => this._toggleCatalogSettings(olLayer)}></i>`
                             : ''}
                     </div>
                 </div>
             </div>
-            ${this._catalogSettingsOpen.has(olLayer.olLayer)
+            ${this._catalogSettingsOpen.has(this._olOf(olLayer))
                 ? document.querySelector('lizmap-catalog')?.settingsTemplate(
-                    olLayer.olLayer.get('lizmapCatalog').key, olLayer.olLayer.get('lizmapCatalog').name)
+                    this._olOf(olLayer)?.get('lizmapCatalog').key, this._olOf(olLayer)?.get('lizmapCatalog').name)
                 : ''}
         </li>`
 
@@ -307,11 +307,21 @@ export default class Treeview extends HTMLElement {
         return parent === mainLizmap.state.layerTree ? '' : parent.name;
     }
 
+    /**
+     * OpenLayers layer of an external layer tree item
+     * @param {object} item - the layer tree item or the map layer state
+     * @returns {object|undefined} the OpenLayers layer
+     */
+    _olOf(item) {
+        return item.mapItemState?.olLayer ?? item.olLayer;
+    }
+
     _toggleCatalogSettings(olLayerState) {
-        if (this._catalogSettingsOpen.has(olLayerState.olLayer)) {
-            this._catalogSettingsOpen.delete(olLayerState.olLayer);
+        const olLayer = this._olOf(olLayerState);
+        if (this._catalogSettingsOpen.has(olLayer)) {
+            this._catalogSettingsOpen.delete(olLayer);
         } else {
-            this._catalogSettingsOpen.add(olLayerState.olLayer);
+            this._catalogSettingsOpen.add(olLayer);
         }
         this._onChange();
     }
