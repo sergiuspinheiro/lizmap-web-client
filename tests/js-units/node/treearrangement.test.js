@@ -85,9 +85,55 @@ describe('TreeArrangement drawing order', function () {
         arrangement.move('g', ['b', 'c'], 'c', 'b', false);
         arrangement.move('', ['a', 'g'], 'a', 'g', true);
         arrangement.applyDrawingOrder(root, map);
-        expect([layers.c.zIndex, layers.b.zIndex, layers.a.zIndex]).to.deep.equal([3, 2, 1]);
+        expect(layers.c.zIndex).to.be.above(layers.b.zIndex);
+        expect(layers.b.zIndex).to.be.above(layers.a.zIndex);
+        expect(layers.a.zIndex).to.be.above(0);
+        expect(layers.c.zIndex).to.be.at.most(4);
 
         arrangement.reset(root, map);
         expect([layers.a.zIndex, layers.b.zIndex, layers.c.zIndex]).to.deep.equal([3, 2, 1]);
+    });
+
+    it('Orders the layers of the external groups', function () {
+        const storage = {};
+        window.localStorage = {
+            getItem: key => storage[key] ?? null,
+            setItem: (key, value) => { storage[key] = value; },
+            removeItem: key => { delete storage[key]; },
+        };
+        const olLayer = (name, zIndex) => {
+            const props = { name };
+            return {
+                zIndex,
+                get: key => props[key],
+                set: (key, value) => { props[key] = value; },
+                getZIndex() { return this.zIndex; },
+                setZIndex(value) { this.zIndex = value; },
+            };
+        };
+        const layers = { a: olLayer('a', 2), b: olLayer('b', 1), x: olLayer('x'), y: olLayer('y') };
+        const map = { getLayerByName: name => layers[name], statesSingleWMSLayers: new Map() };
+        const root = {
+            children: [
+                { type: 'ext-group', name: 'catalog', children: [
+                    { name: 'x', mapItemState: { olLayer: layers.x } },
+                    { name: 'y', mapItemState: { olLayer: layers.y } },
+                ] },
+                { type: 'layer', name: 'a' },
+                { type: 'layer', name: 'b' },
+            ],
+        };
+        const arrangement = new TreeArrangement('ext');
+        // The catalog group between a and b, y above x
+        arrangement.move('', ['catalog', 'a', 'b'], 'catalog', 'a', true);
+        arrangement.move(TreeArrangement.externalKey('catalog'), ['x', 'y'], 'y', 'x', false);
+        arrangement.applyDrawingOrder(root, map);
+        expect(layers.a.zIndex).to.be.above(layers.y.zIndex);
+        expect(layers.y.zIndex).to.be.above(layers.x.zIndex);
+        expect(layers.x.zIndex).to.be.above(layers.b.zIndex);
+
+        arrangement.reset(root, map);
+        expect([layers.a.zIndex, layers.b.zIndex]).to.deep.equal([2, 1]);
+        expect(layers.x.zIndex).to.be.undefined;
     });
 });

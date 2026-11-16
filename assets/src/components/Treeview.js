@@ -48,9 +48,14 @@ export default class Treeview extends HTMLElement {
             render(this._rootTemplate(mainLizmap.state.layerTree), this);
         };
 
-        this._olLayerTemplate = (olLayer) =>
+        this._olLayerTemplate = (olLayer, extGroup) =>
             html`
-        <li data-testid="ol-${olLayer.name}">
+        <li data-testid="ol-${olLayer.name}"
+            draggable="${this._arrangement.active ? 'true' : 'false'}"
+            @dragstart=${(e) => this._dragStart(e, olLayer, extGroup)}
+            @dragover=${(e) => this._dragOver(e, olLayer, extGroup)}
+            @drop=${(e) => this._drop(e, olLayer, extGroup)}
+            @dragend=${() => this._dragEnd()}>
             <div class="${olLayer.checked ? 'checked' : ''} ${olLayer.type}">
                 <div class="loading ${olLayer.loadStatus === MapLayerLoadStatus.Loading ? 'spinner' : ''}"></div>
                 <input type="checkbox" id="node-ol-${olLayer.name}" .checked=${olLayer.checked} @click=${() => olLayer.checked = !olLayer.checked} >
@@ -71,9 +76,14 @@ export default class Treeview extends HTMLElement {
                 : ''}
         </li>`
 
-        this._extGroupTemplate = (extGroup) =>
+        this._extGroupTemplate = (extGroup, parent) =>
             html`
-        <li data-testid="ext-${extGroup.name}">
+        <li data-testid="ext-${extGroup.name}"
+            draggable="${this._arrangement.active ? 'true' : 'false'}"
+            @dragstart=${(e) => this._dragStart(e, extGroup, parent)}
+            @dragover=${(e) => this._dragOver(e, extGroup, parent)}
+            @drop=${(e) => this._drop(e, extGroup, parent)}
+            @dragend=${() => this._dragEnd()}>
             <div class="expandable ${extGroup.expanded ? 'expanded' : ''}" @click=${() => extGroup.expanded = !extGroup.expanded}></div>
             <div class="${extGroup.checked ? 'checked' : ''} ${extGroup.type} group">
                 <div class="node">
@@ -83,8 +93,8 @@ export default class Treeview extends HTMLElement {
                 </div>
             </div>
             <ul>
-                ${extGroup.children.map(item => html`
-                    ${this._olLayerTemplate(item)}
+                ${this._arrangement.sortChildren(this._parentKey(extGroup), extGroup.children).map(item => html`
+                    ${this._olLayerTemplate(item, extGroup)}
                 `)}
             </ul>
         </li>`
@@ -229,7 +239,7 @@ export default class Treeview extends HTMLElement {
             ${this._arrangement.sortChildren('', layerTreeRoot.children).map(item => html`
                 ${item.type === 'group' ? html`${this._groupTemplate(item, layerTreeRoot)}` : ''}
                 ${item.type === 'layer' ? html`${this._layerTemplate(item, layerTreeRoot)}` : ''}
-                ${item.type === 'ext-group' && item.childrenCount ? html`${this._extGroupTemplate(item)}` : ''}
+                ${item.type === 'ext-group' && item.childrenCount ? html`${this._extGroupTemplate(item, layerTreeRoot)}` : ''}
             `)}
         </ul>`;
 
@@ -248,6 +258,14 @@ export default class Treeview extends HTMLElement {
                 'ol-layer.wmsTitle.changed', 'ol-layer.icon.changed', 'ext-group.wmsTitle.changed',
             ]
         );
+
+        // Layers added from the data catalog follow the user order
+        // (after the tree items of the new layers are created)
+        mainLizmap.state.layerTree.addListener(() => queueMicrotask(() => {
+            if (this._arrangement.isCustomized) {
+                this._arrangement.applyDrawingOrder(mainLizmap.state.layerTree, mainLizmap.map);
+            }
+        }), ['ol-layer.added', 'ext-group.added']);
 
         mainEventDispatcher.addListener(
             this._onChange, ['resolution.changed']
@@ -304,6 +322,9 @@ export default class Treeview extends HTMLElement {
      * @returns {string} the key
      */
     _parentKey(parent) {
+        if (parent.type === 'ext-group') {
+            return TreeArrangement.externalKey(parent.name);
+        }
         return parent === mainLizmap.state.layerTree ? '' : parent.name;
     }
 

@@ -140,9 +140,19 @@ export default class TreeArrangement {
     }
 
     /**
-     * Draw the map layers in the order displayed by the tree: the zIndex
-     * values given by the project are reassigned following the tree order.
-     * Layers drawn in a single WMS image keep the project order.
+     * Key of the children of an external group, as layers added from the
+     * data catalog, in the arrangement
+     * @param {string} name - the external group name
+     * @returns {string} the key
+     */
+    static externalKey(name) {
+        return 'ext:' + name;
+    }
+
+    /**
+     * Draw the map layers in the order displayed by the tree, including
+     * the layers of the external groups, as the layers added from the data
+     * catalog. Layers drawn in a single WMS image keep the project order.
      * @param {object} layerTreeRoot - the layer tree root
      * @param {object} map - the Lizmap OpenLayers map
      */
@@ -150,11 +160,22 @@ export default class TreeArrangement {
         if (!map || !layerTreeRoot) {
             return;
         }
+        // OpenLayers layers in the displayed order, from the top
         const olLayers = [];
+        const externalLayers = [];
         const collect = (group) => {
             for (const item of this.sortChildren(group.name ?? '', group.children)) {
                 if (item.type === 'group') {
                     collect(item);
+                } else if (item.type === 'ext-group') {
+                    const key = TreeArrangement.externalKey(item.name);
+                    for (const child of this.sortChildren(key, item.children)) {
+                        const olLayer = child.mapItemState?.olLayer ?? child.olLayer;
+                        if (olLayer) {
+                            olLayers.push(olLayer);
+                            externalLayers.push(olLayer);
+                        }
+                    }
                 } else if (item.type === 'layer' && !map.statesSingleWMSLayers?.get(item.name)) {
                     const olLayer = map.getLayerByName(item.name);
                     if (olLayer) {
@@ -167,7 +188,16 @@ export default class TreeArrangement {
             }
         };
         collect({ name: '', children: layerTreeRoot.children });
-        const zIndexes = olLayers.map(l => l.get('lizmapProjectZIndex')).sort((a, b) => b - a);
-        olLayers.forEach((olLayer, i) => olLayer.setZIndex(zIndexes[i]));
+        const projectLayers = olLayers.filter(l => !externalLayers.includes(l));
+        if (!this.isCustomized) {
+            // Project order, the external layers above the project layers
+            projectLayers.forEach(l => l.setZIndex(l.get('lizmapProjectZIndex')));
+            externalLayers.forEach(l => l.setZIndex(undefined));
+            return;
+        }
+        // Values between the base layers (0) and above the highest project
+        // layer, below the tools layers (highlight, digitizing...)
+        const top = Math.max(0, ...projectLayers.map(l => l.get('lizmapProjectZIndex') ?? 0)) + 1;
+        olLayers.forEach((olLayer, i) => olLayer.setZIndex(top * (olLayers.length - i) / olLayers.length));
     }
 }
