@@ -68,7 +68,7 @@ class AssistantTest extends TestCase
 
     public function testSearchKeepsOnlyCatalogLayers(): void
     {
-        $assistant = new AssistantForTests(array('enabled' => 'on', 'apiKey' => 'key'));
+        $assistant = new AssistantForTests(array('enabled' => 'on', 'provider' => 'claude', 'apiKey' => 'key'));
         $assistant->answer = array(
             'answer' => 'Uma camada corresponde.',
             'results' => array(
@@ -205,6 +205,21 @@ class AssistantTest extends TestCase
         $this->assertEquals('l0', $closest[1]['name']);
         $closest = Assistant::closestLayers('ortofotos', $layers, 1);
         $this->assertEquals('ortho', $closest[0]['name']);
+    }
+
+    public function testLocalSearchUsesShortIds(): void
+    {
+        $assistant = new AssistantForTests(array('enabled' => 'on', 'provider' => 'ollama'));
+        $assistant->answer = array(
+            'answer' => 'Ortofoto.',
+            'results' => array(array('id' => 1, 'reason' => 'Imagem 2025'), array('id' => '9', 'reason' => 'Invented')),
+        );
+        $result = $assistant->search('ortofoto', $this->layers());
+        $this->assertCount(1, $result['results']);
+        $this->assertEquals('montpellier~ortho~ortho_2025', $result['results'][0]['id']);
+        $catalog = $assistant->requests[0]['content'][0]['text'];
+        $this->assertStringContainsString('1 | Orthophoto 2025 | Orthophotos | raster', $catalog);
+        $this->assertStringContainsString('2 | Tram stops | Transport | point', $catalog);
     }
 }
 
