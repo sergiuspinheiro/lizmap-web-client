@@ -4634,7 +4634,8 @@ lizmap-catalog {
   padding: 6px;
 }
 
-lizmap-catalog .catalog-help {
+lizmap-catalog .catalog-help,
+lizmap-ai-assistant .catalog-help {
   margin: 6px 0;
   font-size: 0.9em;
   opacity: 0.8;
@@ -4649,13 +4650,15 @@ lizmap-catalog .catalog-project summary {
   padding: 2px 0;
 }
 
-lizmap-catalog .catalog-layers {
+lizmap-catalog .catalog-layers,
+lizmap-ai-assistant .catalog-layers {
   list-style: none;
   margin: 0 0 6px 12px;
   padding: 0;
 }
 
-lizmap-catalog .catalog-layer {
+lizmap-catalog .catalog-layer,
+lizmap-ai-assistant .catalog-layer {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -4664,23 +4667,27 @@ lizmap-catalog .catalog-layer {
   cursor: grab;
 }
 
-lizmap-catalog .catalog-layer-title {
+lizmap-catalog .catalog-layer-title,
+lizmap-ai-assistant .catalog-layer-title {
   flex: 1;
   overflow-wrap: anywhere;
 }
 
-lizmap-catalog .catalog-layer.added .catalog-layer-title {
+lizmap-catalog .catalog-layer.added .catalog-layer-title,
+lizmap-ai-assistant .catalog-layer.added .catalog-layer-title {
   font-weight: bold;
 }
 
-lizmap-catalog .catalog-layer-preview {
+lizmap-catalog .catalog-layer-preview,
+lizmap-ai-assistant .catalog-layer-preview {
   flex-basis: 100%;
   padding: 6px;
   border-left: 3px solid rgb(255 255 255 / 60%);
   cursor: default;
 }
 
-lizmap-catalog .catalog-thumbnail {
+lizmap-catalog .catalog-thumbnail,
+lizmap-ai-assistant .catalog-thumbnail {
   display: block;
   max-width: 100%;
   margin-bottom: 6px;
@@ -4688,14 +4695,16 @@ lizmap-catalog .catalog-thumbnail {
   border: 1px solid #ccc;
 }
 
-lizmap-catalog .catalog-layer-preview dl {
+lizmap-catalog .catalog-layer-preview dl,
+lizmap-ai-assistant .catalog-layer-preview dl {
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 2px 8px;
   margin: 0 0 6px;
 }
 
-lizmap-catalog .catalog-layer-preview dd {
+lizmap-catalog .catalog-layer-preview dd,
+lizmap-ai-assistant .catalog-layer-preview dd {
   margin: 0;
 }
 
@@ -4805,19 +4814,48 @@ lizmap-catalog .catalog-external-form {
   margin: 4px 0;
 }
 
+/* AI assistant dock */
+#mapmenu .nav-list > li.assistant .icon {
+  background-image: none;
+  background-color: white;
+  mask-image: url("../svg/assistant.svg");
+  mask-size: 18px 18px;
+  mask-position: center center;
+  mask-repeat: no-repeat;
+}
+
+#mapmenu .nav-list > li.assistant.active .icon,
+#mapmenu .nav-list > li.assistant a:hover .icon {
+  background-image: none;
+  background-color: #333;
+}
+
+lizmap-ai-assistant {
+  display: block;
+  padding: 6px;
+}
+
 /* Catalog AI assistant */
-lizmap-catalog .catalog-ai {
+lizmap-catalog .catalog-ai,
+lizmap-ai-assistant .catalog-ai {
   margin: 6px 0;
   padding: 4px 0;
   border-top: 1px solid rgb(255 255 255 / 60%);
 }
 
-lizmap-catalog .catalog-ai summary {
+lizmap-catalog .catalog-ai summary,
+lizmap-ai-assistant .catalog-ai summary {
   cursor: pointer;
   font-weight: bold;
 }
 
-lizmap-catalog .catalog-ai-form {
+lizmap-ai-assistant .catalog-ai-title {
+  margin: 0 0 4px;
+  font-weight: bold;
+}
+
+lizmap-catalog .catalog-ai-form,
+lizmap-ai-assistant .catalog-ai-form {
   display: flex;
   gap: 4px;
   align-items: flex-start;
@@ -4825,45 +4863,56 @@ lizmap-catalog .catalog-ai-form {
 }
 
 lizmap-catalog .catalog-ai-form textarea,
-lizmap-catalog .catalog-ai-form input {
+lizmap-catalog .catalog-ai-form input,
+lizmap-ai-assistant .catalog-ai-form textarea,
+lizmap-ai-assistant .catalog-ai-form input {
   flex: 1;
 }
 
-lizmap-catalog .catalog-ai-answer {
+lizmap-catalog .catalog-ai-answer,
+lizmap-ai-assistant .catalog-ai-answer {
   margin: 6px 0;
 }
 
-lizmap-catalog .catalog-ai-answer h5 {
+lizmap-catalog .catalog-ai-answer h5,
+lizmap-ai-assistant .catalog-ai-answer h5 {
   margin: 6px 0 2px;
 }
 
-lizmap-catalog .catalog-ai-answer ul {
+lizmap-catalog .catalog-ai-answer ul,
+lizmap-ai-assistant .catalog-ai-answer ul {
   margin: 0 0 4px 16px;
   padding: 0;
 }
 
-lizmap-catalog .catalog-ai-results {
+lizmap-catalog .catalog-ai-results,
+lizmap-ai-assistant .catalog-ai-results {
   margin-left: 0;
 }
 
-lizmap-catalog .catalog-ai-result {
+lizmap-catalog .catalog-ai-result,
+lizmap-ai-assistant .catalog-ai-result {
   cursor: default;
 }
 
-lizmap-catalog .catalog-ai-map {
+lizmap-catalog .catalog-ai-map,
+lizmap-ai-assistant .catalog-ai-map {
   display: block;
   opacity: 0.8;
 }
 
 lizmap-catalog .catalog-ai-reason,
-lizmap-catalog .catalog-ai-source {
+lizmap-catalog .catalog-ai-source,
+lizmap-ai-assistant .catalog-ai-reason,
+lizmap-ai-assistant .catalog-ai-source {
   flex-basis: 100%;
   margin: 0 0 4px;
   font-size: 0.9em;
   opacity: 0.8;
 }
 
-lizmap-catalog .catalog-ai-analysis {
+lizmap-catalog .catalog-ai-analysis,
+lizmap-ai-assistant .catalog-ai-analysis {
   margin-top: 6px;
 }
 

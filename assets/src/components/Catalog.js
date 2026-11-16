@@ -979,14 +979,15 @@ export default class Catalog extends HTMLElement {
         </div>`;
     }
 
-    _assistantTemplate() {
-        if (!this._ai.enabled) {
-            return '';
-        }
+    /**
+     * The AI assistant search form and results, displayed in the assistant dock
+     * @returns {import('lit-html').TemplateResult} the template
+     */
+    assistantTemplate() {
         const ai = this._ai;
         return html`
-        <details class="catalog-ai" ?open=${ai.loading || ai.answer !== null || !!ai.error}>
-            <summary>${lizDict['catalog.ai.title']}</summary>
+        <div class="catalog-ai">
+            <p class="catalog-ai-title">${lizDict['catalog.ai.title']}</p>
             <form class="catalog-ai-form" @submit=${(e) => { e.preventDefault(); this.searchWithAssistant(); }}>
                 <textarea class="catalog-ai-question form-control form-control-sm" rows="2" maxlength="500"
                     placeholder="${lizDict['catalog.ai.placeholder']}" .value=${ai.question}
@@ -1005,7 +1006,7 @@ export default class Catalog extends HTMLElement {
                 <ul class="catalog-layers catalog-ai-results">
                     ${ai.results.map(result => this._resultTemplate(result))}
                 </ul>` : ''}
-        </details>`;
+        </div>`;
     }
 
     _resultTemplate(result) {
@@ -1077,7 +1078,6 @@ export default class Catalog extends HTMLElement {
                 .value=${this._filter}
                 @input=${(e) => { this._filter = e.target.value.trim(); this._render(); }}>
             <p class="catalog-help">${lizDict['catalog.help']}</p>
-            ${this._assistantTemplate()}
             ${this._externalTemplate()}
             <div class="catalog-list">${content}</div>
         `, this);
