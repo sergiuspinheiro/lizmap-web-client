@@ -197,6 +197,8 @@ class catalogCtrl extends jController
         if ($error = $this->checkAssistant($assistant)) {
             return $this->error($rep, $error[0], $error[1]);
         }
+        // A local model without GPU can take minutes to answer
+        set_time_limit(330);
         $question = trim((string) $this->param('q', ''));
         if ($question === '' || mb_strlen($question) > 500) {
             return $this->error($rep, 400, 'The question must have 1 to 500 characters');
@@ -228,6 +230,8 @@ class catalogCtrl extends jController
         if ($error = $this->checkAssistant($assistant)) {
             return $this->error($rep, $error[0], $error[1]);
         }
+        // A local model without GPU can take minutes to answer
+        set_time_limit(330);
         $question = trim((string) $this->param('q', ''));
         if (mb_strlen($question) > 500) {
             return $this->error($rep, 400, 'The question must have at most 500 characters');
