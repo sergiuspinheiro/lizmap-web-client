@@ -2,9 +2,10 @@
 
 /**
  * AI assistant of the data catalog: natural language search of the layers
- * and analysis of a layer, with Claude (Anthropic API, the default) or another
- * provider: OpenAI, Mistral, Google Gemini, a local model served by Ollama, or
- * any service with an OpenAI compatible API (LM Studio, vLLM, Groq...).
+ * and analysis of a layer, with a local model served by Ollama (the default:
+ * nothing leaves your network) or a provider: Claude (Anthropic API), OpenAI,
+ * Mistral, Google Gemini, or any service with an OpenAI compatible API
+ * (LM Studio, vLLM, Groq...).
  *
  * The API key stays on the server. Only the metadata of the layers the user
  * can access (titles, abstracts, keywords) and aggregated statistics of the
@@ -14,12 +15,13 @@
  *
  *     [lizmapAi]
  *     enabled=on
- *     ; claude (default), openai, mistral, gemini, ollama or openai-compatible
- *     provider=claude
+ *     ; ollama (default), claude, openai, mistral, gemini or openai-compatible
+ *     provider=ollama
  *     ; or the environment variable of PHP-FPM: ANTHROPIC_API_KEY, OPENAI_API_KEY,
  *     ; MISTRAL_API_KEY or GEMINI_API_KEY. Not needed for ollama.
  *     apiKey=
- *     ; claude-opus-5-5 by default with Claude, required with the other providers
+ *     ; qwen3:8b by default with ollama, claude-opus-5-5 with claude,
+ *     ; required with the other providers
  *     model=
  *     ; API URL, for ollama (default http://localhost:11434) and openai-compatible
  *     ; (e.g. http://localhost:1234/v1), or to change the URL of another provider
@@ -43,7 +45,13 @@ namespace Lizmap\Ai;
 
 class Assistant
 {
-    public const DEFAULT_MODEL = 'claude-opus-5-5';
+    public const DEFAULT_PROVIDER = 'ollama';
+
+    /** Default model of the providers which have one */
+    public const DEFAULT_MODELS = array(
+        'ollama' => 'qwen3:8b',
+        'claude' => 'claude-opus-5-5',
+    );
 
     /**
      * The providers: default API URL, environment variable of the API key,
@@ -81,7 +89,7 @@ class Assistant
         };
         $provider = strtolower(trim((string) ($config['provider'] ?? '')));
         if (!array_key_exists($provider, self::PROVIDERS)) {
-            $provider = 'claude';
+            $provider = self::DEFAULT_PROVIDER;
         }
         $settings = self::PROVIDERS[$provider];
         $apiKey = trim((string) ($config['apiKey'] ?? ''));
@@ -95,7 +103,7 @@ class Assistant
             'url' => rtrim($url ?: $settings['url'], '/'),
             'enabled' => $bool($config['enabled'] ?? null, false),
             'apiKey' => $apiKey,
-            'model' => trim((string) ($config['model'] ?? '')) ?: ($provider === 'claude' ? self::DEFAULT_MODEL : ''),
+            'model' => trim((string) ($config['model'] ?? '')) ?: (self::DEFAULT_MODELS[$provider] ?? ''),
             'allowAnonymous' => $bool($config['allowAnonymous'] ?? null, false),
             'sendStatistics' => $bool($config['sendStatistics'] ?? null, true),
             'maxFeatures' => max(1, (int) ($config['maxFeatures'] ?? 1000)),

@@ -40,18 +40,19 @@
 
 [lizmapAi]
 ;; AI assistant of the data catalog (search in natural language and layer analysis).
-;; Claude by default, with an Anthropic API key: https://console.anthropic.com/
+;; By default a local model served by Ollama (https://ollama.com), nothing leaves your network:
+;; install Ollama, then `ollama pull qwen3:8b`.
 ;; Only the metadata of the layers the user can see and aggregated statistics of the attributes
 ;; (no rows, no geometries) are sent to the AI provider.
 ;enabled=on
-;; provider: claude (default), openai, mistral, gemini, ollama (a model running on a server of yours,
-;; nothing leaves your network) or openai-compatible (LM Studio, vLLM, Groq, OpenRouter...)
-;provider=claude
+;; provider: ollama (default), claude, openai, mistral, gemini or openai-compatible
+;; (LM Studio, vLLM, Groq, OpenRouter...)
+;provider=ollama
 ;; the API key, or leave it empty and set the environment variable of PHP:
 ;; ANTHROPIC_API_KEY, OPENAI_API_KEY, MISTRAL_API_KEY or GEMINI_API_KEY. Not needed for ollama.
 ;apiKey=
-;; the model: claude-opus-5-5 by default with Claude, required with the other providers,
-;; e.g. qwen3:14b with ollama
+;; the model: qwen3:8b by default with ollama, claude-opus-5-5 with claude,
+;; required with the other providers
 ;model=
 ;; the API URL: for ollama (default http://localhost:11434, http://host.docker.internal:11434 from Docker)
 ;; and openai-compatible (e.g. http://localhost:1234/v1)
