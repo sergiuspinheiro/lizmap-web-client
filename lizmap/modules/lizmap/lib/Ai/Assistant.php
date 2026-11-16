@@ -2,7 +2,9 @@
 
 /**
  * AI assistant of the data catalog: natural language search of the layers
- * and analysis of a layer, with Claude (Anthropic API).
+ * and analysis of a layer, with Claude (Anthropic API, the default) or another
+ * provider: OpenAI, Mistral, Google Gemini, a local model served by Ollama, or
+ * any service with an OpenAI compatible API (LM Studio, vLLM, Groq...).
  *
  * The API key stays on the server. Only the metadata of the layers the user
  * can access (titles, abstracts, keywords) and aggregated statistics of the
@@ -12,14 +14,16 @@
  *
  *     [lizmapAi]
  *     enabled=on
- *     ; or the ANTHROPIC_API_KEY environment variable of PHP-FPM
- *     apiKey=
- *     model=claude-opus-5-5
- *     ; claude (default) or ollama, a model running on a server of yours:
- *     ; nothing leaves your network
+ *     ; claude (default), openai, mistral, gemini, ollama or openai-compatible
  *     provider=claude
- *     ; URL of the Ollama server, with provider=ollama (model is then e.g. qwen3:14b)
- *     ollamaUrl=http://localhost:11434
+ *     ; or the environment variable of PHP-FPM: ANTHROPIC_API_KEY, OPENAI_API_KEY,
+ *     ; MISTRAL_API_KEY or GEMINI_API_KEY. Not needed for ollama.
+ *     apiKey=
+ *     ; claude-opus-5-5 by default with Claude, required with the other providers
+ *     model=
+ *     ; API URL, for ollama (default http://localhost:11434) and openai-compatible
+ *     ; (e.g. http://localhost:1234/v1), or to change the URL of another provider
+ *     url=
  *     ; let anonymous users use the assistant (costs!)
  *     allowAnonymous=off
  *     ; send aggregated statistics of the attributes for the layer analysis
@@ -40,6 +44,19 @@ namespace Lizmap\Ai;
 class Assistant
 {
     public const DEFAULT_MODEL = 'claude-opus-5-5';
+
+    /**
+     * The providers: default API URL, environment variable of the API key,
+     * and whether the API key is required.
+     */
+    public const PROVIDERS = array(
+        'claude' => array('url' => '', 'env' => 'ANTHROPIC_API_KEY', 'key' => true),
+        'openai' => array('url' => 'https://api.openai.com/v1', 'env' => 'OPENAI_API_KEY', 'key' => true),
+        'mistral' => array('url' => 'https://api.mistral.ai/v1', 'env' => 'MISTRAL_API_KEY', 'key' => true),
+        'gemini' => array('url' => 'https://generativelanguage.googleapis.com/v1beta', 'env' => 'GEMINI_API_KEY', 'key' => true),
+        'ollama' => array('url' => 'http://localhost:11434', 'env' => '', 'key' => false),
+        'openai-compatible' => array('url' => '', 'env' => '', 'key' => false),
+    );
 
     /** @var int Maximum number of layers described to the assistant for a search */
     public const MAX_INDEX_LAYERS = 3000;
@@ -62,17 +79,23 @@ class Assistant
 
             return filter_var($value, FILTER_VALIDATE_BOOLEAN);
         };
-        $apiKey = trim((string) ($config['apiKey'] ?? ''));
-        if ($apiKey === '') {
-            $apiKey = (string) getenv('ANTHROPIC_API_KEY');
+        $provider = strtolower(trim((string) ($config['provider'] ?? '')));
+        if (!array_key_exists($provider, self::PROVIDERS)) {
+            $provider = 'claude';
         }
-        $provider = strtolower(trim((string) ($config['provider'] ?? ''))) === 'ollama' ? 'ollama' : 'claude';
+        $settings = self::PROVIDERS[$provider];
+        $apiKey = trim((string) ($config['apiKey'] ?? ''));
+        if ($apiKey === '' && $settings['env'] !== '') {
+            $apiKey = (string) getenv($settings['env']);
+        }
+        // ollamaUrl: name of the URL setting in the first version
+        $url = trim((string) ($config['url'] ?? ($config['ollamaUrl'] ?? '')));
         $this->config = array(
             'provider' => $provider,
-            'ollamaUrl' => rtrim(trim((string) ($config['ollamaUrl'] ?? '')) ?: 'http://localhost:11434', '/'),
+            'url' => rtrim($url ?: $settings['url'], '/'),
             'enabled' => $bool($config['enabled'] ?? null, false),
             'apiKey' => $apiKey,
-            'model' => trim((string) ($config['model'] ?? '')) ?: ($provider === 'ollama' ? '' : self::DEFAULT_MODEL),
+            'model' => trim((string) ($config['model'] ?? '')) ?: ($provider === 'claude' ? self::DEFAULT_MODEL : ''),
             'allowAnonymous' => $bool($config['allowAnonymous'] ?? null, false),
             'sendStatistics' => $bool($config['sendStatistics'] ?? null, true),
             'maxFeatures' => max(1, (int) ($config['maxFeatures'] ?? 1000)),
@@ -86,15 +109,16 @@ class Assistant
      */
     public function isEnabled()
     {
-        if ($this->config['provider'] === 'ollama') {
-            return $this->config['enabled'] && $this->config['model'] !== '';
-        }
+        $settings = self::PROVIDERS[$this->config['provider']];
 
-        return $this->config['enabled'] && $this->config['apiKey'] !== '';
+        return $this->config['enabled']
+            && $this->config['model'] !== ''
+            && ($this->config['provider'] === 'claude' || $this->config['url'] !== '')
+            && (!$settings['key'] || $this->config['apiKey'] !== '');
     }
 
     /**
-     * @return string claude or ollama
+     * @return string the provider, a key of PROVIDERS
      */
     public function provider()
     {
@@ -369,39 +393,31 @@ EOT;
      */
     protected function ask($system, array $content, array $schema, $effort)
     {
-        if ($this->config['provider'] === 'ollama') {
-            return $this->askOllama($system, $content, $schema);
+        if ($this->config['provider'] === 'claude') {
+            return $this->askClaude($system, $content, $schema, $effort);
         }
+        $request = $this->providerRequest($system, $content, $schema);
+        $data = $this->postJson($request['url'], $request['headers'], $request['body']);
 
-        return $this->askClaude($system, $content, $schema, $effort);
-    }
+        $text = '';
+        switch ($this->config['provider']) {
+            case 'ollama':
+                $text = $data['message']['content'] ?? '';
 
-    /**
-     * Ask a model served by Ollama (https://ollama.com), with its native chat API.
-     *
-     * @param string $system  the system prompt
-     * @param array  $content the user message content blocks
-     * @param array  $schema  the JSON schema of the answer
-     *
-     * @return array the decoded answer
-     *
-     * @throws AssistantException
-     */
-    protected function askOllama($system, array $content, array $schema)
-    {
-        $body = $this->ollamaRequestBody($system, $content, $schema);
+                break;
 
-        try {
-            $client = new \GuzzleHttp\Client(array('timeout' => 300));
-            $response = $client->post($this->config['ollamaUrl'].'/api/chat', array('json' => $body));
-        } catch (\GuzzleHttp\Exception\ConnectException $e) {
-            throw new AssistantException('The Ollama server cannot be reached', 0, $e);
-        } catch (\GuzzleHttp\Exception\GuzzleException $e) {
-            throw new AssistantException('The Ollama request failed: '.$e->getMessage(), 0, $e);
+            case 'gemini':
+                foreach ($data['candidates'][0]['content']['parts'] ?? array() as $part) {
+                    $text .= $part['text'] ?? '';
+                }
+
+                break;
+
+            default:
+                // OpenAI chat completions
+                $text = $data['choices'][0]['message']['content'] ?? '';
         }
-
-        $data = json_decode((string) $response->getBody(), true);
-        $answer = is_array($data) ? json_decode((string) ($data['message']['content'] ?? ''), true) : null;
+        $answer = json_decode((string) $text, true);
         if (!is_array($answer)) {
             throw new AssistantException('The AI assistant answer is not valid');
         }
@@ -410,30 +426,113 @@ EOT;
     }
 
     /**
-     * The body of an Ollama chat request.
+     * The HTTP request to the provider, other than Claude.
      *
      * @param string $system  the system prompt
      * @param array  $content the user message content blocks
      * @param array  $schema  the JSON schema of the answer
      *
-     * @return array the request body
+     * @return array{url: string, headers: array<string, string>, body: array}
      */
-    public function ollamaRequestBody($system, array $content, array $schema)
+    public function providerRequest($system, array $content, array $schema)
     {
         $text = implode("\n\n", array_map(static function ($block) {
             return (string) ($block['text'] ?? '');
         }, $content));
+        $model = $this->config['model'];
+        $url = $this->config['url'];
+        $key = $this->config['apiKey'];
 
+        if ($this->config['provider'] === 'ollama') {
+            return array(
+                'url' => $url.'/api/chat',
+                'headers' => array(),
+                'body' => array(
+                    'model' => $model,
+                    'stream' => false,
+                    // Structured output: the answer follows the JSON schema
+                    'format' => $schema,
+                    'messages' => array(
+                        array('role' => 'system', 'content' => $system),
+                        array('role' => 'user', 'content' => $text),
+                    ),
+                ),
+            );
+        }
+
+        if ($this->config['provider'] === 'gemini') {
+            return array(
+                'url' => $url.'/models/'.rawurlencode($model).':generateContent',
+                'headers' => array('x-goog-api-key' => $key),
+                'body' => array(
+                    'systemInstruction' => array('parts' => array(array('text' => $system))),
+                    'contents' => array(
+                        array('role' => 'user', 'parts' => array(array('text' => $text))),
+                    ),
+                    'generationConfig' => array(
+                        'responseMimeType' => 'application/json',
+                        'responseJsonSchema' => $schema,
+                    ),
+                ),
+            );
+        }
+
+        // OpenAI, Mistral and the OpenAI compatible APIs: chat completions
         return array(
-            'model' => $this->config['model'],
-            'stream' => false,
-            // Structured output: the answer follows the JSON schema
-            'format' => $schema,
-            'messages' => array(
-                array('role' => 'system', 'content' => $system),
-                array('role' => 'user', 'content' => $text),
+            'url' => $url.'/chat/completions',
+            'headers' => $key !== '' ? array('Authorization' => 'Bearer '.$key) : array(),
+            'body' => array(
+                'model' => $model,
+                'messages' => array(
+                    array('role' => 'system', 'content' => $system),
+                    array('role' => 'user', 'content' => $text),
+                ),
+                'response_format' => array(
+                    'type' => 'json_schema',
+                    'json_schema' => array('name' => 'answer', 'strict' => true, 'schema' => $schema),
+                ),
             ),
         );
+    }
+
+    /**
+     * POST a JSON request, and decode the JSON answer.
+     *
+     * @param string                $url     the URL
+     * @param array<string, string> $headers the HTTP headers
+     * @param array                 $body    the request body
+     *
+     * @return array the decoded answer
+     *
+     * @throws AssistantException
+     */
+    protected function postJson($url, array $headers, array $body)
+    {
+        try {
+            $client = new \GuzzleHttp\Client(array('timeout' => 300));
+            $response = $client->post($url, array('json' => $body, 'headers' => $headers));
+        } catch (\GuzzleHttp\Exception\ConnectException $e) {
+            throw new AssistantException('The AI service cannot be reached', 0, $e);
+        } catch (\GuzzleHttp\Exception\ClientException $e) {
+            $status = $e->getResponse()->getStatusCode();
+            if ($status == 429) {
+                throw new AssistantException('Too many requests to the AI assistant, try again later', 429, $e);
+            }
+            if ($status == 401 || $status == 403) {
+                throw new AssistantException('Invalid API key of the AI assistant', 0, $e);
+            }
+
+            throw new AssistantException('The AI assistant request failed (HTTP '.$status.')', 0, $e);
+        } catch (\GuzzleHttp\Exception\GuzzleException $e) {
+            throw new AssistantException('The AI assistant request failed: '.$e->getMessage(), 0, $e);
+        }
+
+        $data = json_decode((string) $response->getBody(), true);
+        if (!is_array($data)) {
+            throw new AssistantException('The AI assistant answer is not valid');
+        }
+
+        return $data;
     }
 
     /**

@@ -110,27 +110,86 @@ class AssistantTest extends TestCase
         $this->assertEquals('pt_PT', $input['language']);
     }
 
-    public function testOllamaProvider(): void
+    public function testProviders(): void
     {
+        $content = array(
+            array('type' => 'text', 'text' => 'catalog'),
+            array('type' => 'text', 'text' => 'question'),
+        );
+        $schema = array('type' => 'object');
+
         // A local model needs no API key, but a model name
         $assistant = new Assistant(array('enabled' => 'on', 'provider' => 'ollama'));
         $this->assertEquals('ollama', $assistant->provider());
         $this->assertFalse($assistant->isEnabled());
-
-        $assistant = new Assistant(array('enabled' => 'on', 'provider' => 'Ollama', 'model' => 'qwen3:14b'));
+        $assistant = new Assistant(array('enabled' => 'on', 'provider' => 'Ollama', 'model' => 'qwen3:14b', 'ollamaUrl' => 'http://host:11434/'));
         $this->assertTrue($assistant->isEnabled());
+        $request = $assistant->providerRequest('system', $content, $schema);
+        $this->assertEquals('http://host:11434/api/chat', $request['url']);
+        $this->assertEquals('qwen3:14b', $request['body']['model']);
+        $this->assertFalse($request['body']['stream']);
+        $this->assertEquals($schema, $request['body']['format']);
+        $this->assertEquals('system', $request['body']['messages'][0]['content']);
+        $this->assertEquals("catalog\n\nquestion", $request['body']['messages'][1]['content']);
 
-        $body = $assistant->ollamaRequestBody('system', array(
-            array('type' => 'text', 'text' => 'catalog'),
-            array('type' => 'text', 'text' => 'question'),
-        ), array('type' => 'object'));
-        $this->assertEquals('qwen3:14b', $body['model']);
-        $this->assertFalse($body['stream']);
-        $this->assertEquals(array('type' => 'object'), $body['format']);
-        $this->assertEquals('system', $body['messages'][0]['content']);
-        $this->assertEquals("catalog\n\nquestion", $body['messages'][1]['content']);
+        // OpenAI and Mistral need a key and a model
+        $assistant = new Assistant(array('enabled' => 'on', 'provider' => 'openai', 'model' => 'm'));
+        $this->assertFalse($assistant->isEnabled());
+        $assistant = new Assistant(array('enabled' => 'on', 'provider' => 'mistral', 'model' => 'mistral-large-latest', 'apiKey' => 'k'));
+        $this->assertTrue($assistant->isEnabled());
+        $request = $assistant->providerRequest('system', $content, $schema);
+        $this->assertEquals('https://api.mistral.ai/v1/chat/completions', $request['url']);
+        $this->assertEquals('Bearer k', $request['headers']['Authorization']);
+        $this->assertEquals('json_schema', $request['body']['response_format']['type']);
+        $this->assertEquals($schema, $request['body']['response_format']['json_schema']['schema']);
 
-        $assistant = new Assistant(array('enabled' => 'on', 'apiKey' => 'key'));
+        // OpenAI compatible: the URL is required, the key is not
+        $assistant = new Assistant(array('enabled' => 'on', 'provider' => 'openai-compatible', 'model' => 'm'));
+        $this->assertFalse($assistant->isEnabled());
+        $assistant = new Assistant(array('enabled' => 'on', 'provider' => 'openai-compatible', 'model' => 'm', 'url' => 'http://localhost:1234/v1'));
+        $this->assertTrue($assistant->isEnabled());
+        $request = $assistant->providerRequest('system', $content, $schema);
+        $this->assertEquals('http://localhost:1234/v1/chat/completions', $request['url']);
+        $this->assertEquals(array(), $request['headers']);
+
+        // Gemini
+        $assistant = new Assistant(array('enabled' => 'on', 'provider' => 'gemini', 'model' => 'gemini-pro', 'apiKey' => 'g'));
+        $request = $assistant->providerRequest('system', $content, $schema);
+        $this->assertEquals('https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent', $request['url']);
+        $this->assertEquals('g', $request['headers']['x-goog-api-key']);
+        $this->assertEquals($schema, $request['body']['generationConfig']['responseJsonSchema']);
+
+        // Unknown provider: Claude
+        $assistant = new Assistant(array('enabled' => 'on', 'provider' => 'other', 'apiKey' => 'key'));
         $this->assertEquals('claude', $assistant->provider());
+        $this->assertTrue($assistant->isEnabled());
+    }
+
+    public function testProviderAnswers(): void
+    {
+        $answers = array(
+            'ollama' => array('message' => array('content' => '{"answer":"a","results":[]}')),
+            'gemini' => array('candidates' => array(array('content' => array('parts' => array(array('text' => '{"answer":"a",'), array('text' => '"results":[]}')))))),
+            'openai' => array('choices' => array(array('message' => array('content' => '{"answer":"a","results":[]}')))),
+        );
+        foreach ($answers as $provider => $answer) {
+            $assistant = new HttpAssistantForTests(array('enabled' => 'on', 'provider' => $provider, 'model' => 'm', 'apiKey' => 'k'));
+            $assistant->answer = $answer;
+            $result = $assistant->search('q', $this->layers());
+            $this->assertEquals('a', $result['answer']);
+        }
+    }
+}
+
+/**
+ * Assistant whose HTTP answers are given by the test.
+ */
+class HttpAssistantForTests extends Assistant
+{
+    public $answer = array();
+
+    protected function postJson($url, array $headers, array $body)
+    {
+        return $this->answer;
     }
 }
