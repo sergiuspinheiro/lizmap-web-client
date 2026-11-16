@@ -481,15 +481,15 @@ export default class Catalog extends HTMLElement {
         return html`
         <div class="catalog-layer-settings">
             ${(layer.styles || []).length > 1 ? html`
-                <label>${lizDict['catalog.layer.style']}
+                <label class="form-label">${lizDict['catalog.layer.style']}
                     <select class="catalog-style form-select form-select-sm"
                         @change=${(e) => this.setStyle(project, layer, e.target.value)}>
                         ${layer.styles.map(name => html`
                             <option value="${name}" ?selected=${style === name}>${name}</option>`)}
                     </select>
                 </label>` : ''}
-            <label>${lizDict['catalog.layer.opacity']}
-                <input type="range" class="catalog-opacity" min="0" max="100" step="10"
+            <label class="form-label">${lizDict['catalog.layer.opacity']}
+                <input type="range" class="catalog-opacity form-range" min="0" max="100" step="10"
                     .value=${String(Math.round(state.opacity * 100))}
                     @input=${(e) => { state.opacity = Number(e.target.value) / 100; this._render(); }}>
             </label>
@@ -561,7 +561,7 @@ export default class Catalog extends HTMLElement {
                 </div>`);
         }
         render(html`
-            <input type="search" class="catalog-filter form-control" placeholder="${lizDict['catalog.filter']}"
+            <input type="search" class="catalog-filter form-control form-control-sm" placeholder="${lizDict['catalog.filter']}"
                 .value=${this._filter}
                 @input=${(e) => { this._filter = e.target.value.trim(); this._render(); }}>
             <p class="catalog-help">${lizDict['catalog.help']}</p>

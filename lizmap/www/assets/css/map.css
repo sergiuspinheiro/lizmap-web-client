@@ -4676,7 +4676,7 @@ lizmap-catalog .catalog-layer.added .catalog-layer-title {
 lizmap-catalog .catalog-layer-preview {
   flex-basis: 100%;
   padding: 6px;
-  border-left: 3px solid #ccc;
+  border-left: 3px solid rgb(255 255 255 / 60%);
   cursor: default;
 }
 
@@ -4700,10 +4700,6 @@ lizmap-catalog .catalog-layer-preview dd {
 }
 
 /* Layer tree arrangement */
-#switcher-layers-actions #layers-arrange.active {
-  background-color: #333;
-}
-
 lizmap-treeview .tree-arrange-bar {
   display: flex;
   flex-wrap: wrap;
@@ -4712,7 +4708,8 @@ lizmap-treeview .tree-arrange-bar {
   padding: 4px;
   margin-bottom: 4px;
   font-size: 0.9em;
-  border: 1px dashed #999;
+  border-top: 1px solid rgb(255 255 255 / 60%);
+  border-bottom: 1px solid rgb(255 255 255 / 60%);
 }
 
 lizmap-treeview ul.arranging li[draggable="true"] > div {
@@ -4724,11 +4721,11 @@ lizmap-treeview li.dragging {
 }
 
 lizmap-treeview li.drop-before {
-  box-shadow: 0 -2px 0 #1f78b4;
+  box-shadow: 0 -2px 0 #F0F0F0;
 }
 
 lizmap-treeview li.drop-after {
-  box-shadow: 0 2px 0 #1f78b4;
+  box-shadow: 0 2px 0 #F0F0F0;
 }
 
 lizmap-mapviews {
@@ -4768,16 +4765,17 @@ lizmap-mapviews input {
 /* Left dock resizer */
 #dock-resizer {
   display: none;
-  flex: 0 0 6px;
+  flex: 0 0 5px;
   z-index: 1041;
   cursor: ew-resize;
   touch-action: none;
-  background-color: rgb(0 0 0 / 30%);
+  background-color: rgb(0 0 0 / 70%);
+  border-right: 1px solid #F0F0F0;
 }
 
 #dock-resizer:hover,
 #dock-resizer.resizing {
-  background-color: #1f78b4;
+  background-color: #F0F0F0;
 }
 
 #dock:has(#dock-content>div:not(.hide)) + #dock-resizer {
