@@ -20,7 +20,7 @@
  *     ; or the environment variable of PHP-FPM: ANTHROPIC_API_KEY, OPENAI_API_KEY,
  *     ; MISTRAL_API_KEY or GEMINI_API_KEY. Not needed for ollama.
  *     apiKey=
- *     ; qwen3:8b by default with ollama, claude-opus-5-5 with claude,
+ *     ; gemma3:4b by default with ollama, claude-opus-5-5 with claude,
  *     ; required with the other providers
  *     model=
  *     ; API URL, for ollama (default http://localhost:11434) and openai-compatible
@@ -49,7 +49,7 @@ class Assistant
 
     /** Default model of the providers which have one */
     public const DEFAULT_MODELS = array(
-        'ollama' => 'qwen3:8b',
+        'ollama' => 'gemma3:4b',
         'claude' => 'claude-opus-5-5',
     );
 
