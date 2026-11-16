@@ -28,6 +28,8 @@ export default class Treeview extends HTMLElement {
         this._dragged = null;
         // OpenLayers layers of the catalog layers whose settings are displayed
         this._catalogSettingsOpen = new WeakSet();
+        // OpenLayers layers of the catalog layers whose legend is expanded
+        this._catalogLegendOpen = new WeakSet();
     }
 
     connectedCallback() {
@@ -56,6 +58,10 @@ export default class Treeview extends HTMLElement {
             @dragover=${(e) => this._dragOver(e, olLayer, extGroup)}
             @drop=${(e) => this._drop(e, olLayer, extGroup)}
             @dragend=${() => this._dragEnd()}>
+            ${this._catalogSymbols(olLayer).length
+                ? html`<div class="expandable ${this._catalogLegendOpen.has(this._olOf(olLayer)) ? 'expanded' : ''}"
+                    @click=${() => this._toggleCatalogLegend(olLayer)}></div>`
+                : ''}
             <div class="${olLayer.checked ? 'checked' : ''} ${olLayer.type}">
                 <div class="loading ${olLayer.loadStatus === MapLayerLoadStatus.Loading ? 'spinner' : ''}"></div>
                 <input type="checkbox" id="node-ol-${olLayer.name}" .checked=${olLayer.checked} @click=${() => olLayer.checked = !olLayer.checked} >
@@ -70,6 +76,15 @@ export default class Treeview extends HTMLElement {
                     </div>
                 </div>
             </div>
+            ${this._catalogSymbols(olLayer).length
+                ? html`
+                    <ul class="symbols">
+                        ${this._catalogSymbols(olLayer).map(symbol => html`
+                            <li class="symbol">
+                                <label class="symbol-title"><img class="legend" src="${symbol.icon}">${symbol.title}</label>
+                            </li>`)}
+                    </ul>`
+                : ''}
             ${this._catalogSettingsOpen.has(this._olOf(olLayer))
                 ? document.querySelector('lizmap-catalog')?.settingsTemplate(
                     this._olOf(olLayer)?.get('lizmapCatalog').key, this._olOf(olLayer)?.get('lizmapCatalog').name)
@@ -335,6 +350,25 @@ export default class Treeview extends HTMLElement {
      */
     _olOf(item) {
         return item.mapItemState?.olLayer ?? item.olLayer;
+    }
+
+    /**
+     * Legend symbols of a catalog layer, read by the catalog
+     * @param {object} item - the layer tree item
+     * @returns {Array<{title: string, icon: string}>} the symbols
+     */
+    _catalogSymbols(item) {
+        return this._olOf(item)?.get('lizmapCatalogSymbols') || [];
+    }
+
+    _toggleCatalogLegend(item) {
+        const olLayer = this._olOf(item);
+        if (this._catalogLegendOpen.has(olLayer)) {
+            this._catalogLegendOpen.delete(olLayer);
+        } else {
+            this._catalogLegendOpen.add(olLayer);
+        }
+        this._onChange();
     }
 
     _toggleCatalogSettings(olLayerState) {
