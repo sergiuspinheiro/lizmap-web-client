@@ -398,7 +398,7 @@ export default class LayerCompare extends HTMLElement {
                 ${select('left', this._leftName)}
                 <label class="form-label">${lizDict['layercompare.right']}</label>
                 ${select('right', this._rightName)}
-                <button type="button" class="btn btn-primary w-100 ${this._active ? 'active' : ''} layercompare-toggle"
+                <button type="button" class="btn btn-sm ${this._active ? 'active' : ''} layercompare-toggle"
                     ?disabled=${!this._leftName || !this._rightName}
                     @click=${() => this._active ? this.deactivate() : this.activate()}>
                     ${this._active ? lizDict['layercompare.stop'] : lizDict['layercompare.start']}
