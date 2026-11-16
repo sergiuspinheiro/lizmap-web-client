@@ -4786,3 +4786,21 @@ lizmap-mapviews input {
   /* stylelint-disable-next-line declaration-no-important */
   display: none !important;
 }
+
+lizmap-catalog .catalog-external {
+  margin: 6px 0;
+  padding: 4px 0;
+  border-top: 1px solid rgb(255 255 255 / 60%);
+  border-bottom: 1px solid rgb(255 255 255 / 60%);
+}
+
+lizmap-catalog .catalog-external summary {
+  cursor: pointer;
+}
+
+lizmap-catalog .catalog-external-form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 0;
+}

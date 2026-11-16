@@ -11,6 +11,7 @@ import { html, render } from 'lit-html';
 import ImageLayer from 'ol/layer/Image.js';
 import ImageWMS from 'ol/source/ImageWMS.js';
 import { transformExtent } from 'ol/proj.js';
+import { SERVICE_TYPES, readService, createLayer, serviceBaseUrl, withParams } from '../modules/ExternalServices.js';
 
 /** Drag and drop data type used to move a catalog layer onto the map */
 export const CATALOG_DRAG_TYPE = 'application/x-lizmap-catalog-layer';
@@ -42,6 +43,10 @@ export default class Catalog extends HTMLElement {
         this._groups = new Map();
         // Preview: {project, layer}
         this._preview = null;
+        // External service form: type, URL and the service read
+        this._ext = { type: 'wms', url: '', loading: false, service: null };
+        // External services added to the map: "type|url" => {type, url, title, capabilities, group}
+        this._services = new Map();
     }
 
     connectedCallback() {
@@ -142,6 +147,202 @@ export default class Catalog extends HTMLElement {
             this._projects.set(key, { key, title: project.title, layers: [], error: true });
         }
         this._render();
+    }
+
+    /**
+     * Read the layers of the external service given in the form
+     * @returns {Promise<void>}
+     */
+    async readExternalService() {
+        const { type, url } = this._ext;
+        if (!url.trim()) {
+            return;
+        }
+        this._ext.loading = true;
+        this._ext.service = null;
+        this._render();
+        try {
+            this._ext.service = await readService(type, url);
+            if (this._ext.service.layers.length === 0) {
+                lizMap.addMessage(lizDict['catalog.external.nolayer'], 'warning', true);
+            }
+        } catch (error) {
+            console.error(error);
+            lizMap.addMessage(lizDict['catalog.external.error'] + ' (' + error.message + ')', 'danger', true);
+        }
+        this._ext.loading = false;
+        this._render();
+    }
+
+    _serviceKey(type, url) {
+        return type + '|' + (['xyz', 'geojson'].includes(type) ? url.trim() : serviceBaseUrl(url));
+    }
+
+    /**
+     * Is a layer of an external service added to the map
+     * @param {string} type - the service type
+     * @param {string} url - the service URL
+     * @param {string} name - the layer name
+     * @returns {boolean} true if added
+     */
+    isExternalAdded(type, url, name) {
+        const service = this._services.get(this._serviceKey(type, url));
+        return !!service && service.group.children.some(item => item.name === (name || 'layer'));
+    }
+
+    /**
+     * Add a layer of an external service to the map
+     * @param {string} type - one of SERVICE_TYPES
+     * @param {string} url - the service URL
+     * @param {string} name - the layer name, empty for XYZ, GeoJSON or a whole ArcGIS map service
+     * @param {string} title - the layer title
+     * @param {{title: string, capabilities: object|null}} service - the service read by readService
+     */
+    addExternalLayer(type, url, name, title, service) {
+        if (this.isExternalAdded(type, url, name)) {
+            lizMap.addMessage(lizDict['catalog.layer.already'], 'info', true);
+            return;
+        }
+        let olLayer;
+        try {
+            olLayer = createLayer(type, url, name, service.capabilities, mainLizmap.projection);
+        } catch (error) {
+            console.error(error);
+            lizMap.addMessage(lizDict['catalog.external.error'] + ' (' + error.message + ')', 'danger', true);
+            return;
+        }
+        const layerName = name || 'layer';
+        olLayer.set('name', layerName);
+        const key = this._serviceKey(type, url);
+        // Lets the layer tree display the layer settings
+        olLayer.set('lizmapCatalog', { key: 'external|' + key, name: layerName });
+        let entry = this._services.get(key);
+        if (!entry) {
+            const group = mainLizmap.state.rootMapGroup.createExternalGroup('external-' + key);
+            group.wmsTitle = service.title;
+            entry = { type, url, title: service.title, capabilities: service.capabilities, group };
+            this._services.set(key, entry);
+        }
+        const layerState = entry.group.addOlLayer(layerName, olLayer);
+        layerState.wmsTitle = title;
+        this._render();
+    }
+
+    /**
+     * Remove a layer of an external service
+     * @param {string} type - the service type
+     * @param {string} url - the service URL
+     * @param {string} name - the layer name
+     */
+    removeExternalLayer(type, url, name) {
+        const key = this._serviceKey(type, url);
+        const entry = this._services.get(key);
+        if (!entry) {
+            return;
+        }
+        entry.group.removeOlLayer(name || 'layer');
+        if (entry.group.childrenCount === 0) {
+            mainLizmap.state.rootMapGroup.removeExternalGroup(entry.group.name);
+            this._services.delete(key);
+        }
+        this._render();
+    }
+
+    /**
+     * Layers of external services added to the map, to save them in a map view
+     * @type {Array<{type: string, url: string, layer: string, title: string, opacity: number}>}
+     */
+    get externalLayers() {
+        const list = [];
+        for (const entry of this._services.values()) {
+            for (const item of [...entry.group.children].reverse()) {
+                list.push({
+                    type: entry.type,
+                    url: entry.url,
+                    layer: item.name === 'layer' ? '' : item.name,
+                    title: item.wmsTitle,
+                    opacity: item.opacity,
+                });
+            }
+        }
+        return list;
+    }
+
+    /**
+     * Replace the layers of external services by the ones of a saved map view
+     * @param {Array<{type: string, url: string, layer: string, title: string, opacity: number}>} list - the layers
+     * @returns {Promise<void>}
+     */
+    async restoreExternal(list) {
+        for (const entry of this._services.values()) {
+            entry.group.clean();
+            mainLizmap.state.rootMapGroup.removeExternalGroup(entry.group.name);
+        }
+        this._services.clear();
+        const services = new Map();
+        for (const item of (Array.isArray(list) ? list : [])) {
+            if (!SERVICE_TYPES.includes(item.type) || typeof item.url !== 'string') {
+                continue;
+            }
+            const key = this._serviceKey(item.type, item.url);
+            try {
+                if (!services.has(key)) {
+                    services.set(key, await readService(item.type, item.url));
+                }
+                this.addExternalLayer(item.type, item.url, item.layer || '', item.title || item.layer, services.get(key));
+                const state = this._services.get(key)?.group.children.find(c => c.name === (item.layer || 'layer'));
+                if (state && typeof item.opacity === 'number') {
+                    state.opacity = item.opacity;
+                }
+            } catch (error) {
+                console.error(error);
+                lizMap.addMessage(lizDict['catalog.external.error'] + ' (' + item.url + ')', 'warning', true);
+            }
+        }
+        this._render();
+    }
+
+    _externalTemplate() {
+        const ext = this._ext;
+        const service = ext.service;
+        return html`
+        <details class="catalog-external">
+            <summary>${lizDict['catalog.external.title']}</summary>
+            <div class="catalog-external-form">
+                <select class="catalog-external-type form-select form-select-sm"
+                    @change=${(e) => { ext.type = e.target.value; ext.service = null; this._render(); }}>
+                    ${SERVICE_TYPES.map(type => html`
+                        <option value="${type}" ?selected=${ext.type === type}>${lizDict['catalog.external.type.' + type]}</option>`)}
+                </select>
+                <div class="input-group input-group-sm">
+                    <input type="url" class="catalog-external-url form-control form-control-sm"
+                        placeholder="${lizDict['catalog.external.url.' + ext.type] || lizDict['catalog.external.url']}"
+                        .value=${ext.url}
+                        @input=${(e) => { ext.url = e.target.value; }}
+                        @keydown=${(e) => { if (e.key === 'Enter') { this.readExternalService(); } }}>
+                    <button type="button" class="btn btn-sm catalog-external-load" ?disabled=${ext.loading}
+                        @click=${() => this.readExternalService()}>${lizDict['catalog.external.load']}</button>
+                </div>
+            </div>
+            ${ext.loading ? html`<p class="catalog-loading">${lizDict['catalog.loading']}</p>` : ''}
+            ${service ? html`
+                <ul class="catalog-layers">
+                    ${service.layers.filter(l => this._match(l.title, l.name)).map(l => {
+                        const added = this.isExternalAdded(ext.type, ext.url, l.name);
+                        return html`
+                        <li class="catalog-layer catalog-external-layer ${added ? 'added' : ''}">
+                            <span class="catalog-layer-title">${l.title}</span>
+                            <span class="catalog-layer-actions">
+                                ${added
+                                    ? html`<button type="button" class="btn btn-sm catalog-remove" title="${lizDict['catalog.layer.remove']}"
+                                        @click=${() => this.removeExternalLayer(ext.type, ext.url, l.name)}><i class="icon-remove"></i></button>`
+                                    : html`<button type="button" class="btn btn-sm btn-primary catalog-add" title="${lizDict['catalog.layer.add']}"
+                                        @click=${() => this.addExternalLayer(ext.type, ext.url, l.name, l.title, service)}><i class="icon-plus icon-white"></i></button>`}
+                            </span>
+                        </li>`;
+                    })}
+                </ul>` : ''}
+        </details>`;
     }
 
     /**
@@ -461,6 +662,9 @@ export default class Catalog extends HTMLElement {
      * @returns {import('lit-html').TemplateResult|string} the template
      */
     settingsTemplate(key, name) {
+        if (key.startsWith('external|')) {
+            return this._externalSettingsTemplate(key.substring('external|'.length), name);
+        }
         const project = this._projects.get(key);
         const layer = project?.layers?.find(l => l.name === name);
         return layer ? this._settingsTemplate(project, layer) : '';
@@ -470,6 +674,28 @@ export default class Catalog extends HTMLElement {
         this._renderCatalog();
         // The layer tree displays the settings too
         document.dispatchEvent(new CustomEvent('lizmapcatalogchanged'));
+    }
+
+    _externalSettingsTemplate(serviceKey, name) {
+        const entry = this._services.get(serviceKey);
+        const state = entry?.group.children.find(item => item.name === name);
+        if (!state) {
+            return '';
+        }
+        const legend = entry.type === 'wms'
+            ? withParams(serviceBaseUrl(entry.url), {
+                SERVICE: 'WMS', VERSION: '1.3.0', REQUEST: 'GetLegendGraphic', LAYER: name, FORMAT: 'image/png', SLD_VERSION: '1.1.0',
+            })
+            : '';
+        return html`
+        <div class="catalog-layer-settings">
+            <label class="form-label">${lizDict['catalog.layer.opacity']}
+                <input type="range" class="catalog-opacity form-range" min="0" max="100" step="10"
+                    .value=${String(Math.round(state.opacity * 100))}
+                    @input=${(e) => { state.opacity = Number(e.target.value) / 100; this._render(); }}>
+            </label>
+            ${legend ? html`<img class="catalog-legend" alt="" loading="lazy" src="${legend}">` : ''}
+        </div>`;
     }
 
     _settingsTemplate(project, layer) {
@@ -565,6 +791,7 @@ export default class Catalog extends HTMLElement {
                 .value=${this._filter}
                 @input=${(e) => { this._filter = e.target.value.trim(); this._render(); }}>
             <p class="catalog-help">${lizDict['catalog.help']}</p>
+            ${this._externalTemplate()}
             <div class="catalog-list">${content}</div>
         `, this);
     }
