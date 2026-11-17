@@ -209,7 +209,11 @@ class catalogCtrl extends jController
         $indexTime = microtime(true) - $start;
 
         try {
-            $rep->data = $assistant->search($question, $index);
+            $data = $assistant->search($question, $index, jLocale::getCurrentLocale());
+            if ($data['keywords']) {
+                $data['answer'] = jLocale::get('view~dictionnary.catalog.ai.keywords');
+            }
+            $rep->data = $data;
             jLog::log(sprintf(
                 'AI assistant search: %d layers read in %.1f s, answer of %s in %.1f s (%s)',
                 count($index),

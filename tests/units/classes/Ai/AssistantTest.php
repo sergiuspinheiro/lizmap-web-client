@@ -221,6 +221,25 @@ class AssistantTest extends TestCase
         $this->assertStringContainsString('1 | Orthophoto 2025 | Orthophotos | raster', $catalog);
         $this->assertStringContainsString('2 | Tram stops | Transport | point', $catalog);
     }
+    public function testSearchFallsBackOnWords(): void
+    {
+        $assistant = new AssistantForTests(array('enabled' => 'on', 'provider' => 'ollama'));
+        $assistant->answer = array('answer' => 'No layer matches the request because it is too generic.', 'results' => array());
+        $result = $assistant->search('Transports', $this->layers(), 'pt_PT');
+        $this->assertTrue($result['keywords']);
+        $this->assertEquals('', $result['answer']);
+        $this->assertCount(1, $result['results']);
+        $this->assertEquals('tramstop', $result['results'][0]['name']);
+        // The interface language is given to the assistant
+        $this->assertStringContainsString('language: pt_PT', $assistant->requests[0]['content'][1]['text']);
+        $this->assertStringContainsString('theme', $assistant->requests[0]['system']);
+
+        // No word in common: nothing
+        $result = $assistant->search('xyzzy', $this->layers());
+        $this->assertFalse($result['keywords']);
+        $this->assertCount(0, $result['results']);
+        $this->assertEquals('No layer matches the request because it is too generic.', $result['answer']);
+    }
 }
 
 /**
