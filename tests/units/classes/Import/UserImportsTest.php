@@ -75,6 +75,7 @@ class UserImportsTest extends TestCase
                 ),
                 'other' => 1,
             ),
+            'lizmapSource' => array('fileName' => '<b>planta</b>.dxf', 'crs' => 'EPSG:3763; drop'),
         ));
         $data = json_decode(UserImports::normalizeGeoJson($json), true);
         $this->assertEquals(array(
@@ -85,6 +86,7 @@ class UserImportsTest extends TestCase
             'classifyBy' => 'Layer',
             'classes' => array(array('value' => 'A', 'color' => '#112233', 'visible' => false)),
         ), $data['lizmapStyle']);
+        $this->assertEquals(array('fileName' => 'planta.dxf', 'crs' => null), $data['lizmapSource']);
         $this->assertNull(UserImports::normalizeStyle('red'));
     }
 

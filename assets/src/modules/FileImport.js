@@ -295,8 +295,9 @@ function splitByLayer(features, name) {
  * @param {string} mapProjection - the map projection code
  * @param {function(string): Promise<string|null>} [askCrs] - asks the CRS of a file to
  *     the user, given its name, and gives a code like EPSG:3763, or null when cancelled
- * @returns {Promise<{layers: Array<{name: string, features: object[]}>, errors: string[], warnings: string[]}>}
- *     the layers read, the error messages of the files that failed and the warnings
+ * @returns {Promise<{layers: Array<{name: string, features: object[], fileName: string, crs: string|null}>,
+ *     errors: string[], warnings: string[]}>} the layers read, with their file name and the CRS given
+ *     by the user, the error messages of the files that failed and the warnings
  */
 export async function readFiles(files, mapProjection, askCrs = null) {
     const layers = [];
@@ -305,6 +306,7 @@ export async function readFiles(files, mapProjection, askCrs = null) {
     const options = { featureProjection: mapProjection };
 
     // The CRS of a file is asked once
+    const asked = new Map();
     const crsGetter = fileName => {
         let crs = null;
         return async () => {
@@ -313,9 +315,17 @@ export async function readFiles(files, mapProjection, askCrs = null) {
                 if (!crs) {
                     throw new Error(lizDict['catalog.import.crs.missing']);
                 }
+                asked.set(fileName, crs);
             }
             return crs;
         };
+    };
+    // The file name and the CRS given by the user of the new layers
+    const tag = (start, fileName) => {
+        for (const layer of layers.slice(start)) {
+            layer.fileName = fileName;
+            layer.crs = asked.get(fileName) || null;
+        }
     };
     // Convert on the server, asking the CRS when the server needs it
     const fromServer = async (file, name) => {
@@ -345,6 +355,7 @@ export async function readFiles(files, mapProjection, askCrs = null) {
         }
     }
     for (const [name, parts] of shapefiles) {
+        const start = layers.length;
         try {
             if (!parts.shp) {
                 throw new Error(lizDict['catalog.import.shp.missing']);
@@ -359,6 +370,7 @@ export async function readFiles(files, mapProjection, askCrs = null) {
                 cpg: parts.cpg ? await parts.cpg.text() : undefined,
             });
             layers.push(...await readShapefiles(geojson, name, mapProjection, crsGetter(name + '.shp')));
+            tag(start, name + '.shp');
         } catch (error) {
             errors.push(name + '.shp: ' + error.message);
         }
@@ -370,6 +382,7 @@ export async function readFiles(files, mapProjection, askCrs = null) {
         if (SHAPEFILE_PARTS.includes(ext)) {
             continue;
         }
+        const start = layers.length;
         try {
             if (['json', 'geojson'].includes(ext)) {
                 const geojson = JSON.parse(await file.text());
@@ -396,9 +409,31 @@ export async function readFiles(files, mapProjection, askCrs = null) {
             } else {
                 throw new Error(lizDict['catalog.import.format']);
             }
+            tag(start, file.name);
         } catch (error) {
             errors.push(file.name + ': ' + error.message);
         }
     }
     return { layers: layers.filter(layer => layer.features.length), errors, warnings };
+}
+
+/**
+ * Change the CRS of features read with a wrong CRS given by the user: the
+ * coordinates are read again in the new CRS.
+ * @param {import('ol/Feature.js').default[]} features - the features, in the map projection
+ * @param {string} oldCrs - the CRS given at the import, like EPSG:3763
+ * @param {string} newCrs - the right CRS
+ * @param {string} mapProjection - the map projection code
+ * @returns {Promise<void>}
+ */
+export async function reprojectFeatures(features, oldCrs, newCrs, mapProjection) {
+    await ensureProjection(oldCrs);
+    await ensureProjection(newCrs);
+    for (const feature of features) {
+        const geometry = feature.getGeometry();
+        if (geometry) {
+            geometry.transform(mapProjection, oldCrs);
+            geometry.transform(newCrs, mapProjection);
+        }
+    }
 }

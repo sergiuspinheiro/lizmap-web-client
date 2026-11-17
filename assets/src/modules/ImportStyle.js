@@ -179,6 +179,20 @@ export function sanitizeImportStyle(value, fallbackColor) {
 }
 
 /**
+ * Check the original file name and CRS of an imported layer
+ * @param {object} value - the source read from the browser storage or the user profile
+ * @returns {{fileName: string, crs: string|null}|null} the source
+ */
+export function sanitizeImportSource(value) {
+    if (!value || typeof value !== 'object') {
+        return null;
+    }
+    const fileName = typeof value.fileName === 'string' ? value.fileName.substring(0, 255) : '';
+    const crs = typeof value.crs === 'string' && /^EPSG:\d{4,6}$/.test(value.crs) ? value.crs : null;
+    return fileName || crs ? { fileName, crs } : null;
+}
+
+/**
  * Color with an opacity
  * @param {string} hex - the color, like #e6194b
  * @param {number} opacity - 0 to 1

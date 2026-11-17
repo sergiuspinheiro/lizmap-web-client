@@ -150,6 +150,14 @@ class UserImports
         if ($style !== null) {
             $collection['lizmapStyle'] = $style;
         }
+        $source = $data['lizmapSource'] ?? null;
+        if (is_array($source)) {
+            $fileName = is_string($source['fileName'] ?? null) ? mb_substr(strip_tags($source['fileName']), 0, 255) : '';
+            $crs = is_string($source['crs'] ?? null) && preg_match('/^EPSG:\d{4,6}$/', $source['crs']) ? $source['crs'] : null;
+            if ($fileName !== '' || $crs !== null) {
+                $collection['lizmapSource'] = array('fileName' => $fileName, 'crs' => $crs);
+            }
+        }
 
         return json_encode($collection);
     }
