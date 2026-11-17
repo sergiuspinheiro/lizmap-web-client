@@ -23,8 +23,9 @@ import { createEmpty, extend, isEmpty } from 'ol/extent.js';
 import { Utils } from '../modules/Utils.js';
 import {
     GEOMETRY_CLASS, buildClasses, classifiableFields, defaultImportStyle, geometryKind,
-    importStyleFunction, legendIcon, sanitizeImportSource, sanitizeImportStyle,
+    featureFields, importStyleFunction, labelStyle, legendIcon, sanitizeImportSource, sanitizeImportStyle, sanitizeLabel,
 } from '../modules/ImportStyle.js';
+import { bbox as bboxStrategy } from 'ol/loadingstrategy.js';
 
 /** Colors of the imported layers */
 const IMPORT_COLORS = ['#e6194b', '#3cb44b', '#4363d8', '#f58231', '#911eb4', '#42d4f4', '#f032e6', '#9a6324'];
@@ -1026,7 +1027,150 @@ export default class Catalog extends HTMLElement {
                                 <span>${this._classLabel(item.value, spec.classifyBy)}</span>
                             </li>`)}
                     </ul>` : ''}
+            </dd>
+            ${this._labelTemplate(spec.label || sanitizeLabel(null), featureFields(state.olLayer.getSource().getFeatures()),
+                changes => update({ label: { ...(spec.label || sanitizeLabel(null)), ...changes } }))}`;
+    }
+
+    /**
+     * Label settings of a layer, in the information panel
+     * @param {import('../modules/ImportStyle.js').LabelSpec} label - the label settings
+     * @param {string[]|null} fields - the fields of the layer, null while they are loaded
+     * @param {function(object): void} onChange - called with the changed settings
+     * @returns {import('lit-html').TemplateResult} the template
+     */
+    _labelTemplate(label, fields, onChange) {
+        const list = fields ? [...fields] : [];
+        if (label.field && !list.includes(label.field)) {
+            list.unshift(label.field);
+        }
+        return html`
+            <dt>${lizDict['catalog.label.title']}</dt>
+            <dd class="catalog-import-style catalog-labels">
+                <label>${lizDict['catalog.label.field']}
+                    <select class="form-select form-select-sm" ?disabled=${fields === null}
+                        @change=${(e) => onChange({ field: e.target.value })}>
+                        <option value="" ?selected=${!label.field}>${fields === null
+                            ? lizDict['catalog.loading'] : lizDict['catalog.label.none']}</option>
+                        ${list.map(field => html`<option value="${field}" ?selected=${label.field === field}>${field}</option>`)}
+                    </select></label>
+                ${label.field ? html`
+                    <label>${lizDict['catalog.label.size']} (${label.size} px)
+                        <input type="range" class="form-range" min="8" max="30" step="1" .value=${String(label.size)}
+                            @change=${(e) => onChange({ size: Number(e.target.value) })}></label>
+                    <label>${lizDict['catalog.label.color']}
+                        <input type="color" class="form-control form-control-color" .value=${label.color}
+                            @change=${(e) => onChange({ color: e.target.value })}></label>` : ''}
             </dd>`;
+    }
+
+    /**
+     * Labels of a catalog layer: the layer is an image of QGIS Server, the
+     * labels are drawn above it from the features read with the WFS of the
+     * source map, which checks the user rights and filters
+     * @param {object} project - the loaded project
+     * @param {object} layer - the layer
+     * @param {object} label - the label settings
+     */
+    setCatalogLabels(project, layer, label) {
+        const state = this.layerState(project, layer);
+        if (!state) {
+            return;
+        }
+        const spec = sanitizeLabel(label);
+        const olLayer = state.olLayer;
+        olLayer.set('lizmapLabels', spec);
+        if (!spec.field) {
+            this._removeLabelLayer(olLayer);
+            this._render();
+            return;
+        }
+        let overlay = olLayer.get('lizmapLabelLayer');
+        if (!overlay) {
+            const format = new GeoJSON();
+            const source = new VectorSource({
+                strategy: bboxStrategy,
+                loader: async (extent, resolution, projection, success, failure) => {
+                    try {
+                        const url = new URL(project.wmsUrl, window.location.href);
+                        const params = {
+                            SERVICE: 'WFS', VERSION: '1.0.0', REQUEST: 'GetFeature', TYPENAME: layer.typeName,
+                            OUTPUTFORMAT: 'GeoJSON', SRSNAME: 'EPSG:4326', MAXFEATURES: '1000',
+                            BBOX: transformExtent(extent, projection, 'EPSG:4326').join(','),
+                        };
+                        for (const [key, value] of Object.entries(params)) {
+                            url.searchParams.set(key, value);
+                        }
+                        const response = await fetch(url);
+                        if (!response.ok) {
+                            throw new Error(response.statusText);
+                        }
+                        const features = format.readFeatures(await response.json(), {
+                            dataProjection: 'EPSG:4326', featureProjection: projection,
+                        });
+                        source.addFeatures(features);
+                        success(features);
+                    } catch (error) {
+                        console.error(error);
+                        source.removeLoadedExtent(extent);
+                        failure();
+                    }
+                },
+            });
+            overlay = new VectorLayer({ source, declutter: true, zIndex: 1000, visible: olLayer.getVisible() });
+            olLayer.set('lizmapLabelVisibleKey', olLayer.on('change:visible', () => overlay.setVisible(olLayer.getVisible())));
+            mainLizmap.map.addLayer(overlay);
+            olLayer.set('lizmapLabelLayer', overlay);
+        }
+        overlay.setStyle(feature => labelStyle(feature, spec));
+        this._render();
+    }
+
+    /**
+     * Remove the labels drawn above a catalog layer
+     * @param {import('ol/layer/Base.js').default} olLayer - the catalog layer
+     */
+    _removeLabelLayer(olLayer) {
+        const overlay = olLayer.get('lizmapLabelLayer');
+        if (overlay) {
+            mainLizmap.map.removeLayer(overlay);
+            olLayer.unset('lizmapLabelLayer');
+        }
+        const key = olLayer.get('lizmapLabelVisibleKey');
+        if (key) {
+            olLayer.un('change:visible', key.listener);
+            olLayer.unset('lizmapLabelVisibleKey');
+        }
+    }
+
+    /**
+     * Fields of a catalog layer, read from one feature of the WFS of the source map
+     * @param {object} project - the loaded project
+     * @param {object} layer - the layer
+     * @returns {string[]|null} the fields, null while they are loaded
+     */
+    _catalogFields(project, layer) {
+        const id = project.key + '~' + layer.name;
+        this._labelFields = this._labelFields || new Map();
+        if (!this._labelFields.has(id)) {
+            this._labelFields.set(id, null);
+            const url = new URL(project.wmsUrl, window.location.href);
+            const params = {
+                SERVICE: 'WFS', VERSION: '1.0.0', REQUEST: 'GetFeature', TYPENAME: layer.typeName,
+                OUTPUTFORMAT: 'GeoJSON', MAXFEATURES: '1',
+            };
+            for (const [key, value] of Object.entries(params)) {
+                url.searchParams.set(key, value);
+            }
+            fetch(url).then(response => response.ok ? response.json() : null).then(data => {
+                const properties = data?.features?.[0]?.properties || {};
+                this._labelFields.set(id, Object.keys(properties).filter(key => {
+                    const value = properties[key];
+                    return value === null || typeof value !== 'object';
+                }));
+            }).catch(() => this._labelFields.set(id, [])).finally(() => this._render());
+        }
+        return this._labelFields.get(id);
     }
 
     /**
@@ -1564,6 +1708,7 @@ export default class Catalog extends HTMLElement {
                     layer: item.name,
                     style: item.olLayer.getSource().getParams().STYLES || '',
                     opacity: item.opacity,
+                    labels: item.olLayer.get('lizmapLabels') || null,
                 });
             }
         }
@@ -1578,6 +1723,7 @@ export default class Catalog extends HTMLElement {
      */
     async restore(list) {
         for (const group of this._groups.values()) {
+            group.children.forEach(item => this._removeLabelLayer(item.olLayer));
             group.clean();
             mainLizmap.state.rootMapGroup.removeExternalGroup(group.name);
         }
@@ -1602,6 +1748,9 @@ export default class Catalog extends HTMLElement {
             const layer = loaded?.layers?.find(l => l.name === item.layer);
             if (layer && !this.isAdded(loaded, layer)) {
                 this.addLayer(loaded, layer, { style: item.style, opacity: item.opacity });
+                if (item.labels?.field) {
+                    this.setCatalogLabels(loaded, layer, item.labels);
+                }
                 count++;
             }
         }
@@ -1809,6 +1958,10 @@ export default class Catalog extends HTMLElement {
         const group = this._groups.get(project.key);
         if (!group) {
             return;
+        }
+        const state = group.children.find(item => item.name === layer.name);
+        if (state) {
+            this._removeLabelLayer(state.olLayer);
         }
         group.removeOlLayer(layer.name);
         if (group.childrenCount === 0) {
@@ -2136,6 +2289,11 @@ export default class Catalog extends HTMLElement {
                         @change=${(e) => this.setStyle(project, layer, e.target.value)}>
                         ${layer.styles.map(style => html`<option value="${style}" ?selected=${current === style}>${style}</option>`)}
                     </select></dd>`;
+            }
+            if (layer.geometryType && layer.geometryType !== 'none') {
+                const label = state.olLayer.get('lizmapLabels') || sanitizeLabel(null);
+                styles = html`${styles}${this._labelTemplate(label, this._catalogFields(project, layer),
+                    changes => this.setCatalogLabels(project, layer, { ...label, ...changes }))}`;
             }
             abstract = layer.abstract || '';
             if (layer.attributeTable) {

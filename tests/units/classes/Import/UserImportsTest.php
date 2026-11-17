@@ -85,6 +85,7 @@ class UserImportsTest extends TestCase
             'pointSize' => 5,
             'classifyBy' => 'Layer',
             'classes' => array(array('value' => 'A', 'color' => '#112233', 'visible' => false)),
+            'label' => array('field' => '', 'size' => 12, 'color' => '#000000'),
         ), $data['lizmapStyle']);
         $this->assertEquals(array('fileName' => 'planta.dxf', 'crs' => null), $data['lizmapSource']);
         $this->assertNull(UserImports::normalizeStyle('red'));
