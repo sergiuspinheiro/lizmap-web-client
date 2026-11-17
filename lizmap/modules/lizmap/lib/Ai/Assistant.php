@@ -78,6 +78,9 @@ class Assistant
     /** @var array the configuration */
     protected $config;
 
+    /** @var string description of the last answer, for the logs */
+    protected $lastAnswerInfo = '';
+
     /**
      * @param array $config the [lizmapAi] configuration section
      */
@@ -111,6 +114,14 @@ class Assistant
             'sendStatistics' => $bool($config['sendStatistics'] ?? null, true),
             'maxFeatures' => max(1, (int) ($config['maxFeatures'] ?? 1000)),
         );
+    }
+
+    /**
+     * @return string description of the last answer, for the logs
+     */
+    public function lastAnswerInfo()
+    {
+        return $this->lastAnswerInfo;
     }
 
     /**
@@ -262,9 +273,20 @@ EOT;
             'low',
         );
 
+        $results = $this->filterResults($data['results'] ?? array(), $byId);
+        $this->lastAnswerInfo .= sprintf(
+            ', %d layers sent, %d results proposed, %d kept',
+            count($layers),
+            is_array($data['results'] ?? null) ? count($data['results']) : 0,
+            count($results),
+        );
+        if (count($results) === 0) {
+            $this->lastAnswerInfo .= ', answer: '.mb_substr(json_encode($data, JSON_UNESCAPED_UNICODE), 0, 500);
+        }
+
         return array(
             'answer' => (string) ($data['answer'] ?? ''),
-            'results' => $this->filterResults($data['results'] ?? array(), $byId),
+            'results' => $results,
         );
     }
 
@@ -681,14 +703,23 @@ EOT;
         if ($message->stopReason === 'refusal') {
             throw new AssistantException('The AI assistant declined the request', 422);
         }
+        $types = array();
+        $texts = array();
         foreach ($message->content as $block) {
+            $types[] = $block->type;
             if ($block->type === 'text') {
-                $data = json_decode($block->text, true);
-                if (is_array($data)) {
-                    return $data;
-                }
+                $texts[] = $block->text;
             }
         }
+        $this->lastAnswerInfo = 'model '.$message->model.', stop '.$message->stopReason.', blocks '.implode(',', $types);
+        // The JSON answer is the last text block
+        foreach (array_reverse($texts) as $text) {
+            $data = json_decode($text, true);
+            if (is_array($data)) {
+                return $data;
+            }
+        }
+        $this->lastAnswerInfo .= ', text: '.mb_substr(implode(' ', $texts), 0, 500);
 
         throw new AssistantException('The AI assistant answer is not valid');
     }
