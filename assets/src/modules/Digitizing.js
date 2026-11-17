@@ -52,7 +52,8 @@ import proj4 from "proj4";
 import Transform from "ol-ext/interaction/Transform.js";
 
 /** Extensions of the files converted to GeoJSON on the server with GDAL/OGR */
-export const SERVER_IMPORT_EXTENSIONS = ['dxf', 'gpkg', 'gml', 'csv', 'kmz', 'sqlite', 'geojsonl', 'geojsons'];
+import { SERVER_IMPORT_EXTENSIONS, importFromServer } from './FileImport.js';
+export { SERVER_IMPORT_EXTENSIONS };
 
 /**
  * Enum for digitizing tools
@@ -2254,40 +2255,7 @@ export class Digitizing {
      * @returns {Promise<Feature[]>} the features in the map projection
      */
     async _importFromServer(file) {
-        const params = globalThis.lizUrls.params;
-        const formData = new FormData();
-        formData.append('repository', params.repository);
-        formData.append('project', params.project);
-        formData.append('file', file);
-        // CSV without CRS are read in WGS 84 and DXF in the map CRS
-        formData.append('crs', file.name.toLowerCase().endsWith('.dxf') ? this._lizmap3.map.getProjection() : '');
-        const response = await fetch(globalThis.lizUrls.convert, { method: 'POST', body: formData });
-        if (!response.ok) {
-            let message = lizDict['digitizing.import.server.error'];
-            if (response.status === 501) {
-                message = lizDict['digitizing.import.server.unavailable'];
-            } else if (response.status === 401) {
-                message = lizDict['digitizing.import.server.login'];
-            } else {
-                try {
-                    const detail = (await response.json()).error;
-                    if (detail) {
-                        message += ' (' + detail + ')';
-                    }
-                } catch {
-                    // Not a JSON response
-                }
-            }
-            throw new Error(message);
-        }
-        const geojson = await response.json();
-        const features = (new GeoJSON()).readFeatures(geojson, {
-            dataProjection: 'EPSG:4326',
-            featureProjection: this._lizmap3.map.getProjection()
-        });
-        if (features.length === 0) {
-            throw new Error(lizDict['digitizing.import.server.empty']);
-        }
-        return features;
+        return importFromServer(file, this._lizmap3.map.getProjection());
     }
+
 }
