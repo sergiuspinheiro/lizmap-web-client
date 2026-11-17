@@ -21,6 +21,7 @@ import VectorSource from 'ol/source/Vector.js';
 import GeoJSON from 'ol/format/GeoJSON.js';
 import { createEmpty, extend, isEmpty } from 'ol/extent.js';
 import { Utils } from '../modules/Utils.js';
+import { deleteImport, listImports, putImport } from '../modules/ImportLibrary.js';
 import {
     GEOMETRY_CLASS, buildClasses, classifiableFields, defaultImportStyle, geometryKind,
     featureFields, importStyleFunction, labelStyle, legendIcon, sanitizeImportSource, sanitizeImportStyle, sanitizeLabel,
@@ -66,6 +67,7 @@ export default class Catalog extends HTMLElement {
         this._services = new Map();
         // Files imported by the user, kept until the page is closed
         this._import = { loading: false, group: null, count: 0, over: false };
+        this._library = [];
         // Files saved in the user profile: {canSave, quota, files} once read
         this._profile = null;
         // External services saved in the user profile, once read
@@ -116,6 +118,14 @@ export default class Catalog extends HTMLElement {
         document.addEventListener('dragover', this._dragOverHandler);
         document.addEventListener('drop', this._dropHandler);
 
+        // Files imported in another tab meanwhile
+        this._visibilityHandler = () => {
+            if (document.visibilityState === 'visible' && this._importsRestored) {
+                this._loadLibrary();
+            }
+        };
+        document.addEventListener('visibilitychange', this._visibilityHandler);
+
         this._render();
     }
 
@@ -124,6 +134,7 @@ export default class Catalog extends HTMLElement {
         mainEventDispatcher.removeListener(this._restoreImportsHandler, 'lizmap.uicreated');
         document.removeEventListener('dragover', this._dragOverHandler);
         document.removeEventListener('drop', this._dropHandler);
+        document.removeEventListener('visibilitychange', this._visibilityHandler);
     }
 
     /**
@@ -1192,13 +1203,14 @@ export default class Catalog extends HTMLElement {
         const layers = [...(this._import.group?.children || [])].reverse();
         const format = new GeoJSON();
         const temporary = layers.filter(item => !item.olLayer.get('lizmapProfileId'));
-        const library = this._importLibrary();
+        const library = this._library;
         const mapTitle = document.querySelector('#title h1')?.textContent?.trim()
             || globalThis.lizUrls?.params?.project || '';
         for (const item of temporary) {
             const uid = item.olLayer.get('lizmapImportUid');
             const entry = {
                 uid,
+                scope: this._importScope,
                 title: item.wmsTitle,
                 map: library.find(e => e.uid === uid)?.map || mapTitle,
                 style: item.olLayer.get('lizmapImportStyle'),
@@ -1216,7 +1228,17 @@ export default class Catalog extends HTMLElement {
                 library.push(entry);
             }
         }
-        this._saveImportLibrary(library);
+        // Kept in the browser for the other maps and tabs
+        for (const item of temporary) {
+            const entry = library.find(e => e.uid === item.olLayer.get('lizmapImportUid'));
+            if (entry) {
+                putImport(entry).then(saved => {
+                    if (!saved) {
+                        console.warn('The imported file is not kept in the browser');
+                    }
+                });
+            }
+        }
         try {
             const uids = temporary.map(item => item.olLayer.get('lizmapImportUid'));
             if (uids.length) {
@@ -1263,29 +1285,44 @@ export default class Catalog extends HTMLElement {
      * @returns {Promise<void>}
      */
     /**
-     * Temporary files imported in the maps of this browser tab, shared by the maps
+     * Separates the temporary files of the users of the browser
+     * @type {string}
+     */
+    get _importScope() {
+        return globalThis.lizUrls?.userImports?.scope || 'anonymous';
+    }
+
+    /**
+     * Temporary files imported in the maps, kept in the browser for 7 days
      * @returns {Array<{uid: string, title: string, map: string, style: object, geojson: object}>} the files
      */
     _importLibrary() {
-        try {
-            const library = JSON.parse(window.sessionStorage.getItem('lizmap-catalog-import-library') || '[]');
-            return Array.isArray(library) ? library.filter(e => e && typeof e.uid === 'string' && e.geojson) : [];
-        } catch {
-            return [];
-        }
+        return this._library;
     }
 
-    _saveImportLibrary(library) {
+    /**
+     * Read the temporary files kept in the browser, imported in this map or
+     * in other maps and tabs
+     * @returns {Promise<void>}
+     */
+    async _loadLibrary() {
+        // Files kept by the previous version, in the tab only
         try {
-            if (library.length) {
-                window.sessionStorage.setItem('lizmap-catalog-import-library', JSON.stringify(library));
-            } else {
-                window.sessionStorage.removeItem('lizmap-catalog-import-library');
+            const old = JSON.parse(window.sessionStorage.getItem('lizmap-catalog-import-library') || '[]');
+            for (const entry of Array.isArray(old) ? old : []) {
+                if (entry && typeof entry.uid === 'string' && entry.geojson) {
+                    await putImport({ ...entry, scope: this._importScope });
+                }
             }
-        } catch (error) {
-            // Too big for the browser storage: the files are lost on reload
-            console.warn(error);
+            window.sessionStorage.removeItem('lizmap-catalog-import-library');
+        } catch {
+            // No storage
         }
+        const files = await listImports(this._importScope);
+        // Files of this map not saved yet stay in the list
+        const pending = this._library.filter(e => !files.some(f => f.uid === e.uid));
+        this._library = [...files, ...pending];
+        this._render();
     }
 
     /**
@@ -1329,7 +1366,8 @@ export default class Catalog extends HTMLElement {
      * @param {string} uid - the file id
      */
     deleteFromLibrary(uid) {
-        this._saveImportLibrary(this._importLibrary().filter(e => e.uid !== uid));
+        this._library = this._library.filter(e => e.uid !== uid);
+        deleteImport(uid);
         const state = this._libraryLayerState(uid);
         if (state) {
             this.removeImportedLayer(state.name);
@@ -1389,6 +1427,7 @@ export default class Catalog extends HTMLElement {
             this._restoringExternal = false;
             this._persistExternal();
         }
+        await this._loadLibrary();
         let files = [];
         let ids = [];
         try {
@@ -2644,7 +2683,8 @@ export default class Catalog extends HTMLElement {
                 @input=${(e) => { this._filter = e.target.value.trim(); this._render(); }}>
             <div class="accordion catalog-sections">
                 ${this._sectionTemplate('external', lizDict['catalog.external.title'], 'icon-globe', () => this._externalTemplate())}
-                ${this._sectionTemplate('import', lizDict['catalog.import.title'], 'icon-upload', () => this._importTemplate())}
+                ${this._sectionTemplate('import', lizDict['catalog.import.title']
+                    + (this._library.length ? ' (' + this._library.length + ')' : ''), 'icon-upload', () => this._importTemplate())}
                 ${this._sectionTemplate('maps', lizDict['catalog.maps.title'], 'icon-th-list', () => html`
                     <p class="catalog-help">${lizDict['catalog.help']}</p>
                     <div class="catalog-list">${content}</div>`)}

@@ -322,6 +322,8 @@ class lizMapCtrl extends jController
                 'services' => jUrl::get('lizmap~userimport:services'),
                 'saveService' => jUrl::get('lizmap~userimport:saveService'),
                 'deleteService' => jUrl::get('lizmap~userimport:deleteService'),
+                // The temporary files kept in the browser are separated by user, without giving the login
+                'scope' => sha1('lizmap-import-'.jAuth::getUserSession()->login),
             );
         }
 
