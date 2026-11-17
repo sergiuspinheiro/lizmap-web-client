@@ -312,7 +312,9 @@ class lizMapCtrl extends jController
                 'save' => jUrl::get('lizmap~mapview:save'),
                 'delete' => jUrl::get('lizmap~mapview:delete'),
             );
-            // Files imported in the data catalog and saved in the user profile
+        }
+        // Files imported in the data catalog and saved in the user profile
+        if (jAuth::isConnected() && (new \Lizmap\App\ModulesConfig())->isEnabled('catalog')) {
             \Lizmap\Import\UserImports::ensureInstalled();
             $lizUrls['userImports'] = array(
                 'list' => jUrl::get('lizmap~userimport:index'),

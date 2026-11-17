@@ -29,6 +29,7 @@ lizmap/var/config/localconfig.ini.php
 lizmap/var/config/lizmapLogConfig.ini.php
 lizmap/var/config/liveconfig.ini.php
 lizmap/var/config/localframework.ini.php
+lizmap/var/config/lizmapModules.ini.php
 lizmap/var/config/profiles.ini.php
 lizmap/var/config/installer.ini.php
 lizmap/var/config/installer.bak.ini.php

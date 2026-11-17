@@ -314,6 +314,11 @@ class userimportCtrl extends jController
      */
     protected function checkMap($rep)
     {
+        if (!(new \Lizmap\App\ModulesConfig())->isEnabled('catalog')) {
+            $this->error($rep, 404, 'The data catalog is not enabled');
+
+            return null;
+        }
         if (!jAuth::isConnected()) {
             $this->error($rep, 401, 'User is not connected');
 

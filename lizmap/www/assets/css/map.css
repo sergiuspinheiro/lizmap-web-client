@@ -925,6 +925,15 @@ lizmap-layercompare .layercompare-external .input-group {
   mask-repeat: no-repeat;
 }
 
+#mini-dock .layercompare h3 .icon {
+  background-image: none;
+  background-color: #000;
+  mask-image: url("../svg/layercompare.svg");
+  mask-size: 18px 18px;
+  mask-position: center center;
+  mask-repeat: no-repeat;
+}
+
 #mapmenu .nav-list > li.layercompare.active .icon,
 #mapmenu .nav-list > li.layercompare a:hover .icon {
   background-image: none;

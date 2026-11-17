@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<form xmlns="http://jelix.org/ns/forms/1.1">
+
+    <!-- modules -->
+    <checkbox ref="catalog" valueoncheck="on" valueonuncheck="off">
+        <label locale="admin~modules.catalog.label"/>
+        <help locale="admin~modules.catalog.help"/>
+    </checkbox>
+    <checkbox ref="layerCompare" valueoncheck="on" valueonuncheck="off">
+        <label locale="admin~modules.layerCompare.label"/>
+        <help locale="admin~modules.layerCompare.help"/>
+    </checkbox>
+    <checkbox ref="aiAssistant" valueoncheck="on" valueonuncheck="off">
+        <label locale="admin~modules.aiAssistant.label"/>
+        <help locale="admin~modules.aiAssistant.help"/>
+    </checkbox>
+
+    <!-- AI assistant -->
+    <menulist ref="provider" required="true">
+        <label locale="admin~modules.provider.label"/>
+        <item value="ollama" selected="true">Ollama</item>
+        <item value="claude">Claude (Anthropic)</item>
+        <item value="openai">OpenAI</item>
+        <item value="mistral">Mistral</item>
+        <item value="gemini">Gemini (Google)</item>
+        <item value="openai-compatible" locale="admin~modules.provider.compatible"/>
+        <help locale="admin~modules.provider.help"/>
+    </menulist>
+    <input ref="model" type="string" maxlength="100">
+        <label locale="admin~modules.model.label"/>
+        <help locale="admin~modules.model.help"/>
+    </input>
+    <input ref="url" type="string" maxlength="300">
+        <label locale="admin~modules.url.label"/>
+        <help locale="admin~modules.url.help"/>
+    </input>
+    <secret ref="apiKey" maxlength="500">
+        <label locale="admin~modules.apiKey.label"/>
+        <help locale="admin~modules.apiKey.help"/>
+    </secret>
+    <checkbox ref="removeApiKey">
+        <label locale="admin~modules.removeApiKey.label"/>
+    </checkbox>
+    <checkbox ref="allowAnonymous" valueoncheck="on" valueonuncheck="off">
+        <label locale="admin~modules.allowAnonymous.label"/>
+        <help locale="admin~modules.allowAnonymous.help"/>
+    </checkbox>
+    <checkbox ref="sendStatistics" valueoncheck="on" valueonuncheck="off">
+        <label locale="admin~modules.sendStatistics.label"/>
+        <help locale="admin~modules.sendStatistics.help"/>
+    </checkbox>
+    <input ref="maxFeatures" type="integer" minvalue="1" maxvalue="100000">
+        <label locale="admin~modules.maxFeatures.label"/>
+    </input>
+    <input ref="requestsPerHour" type="integer" minvalue="1" maxvalue="10000">
+        <label locale="admin~modules.requestsPerHour.label"/>
+        <help locale="admin~modules.requestsPerHour.help"/>
+    </input>
+
+    <!-- catalog import -->
+    <input ref="quotaSize" type="integer" minvalue="1" maxvalue="10000">
+        <label locale="admin~modules.quotaSize.label"/>
+    </input>
+    <input ref="quotaLayers" type="integer" minvalue="1" maxvalue="10000">
+        <label locale="admin~modules.quotaLayers.label"/>
+    </input>
+
+    <submit ref="_submit">
+        <label locale="admin~admin.form.admin_section.submit.label"/>
+    </submit>
+</form>

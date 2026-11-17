@@ -17,13 +17,11 @@ use Lizmap\Ai\Assistant;
 use Lizmap\Ai\AssistantException;
 use Lizmap\Ai\FeatureLocator;
 use Lizmap\Ai\LayerStatistics;
+use Lizmap\App\ModulesConfig;
 use Lizmap\Request\WFSRequest;
 
 class catalogCtrl extends jController
 {
-    /** @var int Maximum number of assistant requests of a user session in an hour */
-    protected const ASSISTANT_REQUESTS_PER_HOUR = 60;
-
     /**
      * List the repositories and projects the user can access.
      *
@@ -33,6 +31,9 @@ class catalogCtrl extends jController
     {
         /** @var jResponseJson $rep */
         $rep = $this->getResponse('json');
+        if (!(new ModulesConfig())->isEnabled('catalog')) {
+            return $this->error($rep, 404, 'The data catalog is not enabled');
+        }
 
         $repositories = array();
         foreach (lizmap::getRepositoryList() as $repoKey) {
@@ -88,6 +89,9 @@ class catalogCtrl extends jController
     {
         /** @var jResponseJson $rep */
         $rep = $this->getResponse('json');
+        if (!(new ModulesConfig())->isEnabled('catalog')) {
+            return $this->error($rep, 404, 'The data catalog is not enabled');
+        }
 
         $repository = $this->param('repository');
         $projectKey = $this->param('project');
@@ -305,10 +309,7 @@ class catalogCtrl extends jController
      */
     protected function getAssistant()
     {
-        $config = jApp::config();
-        $section = property_exists($config, 'lizmapAi') ? (array) $config->lizmapAi : array();
-
-        return new Assistant($section);
+        return new Assistant((new ModulesConfig())->aiConfig());
     }
 
     /**
@@ -337,7 +338,7 @@ class catalogCtrl extends jController
                 return $time > $now - 3600;
             }
         );
-        if (count($requests) >= self::ASSISTANT_REQUESTS_PER_HOUR) {
+        if (count($requests) >= (new ModulesConfig())->requestsPerHour()) {
             return array(429, 'Too many requests to the AI assistant, try again later');
         }
         $requests[] = $now;

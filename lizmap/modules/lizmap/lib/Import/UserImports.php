@@ -73,8 +73,7 @@ class UserImports
     public static function quota($config = null)
     {
         if ($config === null) {
-            $appConfig = \jApp::config();
-            $config = isset($appConfig->catalogImport) && is_array($appConfig->catalogImport) ? $appConfig->catalogImport : array();
+            $config = (new \Lizmap\App\ModulesConfig())->importConfig();
         }
         $size = isset($config['quotaSize']) ? (float) $config['quotaSize'] : self::DEFAULT_QUOTA_SIZE;
         $layers = isset($config['quotaLayers']) ? (int) $config['quotaLayers'] : self::DEFAULT_QUOTA_LAYERS;
