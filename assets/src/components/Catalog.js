@@ -772,8 +772,22 @@ export default class Catalog extends HTMLElement {
      * Zoom to the layer extent
      * @param {object} layer - the layer
      */
+    /**
+     * Has the layer a usable extent: not a table without geometry, nor an
+     * empty layer (infinite or inverted extent)
+     * @param {object} layer - the layer
+     * @returns {boolean} true if the layer can be drawn and zoomed to
+     */
+    hasExtent(layer) {
+        if (layer.geometryType === 'none' || !layer.crs || !Array.isArray(layer.extent) || layer.extent.length !== 4) {
+            return false;
+        }
+        const [xmin, ymin, xmax, ymax] = layer.extent.map(Number);
+        return [xmin, ymin, xmax, ymax].every(Number.isFinite) && xmin <= xmax && ymin <= ymax;
+    }
+
     zoomToLayer(layer) {
-        if (!layer.extent || !layer.crs) {
+        if (!this.hasExtent(layer)) {
             return;
         }
         try {
@@ -791,7 +805,7 @@ export default class Catalog extends HTMLElement {
      * @returns {string} the URL, or an empty string if the layer has no extent
      */
     thumbnailUrl(project, layer) {
-        if (!layer.extent || !layer.crs || layer.extent.length !== 4) {
+        if (!this.hasExtent(layer)) {
             return '';
         }
         let [xmin, ymin, xmax, ymax] = layer.extent.map(Number);
@@ -947,7 +961,7 @@ export default class Catalog extends HTMLElement {
                     ${layer.baseLayer ? html` (${lizDict['catalog.preview.baselayer']})` : ''}</dd>
                 ${layer.crs ? html`<dt>${lizDict['catalog.preview.crs']}</dt><dd>${layer.crs}</dd>` : ''}
             </dl>
-            ${layer.extent ? html`<button type="button" class="btn btn-sm catalog-zoom"
+            ${this.hasExtent(layer) ? html`<button type="button" class="btn btn-sm catalog-zoom"
                 @click=${() => this.zoomToLayer(layer)}>${lizDict['catalog.layer.zoom']}</button>` : ''}
             ${this._ai.enabled ? this._analysisTemplate(project, layer) : ''}
         </div>`;
