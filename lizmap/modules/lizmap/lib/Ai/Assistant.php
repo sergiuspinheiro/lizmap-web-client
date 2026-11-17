@@ -329,6 +329,9 @@ The statistics may cover only the first features of the layer: say so when "feat
 Describe what the layer contains and what stands out (data quality, distribution, outliers), then suggest
 a few analyses or filters that the user could do with the map. Be concrete and short.
 Answer the user question when there is one.
+You do not see the features themselves: never guess where a feature is, nor its attributes, from the layer name or title.
+When the question is about a feature (e.g. "where is X?"), give in "feature" the name or value of this feature as written
+in the question, e.g. "Lapa Furada", and say that the button below the answer shows it on the map; else "feature" is empty.
 A highlight about one feature or a group of features (a place, a site, a value of a field) gives in "feature"
 the exact attribute value naming it, e.g. its name, so that the user can zoom to it; else "feature" is empty.
 Write in the language of the user question, or else in the language given as "language".
@@ -353,6 +356,7 @@ EOT;
             'type' => 'object',
             'properties' => array(
                 'answer' => array('type' => 'string'),
+                'feature' => array('type' => 'string'),
                 'highlights' => array(
                     'type' => 'array',
                     'items' => array(
@@ -367,7 +371,7 @@ EOT;
                 ),
                 'suggestions' => array('type' => 'array', 'items' => array('type' => 'string')),
             ),
-            'required' => array('answer', 'highlights', 'suggestions'),
+            'required' => array('answer', 'feature', 'highlights', 'suggestions'),
             'additionalProperties' => false,
         );
 
@@ -398,6 +402,7 @@ EOT;
 
         return array(
             'answer' => (string) ($data['answer'] ?? ''),
+            'feature' => is_scalar($data['feature'] ?? null) ? mb_substr(trim((string) $data['feature']), 0, 200) : '',
             'highlights' => $highlights,
             'suggestions' => $strings($data['suggestions'] ?? array()),
         );

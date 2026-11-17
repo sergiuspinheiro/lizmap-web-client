@@ -96,7 +96,7 @@ class AssistantTest extends TestCase
     public function testAnalyse(): void
     {
         $assistant = new AssistantForTests(array('enabled' => 'on', 'apiKey' => 'key', 'maxFeatures' => 50));
-        $assistant->answer = array('answer' => 'Paragens de elétrico.', 'highlights' => array(
+        $assistant->answer = array('answer' => 'Paragens de elétrico.', 'feature' => ' Lapa Furada ', 'highlights' => array(
             'a',
             1,
             array('text' => 'A Lapa Furada', 'feature' => ' Lapa Furada '),
@@ -105,6 +105,8 @@ class AssistantTest extends TestCase
         $result = $assistant->analyse($this->layers()[1], array('features' => 3, 'fields' => array()), '', 'pt_PT');
 
         $this->assertEquals('Paragens de elétrico.', $result['answer']);
+        $this->assertEquals('Lapa Furada', $result['feature']);
+        $this->assertStringContainsString('never guess', $assistant->requests[0]['system']);
         $this->assertEquals(array(
             array('text' => 'a', 'feature' => ''),
             array('text' => '1', 'feature' => ''),

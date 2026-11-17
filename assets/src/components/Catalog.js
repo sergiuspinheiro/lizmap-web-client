@@ -310,28 +310,43 @@ export default class Catalog extends HTMLElement {
                 layer: layer.name,
                 value: highlight.feature,
             });
-            if (!data.count || !Array.isArray(data.extent)) {
-                lizMap.addMessage(lizDict['catalog.ai.locate.none'].replace('%s', highlight.feature), 'info', true);
-            } else {
-                if (!this.isAdded(project, layer)) {
-                    this.addLayer(project, layer);
-                }
-                let [xmin, ymin, xmax, ymax] = data.extent.map(Number);
-                // A single point: show its surroundings
-                const margin = 0.002;
-                xmin -= margin; ymin -= margin; xmax += margin; ymax += margin;
-                const extent = transformExtent([xmin, ymin, xmax, ymax], data.crs || 'EPSG:4326', mainLizmap.projection);
-                mainLizmap.map.getView().fit(extent, { maxZoom: 18, padding: [40, 40, 40, 40] });
-                if (data.count > 1) {
-                    lizMap.addMessage(lizDict['catalog.ai.locate.many'].replace('%s', data.count), 'info', true);
-                }
-            }
+            this.zoomToLocation(project, layer, data, highlight.feature);
         } catch (error) {
             console.error(error);
             lizMap.addMessage(lizDict['catalog.ai.locate.error'] + ' (' + error.message + ')', 'danger', true);
         }
         highlight.locating = false;
         this._render();
+    }
+
+    /**
+     * Zoom to features found by the locate action, adding the layer to the map if needed
+     * @param {object} project - the loaded project
+     * @param {object} layer - the layer
+     * @param {{count: number, extent: number[], crs: string}} location - the features found
+     * @param {string} value - the searched value
+     */
+    zoomToLocation(project, layer, location, value) {
+        if (!location?.count || !Array.isArray(location.extent)) {
+            lizMap.addMessage(lizDict['catalog.ai.locate.none'].replace('%s', value), 'info', true);
+            return;
+        }
+        if (!this.isAdded(project, layer)) {
+            this.addLayer(project, layer);
+        }
+        let [xmin, ymin, xmax, ymax] = location.extent.map(Number);
+        // A single point: show its surroundings
+        const margin = 0.002;
+        xmin -= margin; ymin -= margin; xmax += margin; ymax += margin;
+        try {
+            const extent = transformExtent([xmin, ymin, xmax, ymax], location.crs || 'EPSG:4326', mainLizmap.projection);
+            mainLizmap.map.getView().fit(extent, { maxZoom: 18, padding: [40, 40, 40, 40] });
+        } catch (error) {
+            console.error(error);
+        }
+        if (location.count > 1) {
+            lizMap.addMessage(lizDict['catalog.ai.locate.many'].replace('%s', location.count), 'info', true);
+        }
     }
 
     /**
@@ -1618,6 +1633,12 @@ export default class Catalog extends HTMLElement {
             ${data ? html`
                 <div class="catalog-ai-answer">
                     <p>${data.answer}</p>
+                    ${data.feature && data.location ? html`<p class="catalog-ai-location">${data.location.count
+                        ? html`<button type="button" class="btn btn-sm catalog-ai-locate"
+                            @click=${() => this.zoomToLocation(project, layer, data.location, data.feature)}>
+                            <i class="icon-zoom-in"></i> ${lizDict['catalog.ai.locate']} : ${data.feature}
+                            ${data.location.count > 1 ? '(' + data.location.count + ')' : ''}</button>`
+                        : lizDict['catalog.ai.locate.none'].replace('%s', data.feature)}</p>` : ''}
                     ${data.highlights?.length ? html`<h5>${lizDict['catalog.ai.highlights']}</h5>
                         <ul>${data.highlights.map(item => this._highlightTemplate(project, layer, item))}</ul>` : ''}
                     ${data.suggestions?.length ? html`<h5>${lizDict['catalog.ai.suggestions']}</h5>
