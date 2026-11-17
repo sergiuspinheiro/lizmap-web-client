@@ -145,7 +145,56 @@ class UserImports
             return null;
         }
 
-        return json_encode(array('type' => 'FeatureCollection', 'features' => $features));
+        $collection = array('type' => 'FeatureCollection', 'features' => $features);
+        $style = self::normalizeStyle($data['lizmapStyle'] ?? null);
+        if ($style !== null) {
+            $collection['lizmapStyle'] = $style;
+        }
+
+        return json_encode($collection);
+    }
+
+    /**
+     * Check the style of an imported layer, saved with its features.
+     *
+     * @param mixed $style the style given by the browser
+     *
+     * @return null|array the style, null if it is not valid
+     */
+    public static function normalizeStyle($style)
+    {
+        if (!is_array($style)) {
+            return null;
+        }
+        $color = function ($value) {
+            return is_string($value) && preg_match('/^#[0-9a-fA-F]{6}$/', $value) ? $value : null;
+        };
+        $number = function ($value, $min, $max, $default) {
+            return is_numeric($value) ? max($min, min($max, (float) $value)) : $default;
+        };
+        $classes = array();
+        if (isset($style['classes']) && is_array($style['classes'])) {
+            foreach (array_slice($style['classes'], 0, 100) as $item) {
+                if (!is_array($item) || $color($item['color'] ?? null) === null) {
+                    continue;
+                }
+                $value = $item['value'] ?? '';
+                $classes[] = array(
+                    'value' => is_scalar($value) ? mb_substr((string) $value, 0, 200) : '',
+                    'color' => $item['color'],
+                    'visible' => ($item['visible'] ?? true) !== false,
+                );
+            }
+        }
+
+        return array(
+            'color' => $color($style['color'] ?? null) ?? '#e6194b',
+            'width' => $number($style['width'] ?? null, 0.5, 20, 2),
+            'fillOpacity' => $number($style['fillOpacity'] ?? null, 0, 1, 0.25),
+            'pointSize' => $number($style['pointSize'] ?? null, 1, 30, 5),
+            'classifyBy' => is_string($style['classifyBy'] ?? null) ? mb_substr($style['classifyBy'], 0, 100) : '',
+            'classes' => $classes,
+        );
     }
 
     /**

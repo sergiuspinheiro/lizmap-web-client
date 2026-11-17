@@ -80,7 +80,11 @@ export default class Treeview extends HTMLElement {
                     <ul class="symbols">
                         ${this._catalogSymbols(olLayer).map(symbol => html`
                             <li class="symbol">
-                                <label class="symbol-title"><img class="legend" src="${symbol.icon}">${symbol.title}</label>
+                                <label class="symbol-title">
+                                    ${symbol.toggle
+                                        ? html`<input type="checkbox" .checked=${symbol.checked} @click=${() => symbol.toggle()}>`
+                                        : ''}
+                                    <img class="legend" src="${symbol.icon}">${symbol.title}</label>
                             </li>`)}
                     </ul>`
                 : ''}

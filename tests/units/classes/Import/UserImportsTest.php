@@ -56,6 +56,38 @@ class UserImportsTest extends TestCase
         ), json_decode(UserImports::normalizeGeoJson($json), true));
     }
 
+    public function testNormalizeStyle(): void
+    {
+        $json = json_encode(array(
+            'type' => 'FeatureCollection',
+            'features' => array(array(
+                'type' => 'Feature',
+                'properties' => array('Layer' => 'A'),
+                'geometry' => array('type' => 'Point', 'coordinates' => array(1, 2)),
+            )),
+            'lizmapStyle' => array(
+                'color' => '#00ff00',
+                'width' => 99,
+                'classifyBy' => 'Layer',
+                'classes' => array(
+                    array('value' => 'A', 'color' => '#112233', 'visible' => false),
+                    array('value' => 'B', 'color' => '<script>'),
+                ),
+                'other' => 1,
+            ),
+        ));
+        $data = json_decode(UserImports::normalizeGeoJson($json), true);
+        $this->assertEquals(array(
+            'color' => '#00ff00',
+            'width' => 20,
+            'fillOpacity' => 0.25,
+            'pointSize' => 5,
+            'classifyBy' => 'Layer',
+            'classes' => array(array('value' => 'A', 'color' => '#112233', 'visible' => false)),
+        ), $data['lizmapStyle']);
+        $this->assertNull(UserImports::normalizeStyle('red'));
+    }
+
     public function testNormalizeService(): void
     {
         $this->assertNull(UserImports::normalizeService('ftp', 'https://example.com/wms', 'x'));

@@ -4882,6 +4882,46 @@ lizmap-catalog .catalog-import-drop .catalog-help {
   margin: 0 0 4px;
 }
 
+#sub-dock .catalog-import-style {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+#sub-dock .catalog-import-style label {
+  display: block;
+}
+
+#sub-dock .catalog-import-style .form-control-color {
+  width: 2.5rem;
+  height: 1.6rem;
+  padding: 2px;
+}
+
+#sub-dock .catalog-import-classes-actions {
+  display: flex;
+  gap: 4px;
+}
+
+#sub-dock .catalog-import-classes {
+  max-height: 240px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+#sub-dock .catalog-import-classes li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 0;
+}
+
+#sub-dock .catalog-import-classes .form-check-input {
+  margin: 0;
+}
+
 lizmap-catalog .catalog-import-crs {
   display: flex;
   flex-direction: column;
