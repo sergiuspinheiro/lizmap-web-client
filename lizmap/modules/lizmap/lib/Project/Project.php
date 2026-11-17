@@ -2395,19 +2395,20 @@ class Project
             2
         );
 
-        $catalogTpl = new \jTpl();
-        $dockable[] = new \lizmapMapDockItem(
-            'catalog',
-            $this->appContext->getLocale('view~map.catalog.navbar.title'),
-            $catalogTpl->fetch('view~map_catalog'),
-            2
-        );
+        // Optional modules, enabled in the administration
+        $modules = new \Lizmap\App\ModulesConfig();
+        if ($modules->isEnabled('catalog')) {
+            $catalogTpl = new \jTpl();
+            $dockable[] = new \lizmapMapDockItem(
+                'catalog',
+                $this->appContext->getLocale('view~map.catalog.navbar.title'),
+                $catalogTpl->fetch('view~map_catalog'),
+                2
+            );
+        }
 
         // AI assistant: its own dock, when configured for the user
-        $aiConfig = $this->appContext->appConfig();
-        $assistant = new \Lizmap\Ai\Assistant(
-            property_exists($aiConfig, 'lizmapAi') ? (array) $aiConfig->lizmapAi : array()
-        );
+        $assistant = new \Lizmap\Ai\Assistant($modules->aiConfig());
         if ($assistant->isAllowed($this->appContext->UserIsConnected())) {
             $assistantTpl = new \jTpl();
             $dockable[] = new \lizmapMapDockItem(
@@ -2539,13 +2540,15 @@ class Project
             );
         }
 
-        $tpl = new \jTpl();
-        $dockable[] = new \lizmapMapDockItem(
-            'layercompare',
-            $this->appContext->getLocale('view~map.layercompare.navbar.title'),
-            $tpl->fetch('view~map_layercompare'),
-            5
-        );
+        if ((new \Lizmap\App\ModulesConfig())->isEnabled('layerCompare')) {
+            $tpl = new \jTpl();
+            $dockable[] = new \lizmapMapDockItem(
+                'layercompare',
+                $this->appContext->getLocale('view~map.layercompare.navbar.title'),
+                $tpl->fetch('view~map_layercompare'),
+                5
+            );
+        }
 
         if ($this->hasTooltipLayers()) {
             $tpl = new \jTpl();
@@ -2681,7 +2684,7 @@ class Project
 
         // Attribute table of the layers added from the data catalog: a tab of
         // the attribute layers dock when the project has one, else its own dock
-        if (!$this->hasAttributeLayers(true)) {
+        if (!$this->hasAttributeLayers(true) && (new \Lizmap\App\ModulesConfig())->isEnabled('catalog')) {
             $dockable[] = new \lizmapMapDockItem(
                 'catalogtable',
                 $this->appContext->getLocale('view~map.catalogtable.navbar.title'),
