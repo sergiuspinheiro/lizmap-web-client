@@ -158,7 +158,10 @@ export default class Catalog extends HTMLElement {
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
-            throw new Error(data.error || response.statusText);
+            const error = new Error(data.error || response.statusText);
+            // A gateway timeout comes from the web server, without JSON
+            error.reason = data.reason || ({ 504: 'timeout', 429: 'busy', 401: 'login' })[response.status] || 'error';
+            throw error;
         }
         return data;
     }
@@ -181,7 +184,7 @@ export default class Catalog extends HTMLElement {
             this._ai.results = data.results || [];
         } catch (error) {
             console.error(error);
-            this._ai.error = error.message;
+            this._ai.error = { reason: error.reason || 'error', message: error.message };
         }
         this._ai.loading = false;
         this._render();
@@ -257,7 +260,7 @@ export default class Catalog extends HTMLElement {
             });
         } catch (error) {
             console.error(error);
-            analysis.error = error.message;
+            analysis.error = { reason: error.reason || 'error', message: error.message };
         }
         analysis.loading = false;
         this._render();
@@ -964,7 +967,7 @@ export default class Catalog extends HTMLElement {
                     ${lizDict['catalog.ai.analyse']}</button>
             </form>
             ${analysis.loading ? html`<p class="catalog-loading">${lizDict['catalog.ai.analysing']}</p>` : ''}
-            ${analysis.error ? html`<p class="catalog-error">${lizDict['catalog.ai.error']} (${analysis.error})</p>` : ''}
+            ${analysis.error ? this._errorTemplate(analysis.error) : ''}
             ${data ? html`
                 <div class="catalog-ai-answer">
                     <p>${data.answer}</p>
@@ -976,6 +979,21 @@ export default class Catalog extends HTMLElement {
                         ? lizDict['catalog.ai.statistics'].replace('%s', data.statistics.features)
                         : lizDict['catalog.ai.nostatistics']}</p>
                 </div>` : ''}
+        </div>`;
+    }
+
+    /**
+     * An assistant error, in simple words, with the technical message aside
+     * @param {{reason: string, message: string}} error - the error
+     * @returns {import('lit-html').TemplateResult} the template
+     */
+    _errorTemplate(error) {
+        const text = lizDict['catalog.ai.error.' + error.reason] || lizDict['catalog.ai.error'];
+        return html`
+        <div class="catalog-error catalog-ai-error">
+            <p>${text}</p>
+            ${error.message ? html`<details><summary>${lizDict['catalog.ai.error.details']}</summary>
+                <code>${error.message}</code></details>` : ''}
         </div>`;
     }
 
@@ -999,7 +1017,7 @@ export default class Catalog extends HTMLElement {
             </form>
             <p class="catalog-help">${lizDict['catalog.ai.notice']}</p>
             ${ai.loading ? html`<p class="catalog-loading">${lizDict['catalog.ai.searching']}</p>` : ''}
-            ${ai.error ? html`<p class="catalog-error">${lizDict['catalog.ai.error']} (${ai.error})</p>` : ''}
+            ${ai.error ? this._errorTemplate(ai.error) : ''}
             ${ai.answer !== null ? html`
                 <p class="catalog-ai-answer">${ai.answer}</p>
                 ${ai.results.length === 0 ? html`<p>${lizDict['catalog.ai.noresult']}</p>` : ''}

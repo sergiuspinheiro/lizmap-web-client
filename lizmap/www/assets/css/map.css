@@ -4911,6 +4911,19 @@ lizmap-ai-assistant .catalog-ai-source {
   opacity: 0.8;
 }
 
+lizmap-catalog .catalog-ai-error details,
+lizmap-ai-assistant .catalog-ai-error details {
+  font-size: 0.85em;
+  opacity: 0.8;
+}
+
+lizmap-catalog .catalog-ai-error code,
+lizmap-ai-assistant .catalog-ai-error code {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 lizmap-catalog .catalog-ai-analysis,
 lizmap-ai-assistant .catalog-ai-analysis {
   margin-top: 6px;
