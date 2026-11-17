@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 
-import { readFiles, IMPORT_ACCEPT, isGeographic, normalizeCrs } from 'assets/src/modules/FileImport.js';
+import { readFiles, IMPORT_ACCEPT, isGeographic, normalizeCrs, reprojectFeatures } from 'assets/src/modules/FileImport.js';
 
 describe('FileImport', function () {
     before(function () {
@@ -65,6 +65,8 @@ describe('FileImport', function () {
         });
         expect(asked).to.deep.equal(['grutas.geojson']);
         expect(errors).to.be.empty;
+        expect(layers[0].fileName).to.equal('grutas.geojson');
+        expect(layers[0].crs).to.equal('EPSG:3763');
         const [lon, lat] = layers[0].features[0].getGeometry().getCoordinates();
         expect(lon).to.be.closeTo(-8.6253, 0.0001);
         expect(lat).to.be.closeTo(41.1556, 0.0001);
@@ -101,5 +103,18 @@ describe('FileImport', function () {
             globalThis.fetch = savedFetch;
             globalThis.lizUrls = savedUrls;
         }
+    });
+
+    it('Reads again the coordinates in another CRS', async function () {
+        const geojson = JSON.stringify({
+            type: 'FeatureCollection',
+            features: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [-41316.6, 165270.4] } }],
+        });
+        // The user chose ETRS89 / UTM 29N, but the coordinates are in PT-TM06
+        const { layers } = await readFiles([new File([geojson], 'grutas.geojson')], 'EPSG:4326', () => Promise.resolve('EPSG:25829'));
+        await reprojectFeatures(layers[0].features, 'EPSG:25829', 'EPSG:3763', 'EPSG:4326');
+        const [lon, lat] = layers[0].features[0].getGeometry().getCoordinates();
+        expect(lon).to.be.closeTo(-8.6253, 0.0001);
+        expect(lat).to.be.closeTo(41.1556, 0.0001);
     });
 });

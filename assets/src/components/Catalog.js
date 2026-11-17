@@ -12,10 +12,10 @@ import ImageLayer from 'ol/layer/Image.js';
 import ImageWMS from 'ol/source/ImageWMS.js';
 import { transformExtent } from 'ol/proj.js';
 import { openCatalogTable } from './CatalogTable.js';
-import { SERVICE_TYPES, readService, createLayer, serviceBaseUrl, withParams } from '../modules/ExternalServices.js';
+import { SERVICE_TYPES, readService, createLayer, serviceBaseUrl, serviceStyles, withParams } from '../modules/ExternalServices.js';
 import { base64png } from '../modules/state/SymbologyIcons.js';
 import { getDefaultLayerIcon } from '../modules/state/Symbology.js';
-import { IMPORT_ACCEPT, readFiles, IMPORT_CRS, normalizeCrs } from '../modules/FileImport.js';
+import { IMPORT_ACCEPT, readFiles, IMPORT_CRS, normalizeCrs, reprojectFeatures } from '../modules/FileImport.js';
 import VectorLayer from 'ol/layer/Vector.js';
 import VectorSource from 'ol/source/Vector.js';
 import GeoJSON from 'ol/format/GeoJSON.js';
@@ -23,7 +23,7 @@ import { createEmpty, extend, isEmpty } from 'ol/extent.js';
 import { Utils } from '../modules/Utils.js';
 import {
     GEOMETRY_CLASS, buildClasses, classifiableFields, defaultImportStyle, geometryKind,
-    importStyleFunction, legendIcon, sanitizeImportStyle,
+    importStyleFunction, legendIcon, sanitizeImportSource, sanitizeImportStyle,
 } from '../modules/ImportStyle.js';
 
 /** Colors of the imported layers */
@@ -519,15 +519,19 @@ export default class Catalog extends HTMLElement {
      * @param {string} name - the layer name, empty for XYZ, GeoJSON or a whole ArcGIS map service
      * @param {string} title - the layer title
      * @param {{title: string, capabilities: object|null}} service - the service read by readService
+     * @param {{style?: string, vectorStyle?: object}} [options] - the WMS/WMTS style, or the style of vector layers
      */
-    addExternalLayer(type, url, name, title, service) {
+    addExternalLayer(type, url, name, title, service, options = {}) {
         if (this.isExternalAdded(type, url, name)) {
             lizMap.addMessage(lizDict['catalog.layer.already'], 'info', true);
             return;
         }
         let olLayer;
         try {
-            olLayer = createLayer(type, url, name, service.capabilities, mainLizmap.projection);
+            const style = serviceStyles(type, name, service.capabilities)
+                .some(item => item.name === options.style) ? options.style : '';
+            olLayer = createLayer(type, url, name, service.capabilities, mainLizmap.projection, style);
+            olLayer.set('lizmapServiceStyle', style);
         } catch (error) {
             console.error(error);
             lizMap.addMessage(lizDict['catalog.external.error'] + ' (' + error.message + ')', 'danger', true);
@@ -547,6 +551,36 @@ export default class Catalog extends HTMLElement {
         }
         const layerState = entry.group.addOlLayer(layerName, olLayer);
         layerState.wmsTitle = title;
+        if (olLayer instanceof VectorLayer) {
+            // Vector services are styled in the browser, like the imported files
+            const color = IMPORT_COLORS[this._import.count++ % IMPORT_COLORS.length];
+            const spec = sanitizeImportStyle(options.vectorStyle, color)
+                || { color, width: 2, fillOpacity: 0.25, pointSize: 5, classifyBy: '', classes: [] };
+            this._setImportStyle(layerState, spec);
+            // The geometry type is known once features are loaded
+            olLayer.getSource().once('featuresloadend', () => {
+                this._setImportStyle(layerState, olLayer.get('lizmapImportStyle'));
+                this._render();
+            });
+        }
+        this._persistExternal();
+        this._render();
+    }
+
+    /**
+     * Change the style of a WMS or WMTS layer of an external service
+     * @param {object} entry - the service entry
+     * @param {object} state - the layer state
+     * @param {string} style - the style name
+     */
+    setServiceStyle(entry, state, style) {
+        const olLayer = state.olLayer;
+        if (entry.type === 'wms') {
+            olLayer.getSource().updateParams({ STYLES: style });
+        } else {
+            olLayer.setSource(createLayer(entry.type, entry.url, state.name, entry.capabilities, mainLizmap.projection, style).getSource());
+        }
+        olLayer.set('lizmapServiceStyle', style);
         this._persistExternal();
         this._render();
     }
@@ -586,6 +620,8 @@ export default class Catalog extends HTMLElement {
                     layer: item.name === 'layer' ? '' : item.name,
                     title: item.wmsTitle,
                     opacity: item.opacity,
+                    style: item.olLayer.get('lizmapServiceStyle') || '',
+                    vectorStyle: item.olLayer.get('lizmapImportStyle') || null,
                 });
             }
         }
@@ -613,7 +649,10 @@ export default class Catalog extends HTMLElement {
                 if (!services.has(key)) {
                     services.set(key, await readService(item.type, item.url));
                 }
-                this.addExternalLayer(item.type, item.url, item.layer || '', item.title || item.layer, services.get(key));
+                this.addExternalLayer(item.type, item.url, item.layer || '', item.title || item.layer, services.get(key), {
+                    style: typeof item.style === 'string' ? item.style : '',
+                    vectorStyle: item.vectorStyle,
+                });
                 const state = this._services.get(key)?.group.children.find(c => c.name === (item.layer || 'layer'));
                 if (state && typeof item.opacity === 'number') {
                     state.opacity = item.opacity;
@@ -701,7 +740,8 @@ export default class Catalog extends HTMLElement {
             }
             const extent = createEmpty();
             for (const layer of layers) {
-                this._addImportedLayer(layer.name, layer.features);
+                this._addImportedLayer(layer.name, layer.features, null, null, null,
+                    { fileName: layer.fileName, crs: layer.crs });
                 extend(extent, new VectorSource({ features: layer.features }).getExtent());
             }
             if (!isEmpty(extent)) {
@@ -788,8 +828,9 @@ export default class Catalog extends HTMLElement {
      * @param {number|null} [profileId] - the id of the file saved in the user profile
      * @param {object|null} [style] - the saved style of the layer
      * @param {string|null} [uid] - the id of the temporary file in the session library
+     * @param {{fileName: string, crs: string|null}|null} [source] - the original file name and the CRS given by the user
      */
-    _addImportedLayer(title, features, profileId = null, style = null, uid = null) {
+    _addImportedLayer(title, features, profileId = null, style = null, uid = null, source = null) {
         const color = IMPORT_COLORS[this._import.count % IMPORT_COLORS.length];
         ++this._import.count;
         // Saved files keep their name, so that the tree order of a map view applies
@@ -798,6 +839,7 @@ export default class Catalog extends HTMLElement {
         olLayer.set('name', name);
         olLayer.set('lizmapCatalog', { key: 'import|', name });
         olLayer.set('lizmapProfileId', profileId);
+        olLayer.set('lizmapImportSource', sanitizeImportSource(source));
         // Temporary files are kept in the session library, shared by the maps
         olLayer.set('lizmapImportUid', profileId ? null : (uid || Date.now().toString(36) + Math.random().toString(36).substring(2, 8)));
         if (!this._import.group) {
@@ -870,10 +912,40 @@ export default class Catalog extends HTMLElement {
             spec.classes = buildClasses(state.olLayer.getSource().getFeatures(), spec.classifyBy);
         }
         this._setImportStyle(state, spec);
+        if (state.olLayer.get('lizmapCatalog')?.key.startsWith('external|')) {
+            this._persistExternal();
+            this._render();
+            return;
+        }
         const profileId = state.olLayer.get('lizmapProfileId');
         if (profileId) {
             this._saveProfileStyle(profileId, spec);
         }
+        this._persistImports();
+        this._render();
+    }
+
+    /**
+     * Read again the features of an imported file in another CRS, when the
+     * user gave a wrong one at the import
+     * @param {object} state - the layer state
+     * @param {string} crs - the right CRS, like EPSG:3763
+     * @returns {Promise<void>}
+     */
+    async changeImportCrs(state, crs) {
+        const source = state.olLayer.get('lizmapImportSource');
+        if (!source?.crs || source.crs === crs) {
+            return;
+        }
+        try {
+            await reprojectFeatures(state.olLayer.getSource().getFeatures(), source.crs, crs, mainLizmap.projection);
+        } catch (error) {
+            lizMap.addMessage(error.message, 'danger', true);
+            return;
+        }
+        state.olLayer.getSource().changed();
+        state.olLayer.set('lizmapImportSource', { ...source, crs });
+        this._zoomToImported(state);
         this._persistImports();
         this._render();
     }
@@ -986,6 +1058,7 @@ export default class Catalog extends HTMLElement {
                 title: item.wmsTitle,
                 map: library.find(e => e.uid === uid)?.map || mapTitle,
                 style: item.olLayer.get('lizmapImportStyle'),
+                source: item.olLayer.get('lizmapImportSource'),
                 geojson: format.writeFeaturesObject(item.olLayer.getSource().getFeatures(), {
                     dataProjection: 'EPSG:4326',
                     featureProjection: mainLizmap.projection,
@@ -1093,7 +1166,7 @@ export default class Catalog extends HTMLElement {
             if (!features.length) {
                 return false;
             }
-            this._addImportedLayer(String(entry.title || ''), features, null, entry.style, uid);
+            this._addImportedLayer(String(entry.title || ''), features, null, entry.style, uid, entry.source);
         } catch (error) {
             console.warn(error);
             return false;
@@ -1266,6 +1339,7 @@ export default class Catalog extends HTMLElement {
         });
         // The style is saved with the features
         collection.lizmapStyle = olLayer.get('lizmapImportStyle');
+        collection.lizmapSource = olLayer.get('lizmapImportSource');
         const geojson = JSON.stringify(collection);
         try {
             const file = await this._profileRequest(this._profileUrls.save, { title: state.wmsTitle, geojson }, true);
@@ -1303,7 +1377,7 @@ export default class Catalog extends HTMLElement {
                 dataProjection: 'EPSG:4326',
                 featureProjection: mainLizmap.projection,
             });
-            this._addImportedLayer(file.title, features, file.id, file.geojson?.lizmapStyle);
+            this._addImportedLayer(file.title, features, file.id, file.geojson?.lizmapStyle, null, file.geojson?.lizmapSource);
             this._persistImports();
             const state = this._profileLayerState(file.id);
             if (zoom && state) {
@@ -1967,7 +2041,35 @@ export default class Catalog extends HTMLElement {
             const source = state.olLayer.getSource();
             origin = lizDict['catalog.info.origin.import']
                 + (state.olLayer.get('lizmapProfileId') ? ' (' + lizDict['catalog.info.origin.profile'] + ')' : '');
-            details = [[lizDict['catalog.info.features'], String(source.getFeatures().length)]];
+            const fileSource = state.olLayer.get('lizmapImportSource');
+            details = [];
+            if (fileSource?.fileName) {
+                details.push([lizDict['catalog.info.file'], fileSource.fileName]);
+            }
+            if (fileSource?.crs) {
+                details.push([lizDict['catalog.info.crs'], state.olLayer.get('lizmapProfileId')
+                    ? fileSource.crs
+                    : html`<select class="form-select form-select-sm catalog-import-crs-change"
+                        title="${lizDict['catalog.info.crs.change']}"
+                        @change=${(e) => {
+                            const crs = e.target.value === 'other'
+                                ? normalizeCrs(window.prompt(lizDict['catalog.import.crs.other']) || '')
+                                : e.target.value;
+                            if (crs) {
+                                this.changeImportCrs(state, crs);
+                            } else {
+                                e.target.value = fileSource.crs;
+                            }
+                        }}>
+                        ${IMPORT_CRS.some(crs => crs.code === fileSource.crs) ? ''
+                            : html`<option value="${fileSource.crs}" selected>${fileSource.crs}</option>`}
+                        ${IMPORT_CRS.map(crs => html`<option value="${crs.code}" ?selected=${crs.code === fileSource.crs}>
+                            ${crs.label} (${crs.code})</option>`)}
+                        <option value="other">${lizDict['catalog.import.crs.other']}…</option>
+                    </select>
+                    <small class="catalog-help">${lizDict['catalog.info.crs.help']}</small>`]);
+            }
+            details.push([lizDict['catalog.info.features'], String(source.getFeatures().length)]);
             zoom = () => this._zoomToImported(state);
             styles = this._importStyleTemplate(state);
             exportGeoJson = () => Utils.downloadFileFromString(
@@ -1988,6 +2090,30 @@ export default class Catalog extends HTMLElement {
             const extent = state.olLayer.getSource?.()?.getExtent?.() || state.olLayer.getExtent?.();
             if (extent && !isEmpty(extent) && extent.every(Number.isFinite)) {
                 zoom = () => mainLizmap.map.getView().fit(extent, { padding: [20, 20, 20, 20], maxZoom: 18 });
+            }
+            if (state.olLayer.get('lizmapImportStyle')) {
+                styles = this._importStyleTemplate(state);
+            } else {
+                const list = serviceStyles(entry.type, name, entry.capabilities);
+                const current = state.olLayer.get('lizmapServiceStyle') || '';
+                if (list.length > 1) {
+                    styles = html`
+                        <dt>${lizDict['layer.metadata.style.title']}</dt>
+                        <dd><select class="styleLayer form-select"
+                            @change=${(e) => this.setServiceStyle(entry, state, e.target.value)}>
+                            ${current ? '' : html`<option value="" selected>${lizDict['catalog.style.default']}</option>`}
+                            ${list.map(style => html`<option value="${style.name}" ?selected=${current === style.name}>
+                                ${style.title}</option>`)}
+                        </select></dd>`;
+                }
+                if (entry.type === 'wms') {
+                    const legend = withParams(serviceBaseUrl(entry.url), {
+                        SERVICE: 'WMS', VERSION: '1.3.0', REQUEST: 'GetLegendGraphic', LAYER: name,
+                        FORMAT: 'image/png', SLD_VERSION: '1.1.0', ...(current ? { STYLE: current } : {}),
+                    });
+                    styles = html`${styles}<dt>${lizDict['catalog.info.legend']}</dt>
+                        <dd><img class="catalog-legend" alt="" loading="lazy" src="${legend}"></dd>`;
+                }
             }
         } else {
             const project = this._projects.get(key);

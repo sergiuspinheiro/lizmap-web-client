@@ -109,17 +109,26 @@ export async function readService(type, url) {
                 await fetchText(withParams(base, { SERVICE: 'WMS', REQUEST: 'GetCapabilities' }))
             );
             const layers = [];
-            const walk = (layer) => {
+            const styles = {};
+            // The styles of a layer are inherited by its children
+            const walk = (layer, parentStyles) => {
                 if (!layer) {
                     return;
                 }
+                const layerStyles = [...parentStyles];
+                for (const style of layer.Style || []) {
+                    if (style.Name && !layerStyles.some(s => s.name === style.Name)) {
+                        layerStyles.push({ name: style.Name, title: style.Title || style.Name });
+                    }
+                }
                 if (layer.Name) {
                     layers.push({ name: layer.Name, title: layer.Title || layer.Name });
+                    styles[layer.Name] = layerStyles;
                 }
-                (layer.Layer || []).forEach(walk);
+                (layer.Layer || []).forEach(child => walk(child, layerStyles));
             };
-            walk(caps?.Capability?.Layer);
-            return { title: caps?.Service?.Title || base, layers, capabilities: null };
+            walk(caps?.Capability?.Layer, []);
+            return { title: caps?.Service?.Title || base, layers, capabilities: { styles } };
         }
         case 'wmts': {
             const caps = new WMTSCapabilities().read(
@@ -167,6 +176,25 @@ export async function readService(type, url) {
 }
 
 /**
+ * Styles of a service layer, from its capabilities
+ * @param {string} type - one of SERVICE_TYPES
+ * @param {string} name - the layer name
+ * @param {object|null} capabilities - the capabilities read by readService
+ * @returns {Array<{name: string, title: string}>} the styles, WMS and WMTS only
+ */
+export function serviceStyles(type, name, capabilities) {
+    if (type === 'wms') {
+        return capabilities?.styles?.[name] || [];
+    }
+    if (type === 'wmts') {
+        const layerCaps = capabilities?.Contents?.Layer?.find(l => l.Identifier === name);
+        return (layerCaps?.Style || []).filter(s => s.Identifier)
+            .map(s => ({ name: s.Identifier, title: s.Title || s.Identifier }));
+    }
+    return [];
+}
+
+/**
  * Vector source loading features with a bbox strategy
  * @param {Function} urlFunction - gives the URL of an extent (in the map projection)
  * @param {Function} parse - reads the response text and gives features
@@ -201,16 +229,17 @@ function vectorSource(urlFunction, parse) {
  * @param {string} name - the layer name, empty for XYZ, GeoJSON or a whole ArcGIS map service
  * @param {object|null} capabilities - the capabilities read by readService, needed for WMTS
  * @param {string} mapProjection - the map projection code
+ * @param {string} [style] - the WMS or WMTS style, empty for the default one
  * @returns {import('ol/layer/Base.js').default} the OpenLayers layer
  */
-export function createLayer(type, url, name, capabilities, mapProjection) {
+export function createLayer(type, url, name, capabilities, mapProjection, style = '') {
     const base = serviceBaseUrl(url);
     switch (type) {
         case 'wms':
             return new ImageLayer({
                 source: new ImageWMS({
                     url: base,
-                    params: { LAYERS: name, STYLES: '', FORMAT: 'image/png', TRANSPARENT: true },
+                    params: { LAYERS: name, STYLES: style, FORMAT: 'image/png', TRANSPARENT: true },
                     ratio: 1,
                 }),
             });
@@ -223,7 +252,9 @@ export function createLayer(type, url, name, capabilities, mapProjection) {
                 const crs = sets.find(s => s.Identifier === id)?.SupportedCRS || '';
                 return crs.replace(/^urn:ogc:def:crs:EPSG::?/, 'EPSG:').replace(/^.*EPSG:+/, 'EPSG:') === mapProjection;
             });
-            const options = optionsFromCapabilities(capabilities, { layer: name, matrixSet: matching || matrixSets[0] });
+            const options = optionsFromCapabilities(capabilities, {
+                layer: name, matrixSet: matching || matrixSets[0], ...(style ? { style } : {}),
+            });
             if (!options) {
                 throw new Error('Unknown WMTS layer ' + name);
             }
