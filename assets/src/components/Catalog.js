@@ -20,6 +20,7 @@ import VectorLayer from 'ol/layer/Vector.js';
 import VectorSource from 'ol/source/Vector.js';
 import GeoJSON from 'ol/format/GeoJSON.js';
 import { createEmpty, extend, isEmpty } from 'ol/extent.js';
+import { Utils } from '../modules/Utils.js';
 
 /** Colors of the imported layers */
 const IMPORT_COLORS = ['#e6194b', '#3cb44b', '#4363d8', '#f58231', '#911eb4', '#42d4f4', '#f032e6', '#9a6324'];
@@ -1596,8 +1597,204 @@ export default class Catalog extends HTMLElement {
         return layer ? this._settingsTemplate(project, layer) : '';
     }
 
+    /**
+     * Show the information of a layer added by the catalog in the sub-dock,
+     * like the layers of the project, with its origin
+     * @param {string} key - the catalog key: project key, 'import|' or 'external|<service>'
+     * @param {string} name - the layer name
+     */
+    showLayerInfo(key, name) {
+        if (this._info?.key === key && this._info?.name === name) {
+            this.hideLayerInfo();
+            return;
+        }
+        // Unselect the layer of the project whose information is displayed
+        const treeview = document.querySelector('lizmap-treeview');
+        if (treeview?.itemNameSelected !== undefined) {
+            treeview.itemNameSelected = undefined;
+        }
+        if (!this._infoListening && globalThis.lizMap?.events) {
+            this._infoListening = true;
+            // The sub-dock displays then a layer of the project
+            lizMap.events.on({ lizmapswitcheritemselected: (e) => {
+                if (e.selected) {
+                    this._info = null;
+                    document.dispatchEvent(new CustomEvent('lizmapcatalogchanged'));
+                }
+            } });
+        }
+        this._info = { key, name };
+        this._renderInfo();
+        document.dispatchEvent(new CustomEvent('lizmapcatalogchanged'));
+    }
+
+    /**
+     * Hide the information of a layer added by the catalog
+     */
+    hideLayerInfo() {
+        if (!this._info) {
+            return;
+        }
+        this._info = null;
+        const subDock = document.getElementById('sub-dock');
+        if (subDock && this._infoContainer && subDock.contains(this._infoContainer)) {
+            subDock.replaceChildren();
+            subDock.style.display = 'none';
+        }
+        document.dispatchEvent(new CustomEvent('lizmapcatalogchanged'));
+    }
+
+    /**
+     * Is the information of a layer displayed
+     * @param {string} key - the catalog key
+     * @param {string} name - the layer name
+     * @returns {boolean} true if displayed
+     */
+    isInfoShown(key, name) {
+        return this._info?.key === key && this._info?.name === name;
+    }
+
+    _renderInfo() {
+        const subDock = document.getElementById('sub-dock');
+        if (!this._info || !subDock) {
+            return;
+        }
+        const template = this._layerInfoTemplate(this._info.key, this._info.name);
+        if (!template) {
+            this.hideLayerInfo();
+            return;
+        }
+        // The sub-dock content is replaced by the information of the project layers:
+        // render in a container of our own
+        if (!this._infoContainer || !subDock.contains(this._infoContainer)) {
+            this._infoContainer = document.createElement('div');
+            this._infoContainer.className = 'catalog-layer-metadata';
+            subDock.replaceChildren(this._infoContainer);
+        }
+        render(template, this._infoContainer);
+        subDock.style.display = 'block';
+    }
+
+    /**
+     * Information of a layer added by the catalog, with the markup of the layers of the project
+     * @param {string} key - the catalog key
+     * @param {string} name - the layer name
+     * @returns {import('lit-html').TemplateResult|null} the template, null if the layer is removed
+     */
+    _layerInfoTemplate(key, name) {
+        let state = null;
+        let origin;
+        let details;
+        let zoom = null;
+        let styles = '';
+        let exportGeoJson = null;
+        let abstract = '';
+        let table = null;
+        if (key === 'import|') {
+            state = this._import.group?.children.find(item => item.name === name);
+            if (!state) {
+                return null;
+            }
+            const source = state.olLayer.getSource();
+            origin = lizDict['catalog.info.origin.import']
+                + (state.olLayer.get('lizmapProfileId') ? ' (' + lizDict['catalog.info.origin.profile'] + ')' : '');
+            details = [[lizDict['catalog.info.features'], String(source.getFeatures().length)]];
+            zoom = () => this._zoomToImported(state);
+            exportGeoJson = () => Utils.downloadFileFromString(
+                new GeoJSON().writeFeatures(source.getFeatures(), { featureProjection: mainLizmap.projection }),
+                'application/geo+json', (state.wmsTitle || 'import') + '.geojson'
+            );
+        } else if (key.startsWith('external|')) {
+            const entry = this._services.get(key.substring('external|'.length));
+            state = entry?.group.children.find(item => item.name === name);
+            if (!state) {
+                return null;
+            }
+            origin = lizDict['catalog.info.origin.external'].replace('%s', entry.type.toUpperCase());
+            details = [
+                [lizDict['catalog.info.service'], entry.title || ''],
+                [lizDict['catalog.info.url'], entry.url],
+            ];
+            const extent = state.olLayer.getSource?.()?.getExtent?.() || state.olLayer.getExtent?.();
+            if (extent && !isEmpty(extent) && extent.every(Number.isFinite)) {
+                zoom = () => mainLizmap.map.getView().fit(extent, { padding: [20, 20, 20, 20], maxZoom: 18 });
+            }
+        } else {
+            const project = this._projects.get(key);
+            const layer = project?.layers?.find(l => l.name === name);
+            state = layer ? this.layerState(project, layer) : null;
+            if (!state) {
+                return null;
+            }
+            origin = lizDict['catalog.info.origin.catalog'];
+            details = [[lizDict['catalog.info.map'], html`<a href="${project.mapUrl}" target="_blank"
+                rel="noopener">${project.title}</a>`]];
+            if (this.hasExtent(layer)) {
+                zoom = () => this.zoomToLayer(layer);
+            }
+            if ((layer.styles || []).length > 1) {
+                const current = state.olLayer.getSource().getParams().STYLES || '';
+                styles = html`
+                    <dt>${lizDict['layer.metadata.style.title']}</dt>
+                    <dd><select class="styleLayer form-select"
+                        @change=${(e) => this.setStyle(project, layer, e.target.value)}>
+                        ${layer.styles.map(style => html`<option value="${style}" ?selected=${current === style}>${style}</option>`)}
+                    </select></dd>`;
+            }
+            abstract = layer.abstract || '';
+            if (layer.attributeTable) {
+                table = () => openCatalogTable(project, layer);
+            }
+        }
+        const opacities = globalThis.lizMap?.config?.options?.layersOpacities || [0.2, 0.4, 0.6, 0.8, 1];
+        return html`
+        <div class="sub-metadata">
+            <h3><span class="title"><span class="icon"></span>
+                <span class="text">${lizDict['layer.metadata.title']}</span></span></h3>
+            <div class="menu-content">
+                <dl style="font-size:0.8em;">
+                    <dt>${lizDict['layer.metadata.layer.name']}</dt>
+                    <dd>${state.wmsTitle || name}</dd>
+                    <dt>${lizDict['layer.metadata.layer.type']}</dt>
+                    <dd>${lizDict['layer.metadata.layer.type.layer']}</dd>
+                    <dt>${lizDict['catalog.info.origin']}</dt>
+                    <dd><span class="badge text-bg-secondary">${origin}</span></dd>
+                    ${details.map(([label, value]) => html`<dt>${label}</dt><dd class="text-break">${value}</dd>`)}
+                    ${zoom ? html`
+                        <dt>${lizDict['layer.metadata.zoomToExtent.title']}</dt>
+                        <dd><button type="button" class="btn btn-sm layerActionZoom"
+                            title="${lizDict['layer.metadata.zoomToExtent.title']}" @click=${zoom}>
+                            <i class="icon-zoom-in"></i></button></dd>` : ''}
+                    ${styles}
+                    <dt>${lizDict['layer.metadata.opacity.title']}</dt>
+                    <dd>${opacities.map(opacity => html`<a href="#"
+                        class="btn btn-sm btn-opacity-layer ${Math.abs(state.opacity - opacity) < 0.001 ? 'active' : ''}"
+                        style="background-color: rgba(0,0,0,${opacity - 0.3}); background-image: none; text-shadow: none;
+                            ${opacity > 0.6 ? 'color: lightgrey;' : ''}"
+                        @click=${(e) => { e.preventDefault(); state.opacity = opacity; this._render(); }}>
+                        ${Math.round(opacity * 100)}</a>`)}</dd>
+                    ${exportGeoJson ? html`
+                        <dt>${lizDict['layer.metadata.export.title']}</dt>
+                        <dd><button type="button" class="btn btn-sm exportLayer"
+                            title="${lizDict['layer.metadata.export.title']} GeoJSON" @click=${exportGeoJson}>
+                            <i class="icon-download"></i> GeoJSON</button></dd>` : ''}
+                    ${table ? html`
+                        <dt>${lizDict['catalog.layer.attributetable']}</dt>
+                        <dd><button type="button" class="btn btn-sm catalog-table-open" @click=${table}>
+                            <i class="icon-list"></i></button></dd>` : ''}
+                    ${abstract ? html`
+                        <dt>${lizDict['layer.metadata.layer.abstract']}</dt>
+                        <dd>${abstract}</dd>` : ''}
+                </dl>
+            </div>
+        </div>
+        <button type="button" class="btn btn-sm float-end" title="${lizDict['generic.btn.close.title']}"
+            @click=${() => this.hideLayerInfo()}>${lizDict['generic.btn.close.title']}</button>`;
+    }
+
     _render() {
         this._renderCatalog();
+        this._renderInfo();
         // The layer tree displays the settings too
         document.dispatchEvent(new CustomEvent('lizmapcatalogchanged'));
     }
@@ -1883,7 +2080,7 @@ export default class Catalog extends HTMLElement {
         } else {
             content = this._repositories.map(repository => html`
                 <div class="catalog-repository">
-                    <h4>${repository.title}</h4>
+                    <h4><i class="icon-folder-open"></i>${repository.title}</h4>
                     ${repository.projects.map(project => this._projectTemplate(repository, project))}
                 </div>`);
         }

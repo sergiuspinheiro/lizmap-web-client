@@ -27,7 +27,6 @@ export default class Treeview extends HTMLElement {
         // Item being dragged in arrange mode: {parent, name}
         this._dragged = null;
         // OpenLayers layers of the catalog layers whose settings are displayed
-        this._catalogSettingsOpen = new WeakSet();
         // OpenLayers layers of the catalog layers whose legend is expanded
         this._catalogLegendOpen = new WeakSet();
     }
@@ -62,7 +61,7 @@ export default class Treeview extends HTMLElement {
                 ? html`<div class="expandable ${this._catalogLegendOpen.has(this._olOf(olLayer)) ? 'expanded' : ''}"
                     @click=${() => this._toggleCatalogLegend(olLayer)}></div>`
                 : ''}
-            <div class="${olLayer.checked ? 'checked' : ''} ${olLayer.type}">
+            <div class="${olLayer.checked ? 'checked' : ''} ${olLayer.type} ${this._catalogInfoShown(olLayer) ? 'selected' : ''}">
                 <div class="loading ${olLayer.loadStatus === MapLayerLoadStatus.Loading ? 'spinner' : ''}"></div>
                 <input type="checkbox" id="node-ol-${olLayer.name}" .checked=${olLayer.checked} @click=${() => olLayer.checked = !olLayer.checked} >
                 <div class="node ${olLayer.isFiltered ? 'filtered' : ''}">
@@ -70,8 +69,8 @@ export default class Treeview extends HTMLElement {
                     <label for="node-ol-${olLayer.name}">${olLayer.wmsTitle}</label>
                     <div class="layer-actions">
                         ${this._olOf(olLayer)?.get('lizmapCatalog')
-                            ? html`<i class="icon-info-sign" title="${lizDict['catalog.layer.settings']}"
-                                @click=${() => this._toggleCatalogSettings(olLayer)}></i>`
+                            ? html`<i class="icon-info-sign" title="${lizDict['layer.metadata.title']}"
+                                @click=${() => this._showCatalogInfo(olLayer)}></i>`
                             : ''}
                     </div>
                 </div>
@@ -84,10 +83,6 @@ export default class Treeview extends HTMLElement {
                                 <label class="symbol-title"><img class="legend" src="${symbol.icon}">${symbol.title}</label>
                             </li>`)}
                     </ul>`
-                : ''}
-            ${this._catalogSettingsOpen.has(this._olOf(olLayer))
-                ? document.querySelector('lizmap-catalog')?.settingsTemplate(
-                    this._olOf(olLayer)?.get('lizmapCatalog').key, this._olOf(olLayer)?.get('lizmapCatalog').name)
                 : ''}
         </li>`
 
@@ -371,14 +366,25 @@ export default class Treeview extends HTMLElement {
         this._onChange();
     }
 
-    _toggleCatalogSettings(olLayerState) {
-        const olLayer = this._olOf(olLayerState);
-        if (this._catalogSettingsOpen.has(olLayer)) {
-            this._catalogSettingsOpen.delete(olLayer);
-        } else {
-            this._catalogSettingsOpen.add(olLayer);
+    /**
+     * Show the information of a layer added by the catalog in the sub-dock
+     * @param {object} olLayerState - the layer state
+     */
+    _showCatalogInfo(olLayerState) {
+        const catalog = this._olOf(olLayerState)?.get('lizmapCatalog');
+        if (catalog) {
+            document.querySelector('lizmap-catalog')?.showLayerInfo(catalog.key, catalog.name);
         }
-        this._onChange();
+    }
+
+    /**
+     * Is the information of a layer added by the catalog displayed
+     * @param {object} olLayerState - the layer state
+     * @returns {boolean} true if displayed
+     */
+    _catalogInfoShown(olLayerState) {
+        const catalog = this._olOf(olLayerState)?.get('lizmapCatalog');
+        return Boolean(catalog && document.querySelector('lizmap-catalog')?.isInfoShown(catalog.key, catalog.name));
     }
 
     _dragStart(e, item, parent) {
@@ -445,6 +451,10 @@ export default class Treeview extends HTMLElement {
                 : ''}
             <lizmap-mapviews></lizmap-mapviews>
         </div>`;
+    }
+
+    get itemNameSelected() {
+        return this._itemNameSelected;
     }
 
     set itemNameSelected(itemName) {
