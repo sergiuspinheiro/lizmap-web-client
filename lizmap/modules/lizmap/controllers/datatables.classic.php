@@ -11,15 +11,18 @@
  * @license Mozilla Public License : http://www.mozilla.org/MPL/
  */
 
-use GuzzleHttp\Psr7\StreamWrapper as Psr7StreamWrapper;
 use GuzzleHttp\Psr7\Utils as Psr7Utils;
-use JsonMachine\Items as JsonMachineItems;
 use Lizmap\App\Checker;
 use Lizmap\DataTables\DataTables;
 use Lizmap\Project\Project;
 use Lizmap\Project\UnknownLizmapProjectException;
+use Lizmap\Request\FeatureStream;
 use Lizmap\Request\Proxy;
+use Lizmap\Request\WFSAggregateRequest;
 use Lizmap\Request\WFSRequest;
+use proj4php\Point as Proj4Point;
+use proj4php\Proj as Proj4Proj;
+use proj4php\Proj4php;
 
 class datatablesCtrl extends jController
 {
@@ -355,9 +358,12 @@ class datatablesCtrl extends jController
     }
 
     /**
-     * Gets features via WFS and calculates the total extent.
+     * Calculates the total extent of the filtered features, in EPSG:4326.
+     *
      * It basically use the same logic of the main endpoint but ignores
-     * pagination to get all filtered features.
+     * pagination to get all filtered features. For a PostgreSQL layer, the
+     * extent is computed by the database; otherwise the features are got
+     * via WFS to calculate it.
      *
      * @return jResponseJson
      */
@@ -419,6 +425,19 @@ class datatablesCtrl extends jController
             $wfsParamsData['SRSNAME'] = $this->srsName;
         }
 
+        // Compute the extent in the database when possible,
+        // with the same parameters selecting the features
+        $aggregateRequest = new WFSAggregateRequest($lproj, $wfsParamsData, lizmap::getServices());
+        $extent = $aggregateRequest->extent();
+        if ($extent !== null) {
+            $rep->data = $extent;
+
+            return $rep;
+        }
+        if (lizmap::getServices()->debugMode == '1') {
+            jLog::log('Datatables - '.$this->layerId.' - the extent is not computed by the database: '.$aggregateRequest->getFailureReason(), 'lizmapadmin');
+        }
+
         // if the geometry is not of type point, request the geometry extent,
         // else get default geometry
         if (!$pointGeom) {
@@ -435,9 +454,8 @@ class datatablesCtrl extends jController
             return $this->setErrorResponse($rep, 400, 'The request to get paginated features failed, mime-type: '.$wfsresponse->getMime());
         }
 
-        // get WFS resposne as a stream, so we can parse it step by step
-        $featureStream = Psr7StreamWrapper::getResource($wfsresponse->getBodyAsStream());
-        $features = JsonMachineItems::fromStream($featureStream, array('pointer' => '/features'));
+        // decode the WFS response stream by blocks of features
+        $features = FeatureStream::fromResponse($wfsresponse);
 
         $bboxXMin = null;
         $bboxXMax = null;
@@ -492,11 +510,66 @@ class datatablesCtrl extends jController
                 $bboxXMax,
                 $bboxYMax,
             );
+
+            // With a bounding box, the SRSNAME parameter is needed by QGIS Server
+            // to read it, and the features are then returned in this CRS:
+            // the extent must be transformed into EPSG:4326, expected by the client
+            if (count($this->bbox) == 4) {
+                $finalExtent = $this->transformExtentTo4326($lproj, $finalExtent, $this->srsName);
+            }
         }
 
         $rep->data = $finalExtent;
 
         return $rep;
+    }
+
+    /**
+     * Transform an extent into EPSG:4326.
+     *
+     * The four corners of the extent are transformed, and the extent of the
+     * transformed corners is returned.
+     *
+     * @param Project      $lproj  the project, giving the CRS definitions
+     * @param array<float> $extent the extent [xmin, ymin, xmax, ymax]
+     * @param string       $crs    the CRS of the extent, e.g. EPSG:3857
+     *
+     * @return array<float> the extent in EPSG:4326, or an empty array
+     *                      if it can not be transformed
+     */
+    private function transformExtentTo4326($lproj, array $extent, string $crs): array
+    {
+        // Nothing to do
+        if (strtoupper($crs) == 'EPSG:4326') {
+            return $extent;
+        }
+
+        try {
+            // The source CRS, defined by the project if not known by proj4php
+            $proj4 = new Proj4php();
+            $definition = $lproj->getProj4($crs);
+            if ($definition) {
+                $proj4->addDef($crs, $definition);
+            }
+            $sourceProj = new Proj4Proj($crs, $proj4);
+            $destProj = new Proj4Proj('EPSG:4326', $proj4);
+
+            // Transform the four corners
+            $xs = array();
+            $ys = array();
+            foreach (array(array(0, 1), array(0, 3), array(2, 1), array(2, 3)) as $corner) {
+                $point = $proj4->transform($sourceProj, $destProj, new Proj4Point($extent[$corner[0]], $extent[$corner[1]]));
+                $xs[] = $point->x;
+                $ys[] = $point->y;
+            }
+        } catch (Exception $e) {
+            // No zoom rather than a wrong one
+            jLog::logEx($e, 'lizmapadmin');
+
+            return array();
+        }
+
+        return array(min($xs), min($ys), max($xs), max($ys));
     }
 
     /**
