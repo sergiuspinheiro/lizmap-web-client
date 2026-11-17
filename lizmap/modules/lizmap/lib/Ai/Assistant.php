@@ -696,7 +696,15 @@ EOT;
             throw new AssistantException('Too many requests to the AI assistant, try again later', 429, $e);
         } catch (\Anthropic\Core\Exceptions\APIStatusException $e) {
             // The API error message tells what is wrong in the request
-            $detail = method_exists($e, 'getAPIMessage') ? $e->getAPIMessage() : null;
+            $detail = $e->body ?? null;
+            if (is_array($detail) && isset($detail['error']['message'])) {
+                $detail = $detail['error']['message'];
+            } elseif ($detail !== null && !is_string($detail)) {
+                $detail = json_encode($detail, JSON_UNESCAPED_UNICODE);
+            }
+            if (is_string($detail)) {
+                $detail = mb_substr($detail, 0, 500);
+            }
 
             throw new AssistantException('The AI assistant request failed: '.$e->getMessage().($detail ? ' - '.$detail : ''), 0, $e);
         } catch (\Anthropic\Core\Exceptions\APIConnectionException $e) {
