@@ -786,8 +786,10 @@ export default class Catalog extends HTMLElement {
      * @param {string} title - the layer title
      * @param {import('ol/Feature.js').default[]} features - the features in the map projection
      * @param {number|null} [profileId] - the id of the file saved in the user profile
+     * @param {object|null} [style] - the saved style of the layer
+     * @param {string|null} [uid] - the id of the temporary file in the session library
      */
-    _addImportedLayer(title, features, profileId = null, style = null) {
+    _addImportedLayer(title, features, profileId = null, style = null, uid = null) {
         const color = IMPORT_COLORS[this._import.count % IMPORT_COLORS.length];
         ++this._import.count;
         // Saved files keep their name, so that the tree order of a map view applies
@@ -796,6 +798,8 @@ export default class Catalog extends HTMLElement {
         olLayer.set('name', name);
         olLayer.set('lizmapCatalog', { key: 'import|', name });
         olLayer.set('lizmapProfileId', profileId);
+        // Temporary files are kept in the session library, shared by the maps
+        olLayer.set('lizmapImportUid', profileId ? null : (uid || Date.now().toString(36) + Math.random().toString(36).substring(2, 8)));
         if (!this._import.group) {
             this._import.group = mainLizmap.state.rootMapGroup.createExternalGroup('catalog-imports');
             this._import.group.wmsTitle = lizDict['catalog.import.group'];
@@ -971,31 +975,40 @@ export default class Catalog extends HTMLElement {
     _persistImports() {
         const layers = [...(this._import.group?.children || [])].reverse();
         const format = new GeoJSON();
-        const files = layers
-            .filter(item => !item.olLayer.get('lizmapProfileId'))
-            .map(item => ({
+        const temporary = layers.filter(item => !item.olLayer.get('lizmapProfileId'));
+        const library = this._importLibrary();
+        const mapTitle = document.querySelector('#title h1')?.textContent?.trim()
+            || globalThis.lizUrls?.params?.project || '';
+        for (const item of temporary) {
+            const uid = item.olLayer.get('lizmapImportUid');
+            const entry = {
+                uid,
                 title: item.wmsTitle,
+                map: library.find(e => e.uid === uid)?.map || mapTitle,
                 style: item.olLayer.get('lizmapImportStyle'),
                 geojson: format.writeFeaturesObject(item.olLayer.getSource().getFeatures(), {
                     dataProjection: 'EPSG:4326',
                     featureProjection: mainLizmap.projection,
                     decimals: 7,
                 }),
-            }));
+            };
+            const index = library.findIndex(e => e.uid === uid);
+            if (index >= 0) {
+                library[index] = entry;
+            } else {
+                library.push(entry);
+            }
+        }
+        this._saveImportLibrary(library);
         try {
-            if (files.length) {
-                window.sessionStorage.setItem(this._importStorageKey('files'), JSON.stringify(files));
+            const uids = temporary.map(item => item.olLayer.get('lizmapImportUid'));
+            if (uids.length) {
+                window.sessionStorage.setItem(this._importStorageKey('files'), JSON.stringify(uids));
             } else {
                 window.sessionStorage.removeItem(this._importStorageKey('files'));
             }
         } catch (error) {
-            // Too big for the browser storage: the files are lost on reload
             console.warn(error);
-            try {
-                window.sessionStorage.removeItem(this._importStorageKey('files'));
-            } catch {
-                // No storage
-            }
         }
         try {
             const ids = this.profileLayers;
@@ -1032,6 +1045,116 @@ export default class Catalog extends HTMLElement {
      * Add again the imported files of the map after a reload
      * @returns {Promise<void>}
      */
+    /**
+     * Temporary files imported in the maps of this browser tab, shared by the maps
+     * @returns {Array<{uid: string, title: string, map: string, style: object, geojson: object}>} the files
+     */
+    _importLibrary() {
+        try {
+            const library = JSON.parse(window.sessionStorage.getItem('lizmap-catalog-import-library') || '[]');
+            return Array.isArray(library) ? library.filter(e => e && typeof e.uid === 'string' && e.geojson) : [];
+        } catch {
+            return [];
+        }
+    }
+
+    _saveImportLibrary(library) {
+        try {
+            if (library.length) {
+                window.sessionStorage.setItem('lizmap-catalog-import-library', JSON.stringify(library));
+            } else {
+                window.sessionStorage.removeItem('lizmap-catalog-import-library');
+            }
+        } catch (error) {
+            // Too big for the browser storage: the files are lost on reload
+            console.warn(error);
+        }
+    }
+
+    /**
+     * Add a file of the session library to the map
+     * @param {string} uid - the file id
+     * @param {boolean} [zoom] - zoom to the layer
+     * @returns {boolean} true if added
+     */
+    addFromLibrary(uid, zoom = true) {
+        if (this._libraryLayerState(uid)) {
+            return false;
+        }
+        const entry = this._importLibrary().find(e => e.uid === uid);
+        if (!entry) {
+            return false;
+        }
+        try {
+            const features = new GeoJSON().readFeatures(entry.geojson, {
+                dataProjection: 'EPSG:4326',
+                featureProjection: mainLizmap.projection,
+            });
+            if (!features.length) {
+                return false;
+            }
+            this._addImportedLayer(String(entry.title || ''), features, null, entry.style, uid);
+        } catch (error) {
+            console.warn(error);
+            return false;
+        }
+        const state = this._libraryLayerState(uid);
+        if (zoom && state) {
+            this._zoomToImported(state);
+        }
+        this._persistImports();
+        this._render();
+        return true;
+    }
+
+    /**
+     * Remove a file from the session library and from the map
+     * @param {string} uid - the file id
+     */
+    deleteFromLibrary(uid) {
+        this._saveImportLibrary(this._importLibrary().filter(e => e.uid !== uid));
+        const state = this._libraryLayerState(uid);
+        if (state) {
+            this.removeImportedLayer(state.name);
+        } else {
+            this._render();
+        }
+    }
+
+    _libraryLayerState(uid) {
+        return this._import.group?.children.find(item => item.olLayer.get('lizmapImportUid') === uid);
+    }
+
+    /**
+     * Files of the session library imported in other maps
+     * @returns {import('lit-html').TemplateResult|string} the template
+     */
+    _libraryTemplate() {
+        const entries = this._importLibrary().filter(e => !this._libraryLayerState(e.uid));
+        if (!entries.length) {
+            return '';
+        }
+        return html`
+            <div class="catalog-import-profile catalog-import-library">
+                <h5>${lizDict['catalog.import.library.title']}</h5>
+                <p class="catalog-help">${lizDict['catalog.import.library.help']}</p>
+                <ul class="catalog-layers">
+                    ${entries.map(entry => html`
+                        <li class="catalog-layer">
+                            <span class="catalog-layer-title">${entry.title}
+                                ${entry.map ? html`<small>(${entry.map})</small>` : ''}</span>
+                            <span class="catalog-layer-actions">
+                                <button type="button" class="btn btn-sm btn-primary catalog-add" title="${lizDict['catalog.layer.add']}"
+                                    @click=${() => this.addFromLibrary(entry.uid)}><i class="icon-plus icon-white"></i></button>
+                                <button type="button" class="btn btn-sm catalog-remove"
+                                    title="${lizDict['catalog.import.library.delete']}"
+                                    @click=${() => this.deleteFromLibrary(entry.uid)}><i class="icon-trash"></i></button>
+                            </span>
+                        </li>`)}
+                </ul>
+            </div>`;
+    }
+
     async _restoreImports() {
         if (this._importsRestored) {
             return;
@@ -1065,6 +1188,11 @@ export default class Catalog extends HTMLElement {
             }
         }
         for (const file of (Array.isArray(files) ? files : [])) {
+            if (typeof file === 'string') {
+                this.addFromLibrary(file, false);
+                continue;
+            }
+            // Files kept by the previous versions, without library
             try {
                 const features = new GeoJSON().readFeatures(file.geojson, {
                     dataProjection: 'EPSG:4326',
@@ -1341,6 +1469,7 @@ export default class Catalog extends HTMLElement {
                             </span>
                         </li>`)}
                 </ul>` : ''}
+            ${this._libraryTemplate()}
             ${this._profileTemplate()}
         </div>`;
     }
