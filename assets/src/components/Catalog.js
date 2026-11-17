@@ -24,9 +24,9 @@ import { Utils } from '../modules/Utils.js';
 import { deleteImport, listImports, putImport } from '../modules/ImportLibrary.js';
 import {
     GEOMETRY_CLASS, buildClasses, classifiableFields, defaultImportStyle, geometryKind,
-    featureFields, importStyleFunction, labelStyle, legendIcon, sanitizeImportSource, sanitizeImportStyle, sanitizeLabel,
+    featureFields, importStyleFunction, legendIcon, sanitizeImportSource, sanitizeImportStyle, sanitizeLabel,
 } from '../modules/ImportStyle.js';
-import { bbox as bboxStrategy } from 'ol/loadingstrategy.js';
+import { createLabelOverlay, labelFields, setLabelOverlayStyle } from '../modules/LabelOverlay.js';
 
 /** Colors of the imported layers */
 const IMPORT_COLORS = ['#e6194b', '#3cb44b', '#4363d8', '#f58231', '#911eb4', '#42d4f4', '#f032e6', '#9a6324'];
@@ -68,6 +68,7 @@ export default class Catalog extends HTMLElement {
         // Files imported by the user, kept until the page is closed
         this._import = { loading: false, group: null, count: 0, over: false };
         this._library = [];
+        this._projectLabels = new Map();
         // Files saved in the user profile: {canSave, quota, files} once read
         this._profile = null;
         // External services saved in the user profile, once read
@@ -93,6 +94,28 @@ export default class Catalog extends HTMLElement {
             }
         };
         lizMap.events.on({ dockopened: this._dockHandler });
+
+        // The sub-dock displays the information of a layer of the project:
+        // add its label settings
+        this._switcherHandler = (e) => {
+            if (e.selected) {
+                if (this._info) {
+                    this._info = null;
+                    document.dispatchEvent(new CustomEvent('lizmapcatalogchanged'));
+                }
+                this._projectLabelsName = e.name;
+                setTimeout(() => this._renderProjectLabels());
+                // The information is rebuilt by the project, e.g. when the map moves
+                const subDock = document.getElementById('sub-dock');
+                if (subDock && !this._subDockObserver) {
+                    this._subDockObserver = new MutationObserver(() => this._renderProjectLabels());
+                    this._subDockObserver.observe(subDock, { childList: true });
+                }
+            } else {
+                this._projectLabelsName = null;
+            }
+        };
+        lizMap.events.on({ lizmapswitcheritemselected: this._switcherHandler });
 
         // Drop a catalog layer onto the map
         const onMap = (e) => !!mainLizmap.map?.getViewport().contains(e.target);
@@ -131,6 +154,8 @@ export default class Catalog extends HTMLElement {
 
     disconnectedCallback() {
         lizMap.events.off({ dockopened: this._dockHandler });
+        lizMap.events.off({ lizmapswitcheritemselected: this._switcherHandler });
+        this._subDockObserver?.disconnect();
         mainEventDispatcher.removeListener(this._restoreImportsHandler, 'lizmap.uicreated');
         document.removeEventListener('dragover', this._dragOverHandler);
         document.removeEventListener('drop', this._dropHandler);
@@ -1098,43 +1123,111 @@ export default class Catalog extends HTMLElement {
         }
         let overlay = olLayer.get('lizmapLabelLayer');
         if (!overlay) {
-            const format = new GeoJSON();
-            const source = new VectorSource({
-                strategy: bboxStrategy,
-                loader: async (extent, resolution, projection, success, failure) => {
-                    try {
-                        const url = new URL(project.wmsUrl, window.location.href);
-                        const params = {
-                            SERVICE: 'WFS', VERSION: '1.0.0', REQUEST: 'GetFeature', TYPENAME: layer.typeName,
-                            OUTPUTFORMAT: 'GeoJSON', SRSNAME: 'EPSG:4326', MAXFEATURES: '1000',
-                            BBOX: transformExtent(extent, projection, 'EPSG:4326').join(','),
-                        };
-                        for (const [key, value] of Object.entries(params)) {
-                            url.searchParams.set(key, value);
-                        }
-                        const response = await fetch(url);
-                        if (!response.ok) {
-                            throw new Error(response.statusText);
-                        }
-                        const features = format.readFeatures(await response.json(), {
-                            dataProjection: 'EPSG:4326', featureProjection: projection,
-                        });
-                        source.addFeatures(features);
-                        success(features);
-                    } catch (error) {
-                        console.error(error);
-                        source.removeLoadedExtent(extent);
-                        failure();
-                    }
-                },
-            });
-            overlay = new VectorLayer({ source, declutter: true, zIndex: 1000, visible: olLayer.getVisible() });
+            overlay = createLabelOverlay(project.wmsUrl, {}, layer.typeName);
+            overlay.setVisible(olLayer.getVisible());
             olLayer.set('lizmapLabelVisibleKey', olLayer.on('change:visible', () => overlay.setVisible(olLayer.getVisible())));
             mainLizmap.map.addLayer(overlay);
             olLayer.set('lizmapLabelLayer', overlay);
         }
-        overlay.setStyle(feature => labelStyle(feature, spec));
+        setLabelOverlayStyle(overlay, spec);
         this._render();
+    }
+
+    /**
+     * WFS type name of a layer of the project, if it is published in WFS
+     * @param {string} name - the layer name
+     * @returns {string|null} the type name
+     */
+    _projectTypeName(name) {
+        const config = globalThis.lizMap?.config?.layers?.[name];
+        if (!config?.typename || config.geometryType === 'none' || config.type === 'group') {
+            return null;
+        }
+        return config.typename;
+    }
+
+    /**
+     * Label settings of the layer of the project displayed in the sub-dock
+     */
+    _renderProjectLabels() {
+        const name = this._projectLabelsName;
+        const typeName = name ? this._projectTypeName(name) : null;
+        const metadata = document.querySelector('#sub-dock .sub-metadata .menu-content');
+        if (!typeName || !metadata) {
+            return;
+        }
+        let container = metadata.querySelector(':scope > .catalog-project-labels');
+        if (!container || container.dataset.layer !== name) {
+            container?.remove();
+            container = document.createElement('dl');
+            container.className = 'catalog-project-labels';
+            container.style.fontSize = '0.8em';
+            container.dataset.layer = name;
+            metadata.querySelector(':scope > dl')?.after(container);
+            if (!container.isConnected) {
+                metadata.append(container);
+            }
+        }
+        this._projectFields = this._projectFields || new Map();
+        if (!this._projectFields.has(name)) {
+            this._projectFields.set(name, null);
+            labelFields(globalThis.lizUrls.wms, globalThis.lizUrls.params, typeName).then(fields => {
+                this._projectFields.set(name, fields);
+                this._renderProjectLabels();
+            });
+        }
+        const label = this._projectLabels.get(name)?.label || sanitizeLabel(null);
+        render(this._labelTemplate(label, this._projectFields.get(name),
+            changes => this.setProjectLabels(name, { ...label, ...changes })), container);
+    }
+
+    /**
+     * Labels of a layer of the project, drawn above its image from the
+     * features read with the WFS of the project
+     * @param {string} name - the layer name
+     * @param {object} label - the label settings
+     */
+    setProjectLabels(name, label) {
+        const typeName = this._projectTypeName(name);
+        if (!typeName) {
+            return;
+        }
+        const spec = sanitizeLabel(label);
+        let entry = this._projectLabels.get(name);
+        if (!spec.field) {
+            if (entry) {
+                mainLizmap.map.removeLayer(entry.overlay);
+                entry.item?.removeListener(entry.listener, 'layer.visibility.changed');
+                this._projectLabels.delete(name);
+            }
+        } else {
+            if (!entry) {
+                const overlay = createLabelOverlay(globalThis.lizUrls.wms, globalThis.lizUrls.params, typeName);
+                let item = null;
+                try {
+                    item = mainLizmap.state.layersAndGroupsCollection.getLayerOrGroupByName(name);
+                } catch {
+                    // Unknown layer: the labels are always displayed
+                }
+                const listener = () => overlay.setVisible(item.visibility);
+                if (item) {
+                    overlay.setVisible(item.visibility);
+                    item.addListener(listener, 'layer.visibility.changed');
+                }
+                mainLizmap.map.addLayer(overlay);
+                entry = { overlay, item, listener };
+                this._projectLabels.set(name, entry);
+            }
+            entry.label = spec;
+            setLabelOverlayStyle(entry.overlay, spec);
+        }
+        try {
+            const saved = Object.fromEntries([...this._projectLabels].map(([key, value]) => [key, value.label]));
+            window.sessionStorage.setItem(this._importStorageKey('labels'), JSON.stringify(saved));
+        } catch (error) {
+            console.warn(error);
+        }
+        this._renderProjectLabels();
     }
 
     /**
@@ -1165,21 +1258,10 @@ export default class Catalog extends HTMLElement {
         this._labelFields = this._labelFields || new Map();
         if (!this._labelFields.has(id)) {
             this._labelFields.set(id, null);
-            const url = new URL(project.wmsUrl, window.location.href);
-            const params = {
-                SERVICE: 'WFS', VERSION: '1.0.0', REQUEST: 'GetFeature', TYPENAME: layer.typeName,
-                OUTPUTFORMAT: 'GeoJSON', MAXFEATURES: '1',
-            };
-            for (const [key, value] of Object.entries(params)) {
-                url.searchParams.set(key, value);
-            }
-            fetch(url).then(response => response.ok ? response.json() : null).then(data => {
-                const properties = data?.features?.[0]?.properties || {};
-                this._labelFields.set(id, Object.keys(properties).filter(key => {
-                    const value = properties[key];
-                    return value === null || typeof value !== 'object';
-                }));
-            }).catch(() => this._labelFields.set(id, [])).finally(() => this._render());
+            labelFields(project.wmsUrl, {}, layer.typeName).then(fields => {
+                this._labelFields.set(id, fields);
+                this._render();
+            });
         }
         return this._labelFields.get(id);
     }
@@ -1415,6 +1497,14 @@ export default class Catalog extends HTMLElement {
             return;
         }
         this._importsRestored = true;
+        try {
+            const labels = JSON.parse(window.sessionStorage.getItem(this._importStorageKey('labels')) || '{}');
+            for (const [name, label] of Object.entries(labels && typeof labels === 'object' ? labels : {})) {
+                this.setProjectLabels(name, label);
+            }
+        } catch (error) {
+            console.warn(error);
+        }
         try {
             const external = JSON.parse(window.sessionStorage.getItem(this._importStorageKey('external')) || '[]');
             if (Array.isArray(external) && external.length) {
@@ -2148,16 +2238,6 @@ export default class Catalog extends HTMLElement {
         if (treeview?.itemNameSelected !== undefined) {
             treeview.itemNameSelected = undefined;
         }
-        if (!this._infoListening && globalThis.lizMap?.events) {
-            this._infoListening = true;
-            // The sub-dock displays then a layer of the project
-            lizMap.events.on({ lizmapswitcheritemselected: (e) => {
-                if (e.selected) {
-                    this._info = null;
-                    document.dispatchEvent(new CustomEvent('lizmapcatalogchanged'));
-                }
-            } });
-        }
         this._info = { key, name };
         this._renderInfo();
         document.dispatchEvent(new CustomEvent('lizmapcatalogchanged'));
@@ -2388,6 +2468,7 @@ export default class Catalog extends HTMLElement {
     _render() {
         this._renderCatalog();
         this._renderInfo();
+        this._renderProjectLabels();
         // The layer tree displays the settings too
         document.dispatchEvent(new CustomEvent('lizmapcatalogchanged'));
     }
