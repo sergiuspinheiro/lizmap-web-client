@@ -288,6 +288,11 @@ class catalogCtrl extends jController
         try {
             $rep->data = $assistant->analyse($entry, $statistics, $question, jLocale::getCurrentLocale());
             $rep->data['statistics'] = $statistics;
+            // The feature asked about: found on the map, so that the user can zoom to it
+            $rep->data['location'] = null;
+            if ($rep->data['feature'] !== '' && $layer['geometryType'] !== 'none') {
+                $rep->data['location'] = $this->locateFeatures($project, $layer, $rep->data['feature']);
+            }
         } catch (AssistantException $e) {
             return $this->assistantError($rep, $e);
         }
@@ -451,6 +456,26 @@ class catalogCtrl extends jController
         }
         session_write_close();
 
+        $location = $this->locateFeatures($project, $layer, $value);
+        if ($location === null) {
+            return $this->error($rep, 404, 'The features of the layer cannot be read');
+        }
+        $rep->data = $location;
+
+        return $rep;
+    }
+
+    /**
+     * Find the features of a layer having a value.
+     *
+     * @param \Lizmap\Project\Project $project the project
+     * @param array                   $layer   the layer, from projectLayers()
+     * @param string                  $value   the value
+     *
+     * @return null|array the number of features and their extent in EPSG:4326, null if the layer cannot be read
+     */
+    protected function locateFeatures($project, $layer, $value)
+    {
         $maxFeatures = 10000;
         $params = array(
             'SERVICE' => 'WFS',
@@ -466,21 +491,19 @@ class catalogCtrl extends jController
             $request = new WFSRequest($project, $params, lizmap::getServices());
             $result = $request->process();
             if ($result->getCode() >= 400 || !str_contains(strtolower($result->getMime()), 'json')) {
-                return $this->error($rep, 404, 'The features of the layer cannot be read');
+                return null;
             }
             $stream = Psr7StreamWrapper::getResource($result->getBodyAsStream());
             $features = JsonMachineItems::fromStream($stream, array('pointer' => '/features'));
             $locator = new FeatureLocator($value);
             $locator->addFeatures($features, $maxFeatures);
-            $rep->data = $locator->toArray();
-            $rep->data['crs'] = 'EPSG:4326';
+
+            return $locator->toArray() + array('crs' => 'EPSG:4326');
         } catch (\Throwable $e) {
             jLog::logEx($e, 'error');
 
-            return $this->error($rep, 500, 'The features of the layer cannot be read');
+            return null;
         }
-
-        return $rep;
     }
 
     /**
