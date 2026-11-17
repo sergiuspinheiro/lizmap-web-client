@@ -697,6 +697,20 @@ EOT;
         } catch (\Anthropic\Core\Exceptions\APIStatusException $e) {
             // The API error message tells what is wrong in the request
             $detail = $e->body ?? null;
+            if ($detail === null && isset($e->response)) {
+                $stream = $e->response->getBody();
+                if ($stream->isSeekable()) {
+                    $stream->rewind();
+                }
+                $detail = (string) $stream;
+                $decoded = json_decode($detail, true);
+                if (is_array($decoded)) {
+                    $detail = $decoded;
+                }
+            }
+            if ($detail === null || $detail === '') {
+                $detail = 'HTTP '.($e->status ?? '?').', no detail';
+            }
             if (is_array($detail) && isset($detail['error']['message'])) {
                 $detail = $detail['error']['message'];
             } elseif ($detail !== null && !is_string($detail)) {
