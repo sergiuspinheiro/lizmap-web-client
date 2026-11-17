@@ -96,6 +96,7 @@ export default class MapViews extends HTMLElement {
             order: treeview?.arrangement?.order || {},
             catalog: catalog?.addedLayers || [],
             external: catalog?.externalLayers || [],
+            imports: catalog?.profileLayers || [],
         };
         return this._run(async () => {
             const view = await this._request(this.urls.save, { name, config: JSON.stringify(config) }, true);
@@ -117,6 +118,7 @@ export default class MapViews extends HTMLElement {
             treeview?.arrangement?.setOrder(view.config?.order, mainLizmap.state.layerTree, mainLizmap.map);
             await document.querySelector('lizmap-catalog')?.restore(view.config?.catalog || []);
             await document.querySelector('lizmap-catalog')?.restoreExternal(view.config?.external || []);
+            await document.querySelector('lizmap-catalog')?.restoreProfile(view.config?.imports || []);
             treeview?.refresh();
         });
     }
