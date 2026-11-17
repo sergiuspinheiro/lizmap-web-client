@@ -19,7 +19,7 @@ class OgrConverter
      * Extensions of the uploaded files that can be converted.
      */
     public const EXTENSIONS = array(
-        'dxf', 'gpkg', 'gml', 'csv', 'kmz', 'sqlite', 'zip', 'geojsonl', 'geojsons', 'gpx', 'kml',
+        'dxf', 'dwg', 'gpkg', 'gml', 'csv', 'kmz', 'sqlite', 'zip', 'geojsonl', 'geojsons', 'gpx', 'kml',
     );
 
     /**
@@ -41,6 +41,9 @@ class OgrConverter
 
     /** @var int Maximum duration of a command, in seconds */
     protected $timeout;
+
+    /** @var string Path of ODAFileConverter or dwg2dxf, empty to look for them in the PATH */
+    protected $dwgConverter = '';
 
     /**
      * @param string $binDir        Directory of the GDAL commands, empty to use the PATH
@@ -167,6 +170,89 @@ class OgrConverter
     }
 
     /**
+     * Set the command converting DWG files to DXF.
+     *
+     * @param string $path path of ODAFileConverter (ODA File Converter) or dwg2dxf (LibreDWG)
+     */
+    public function setDwgConverter($path)
+    {
+        $this->dwgConverter = (string) $path;
+    }
+
+    /**
+     * The command converting DWG files to DXF: the configured one, else
+     * ODAFileConverter or dwg2dxf found in the PATH.
+     *
+     * @return null|string the command path
+     */
+    public function dwgConverter()
+    {
+        if ($this->dwgConverter !== '') {
+            return is_executable($this->dwgConverter) ? $this->dwgConverter : null;
+        }
+        foreach (array('ODAFileConverter', 'dwg2dxf') as $command) {
+            $output = array();
+            $code = 1;
+            @exec('command -v '.escapeshellarg($command).' 2>/dev/null', $output, $code);
+            if ($code === 0 && isset($output[0]) && is_executable($output[0])) {
+                return $output[0];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Convert a DWG file to DXF with ODA File Converter or LibreDWG.
+     *
+     * @param string $path   the DWG file path
+     * @param string $outDir an empty directory for the conversion
+     *
+     * @return null|string the DXF file path, or null without converter
+     *
+     * @throws \RuntimeException
+     */
+    public function dwgToDxf($path, $outDir)
+    {
+        $converter = $this->dwgConverter();
+        if ($converter === null) {
+            return null;
+        }
+        $outDir = rtrim($outDir, '/');
+        if (stripos(basename($converter), 'oda') !== false) {
+            // ODA File Converter converts the files of a directory
+            $inDir = $outDir.'/in';
+            $dxfDir = $outDir.'/out';
+            if (!@mkdir($inDir) || !@mkdir($dxfDir) || !@copy($path, $inDir.'/drawing.dwg')) {
+                throw new \RuntimeException('Unable to prepare the DWG conversion');
+            }
+            $cmd = $this->command($converter, array($inDir, $dxfDir, 'ACAD2018', 'DXF', '0', '1', '*.DWG'));
+            // It is a Qt application: it needs a display
+            if (is_executable('/usr/bin/xvfb-run')) {
+                $cmd = '/usr/bin/xvfb-run -a '.$cmd;
+            } else {
+                $cmd = 'QT_QPA_PLATFORM=offscreen '.$cmd;
+            }
+            // It writes its settings in the home directory
+            $cmd = 'HOME='.escapeshellarg($outDir).' '.$cmd;
+            $this->run($cmd);
+            $found = glob($dxfDir.'/*.[dD][xX][fF]');
+            if (!$found) {
+                throw new \RuntimeException('ODA File Converter did not convert the DWG file');
+            }
+
+            return $found[0];
+        }
+        $dxf = $outDir.'/drawing.dxf';
+        $this->run($this->command($converter, array('-y', '-o', $dxf, $path)));
+        if (!is_file($dxf)) {
+            throw new \RuntimeException('dwg2dxf did not convert the DWG file');
+        }
+
+        return $dxf;
+    }
+
+    /**
      * Coordinate reference system and extent of a layer.
      *
      * @param string   $dataset     the GDAL dataset path
@@ -228,6 +314,25 @@ class OgrConverter
     public function toGeoJson($path, $extension, $sourceCrs = '')
     {
         $extension = strtolower($extension);
+        if ($extension == 'dwg') {
+            // Converted to DXF, else read by the GDAL CAD driver (DWG R2000 only)
+            $workDir = $path.'.dwg-convert';
+            if (!@mkdir($workDir)) {
+                throw new \RuntimeException('Unable to prepare the DWG conversion');
+            }
+
+            try {
+                $dxf = $this->dwgToDxf($path, $workDir);
+                if ($dxf !== null) {
+                    return $this->toGeoJson($dxf, 'dxf', $sourceCrs);
+                }
+                if (count($this->layers($path)) == 0) {
+                    throw new \RuntimeException('DWG files need ODA File Converter or LibreDWG on the server');
+                }
+            } finally {
+                self::removeDir($workDir);
+            }
+        }
         $dataset = $this->datasetPath($path, $extension);
         if ($dataset === null) {
             throw new \RuntimeException('No vector file found in the archive');
@@ -240,7 +345,7 @@ class OgrConverter
             $sourceCrs = '';
         }
         $isCsv = ($extension == 'csv' || preg_match('/\.csv$/i', $dataset));
-        $isDxf = ($extension == 'dxf' || preg_match('/\.dxf$/i', $dataset));
+        $isDxf = in_array($extension, array('dxf', 'dwg')) || preg_match('/\.dxf$/i', $dataset);
         $openOptions = array();
         if ($isCsv) {
             // Read coordinates or WKT columns
@@ -311,6 +416,27 @@ class OgrConverter
             'type' => 'FeatureCollection',
             'features' => $features,
         );
+    }
+
+    /**
+     * Remove a directory and its content.
+     *
+     * @param string $dir
+     */
+    protected static function removeDir($dir)
+    {
+        if (!is_dir($dir) || is_link($dir)) {
+            return;
+        }
+        foreach (array_diff(scandir($dir), array('.', '..')) as $item) {
+            $itemPath = $dir.'/'.$item;
+            if (is_dir($itemPath) && !is_link($itemPath)) {
+                self::removeDir($itemPath);
+            } else {
+                @unlink($itemPath);
+            }
+        }
+        @rmdir($dir);
     }
 
     /**

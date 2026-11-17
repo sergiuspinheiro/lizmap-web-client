@@ -74,6 +74,11 @@ class convertCtrl extends jController
         }
 
         $converter = new OgrConverter();
+        $config = jApp::config();
+        if (isset($config->catalogImport) && is_array($config->catalogImport)
+            && !empty($config->catalogImport['dwgConverter'])) {
+            $converter->setDwgConverter($config->catalogImport['dwgConverter']);
+        }
         if (!$converter->isAvailable()) {
             return $this->error($rep, 501, 'GDAL/OGR is not installed on the server');
         }
@@ -95,6 +100,9 @@ class convertCtrl extends jController
             return $rep;
         } catch (\RuntimeException $e) {
             jLog::log('Import conversion: '.$e->getMessage(), 'lizmapadmin');
+            if ($extension == 'dwg' && $converter->dwgConverter() === null) {
+                return $this->error($rep, 422, 'DWG files need ODA File Converter on the server');
+            }
 
             return $this->error($rep, 422, 'Unable to convert the file');
         } finally {

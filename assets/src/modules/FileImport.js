@@ -129,7 +129,7 @@ function namedCrs(geojson) {
 }
 
 /** Formats converted on the server with GDAL/OGR */
-export const SERVER_IMPORT_EXTENSIONS = ['dxf', 'gpkg', 'gml', 'csv', 'kmz', 'sqlite', 'geojsonl', 'geojsons'];
+export const SERVER_IMPORT_EXTENSIONS = ['dxf', 'dwg', 'gpkg', 'gml', 'csv', 'kmz', 'sqlite', 'geojsonl', 'geojsons'];
 
 /** Parts of a shapefile, selected together */
 const SHAPEFILE_PARTS = ['shp', 'dbf', 'shx', 'prj', 'cpg'];
@@ -185,7 +185,7 @@ export async function importFromServer(file, mapProjection, crs) {
     formData.append('project', params.project);
     formData.append('file', file);
     if (crs === undefined) {
-        crs = file.name.toLowerCase().endsWith('.dxf') ? mapProjection : '';
+        crs = /\.(dxf|dwg)$/i.test(file.name) ? mapProjection : '';
     }
     formData.append('crs', crs);
     const response = await fetch(globalThis.lizUrls.convert, { method: 'POST', body: formData });
