@@ -221,7 +221,9 @@ class userimportCtrl extends jController
             $record->title = $service['title'];
             $dao->update($record);
         } else {
-            if ($dao->countBy(jDao::createConditions()->addCondition('login', '=', $this->login())) >= UserImports::MAX_SERVICES) {
+            $conditions = jDao::createConditions();
+            $conditions->addCondition('login', '=', $this->login());
+            if ($dao->countBy($conditions) >= UserImports::MAX_SERVICES) {
                 return $this->error($rep, 413, 'Too many saved services');
             }
             $record = jDao::createRecord('lizmap~userservice', UserImports::PROFILE);
@@ -299,7 +301,7 @@ class userimportCtrl extends jController
             jLog::log('User imports: '.$e->getMessage(), 'lizmapadmin');
             jLog::logEx($e, 'error');
 
-            return $this->error($this->getResponse('json'), 500, 'Unable to read or save the file');
+            return $this->error($this->getResponse('json'), 500, 'Server error, see the lizmap admin log');
         }
     }
 
