@@ -16,7 +16,8 @@
     "guzzlehttp/guzzle": "^8.0.0",
     "halaxa/json-machine": "^1.1",
     "kevinrob/guzzle-cache-middleware": "^8.0",
-    "psr/log": "2.*"
+    "psr/log": "2.*",
+    "anthropic-ai/sdk": "^1.8"
   },
   "minimum-stability": "stable",
   "config": {
@@ -24,7 +25,8 @@
       "*": "dist"
     },
     "allow-plugins": {
-      "jelix/composer-module-setup": true
+      "jelix/composer-module-setup": true,
+      "php-http/discovery": false
     },
     "platform": {
       "php": "8.2"

@@ -62,6 +62,12 @@ export default class Catalog extends HTMLElement {
         this._import = { loading: false, group: null, count: 0, over: false };
         // Files saved in the user profile: {canSave, quota, files} once read
         this._profile = null;
+        // AI assistant: status from the server, search and analyses
+        this._ai = { enabled: false, analysis: false, question: '', loading: false, answer: null, results: [], error: false };
+        // Layer analyses by "repo~project~layer": {loading, question, data, error}
+        this._analyses = new Map();
+        // Search result previewed: id
+        this._aiPreview = null;
     }
 
     connectedCallback() {
@@ -125,6 +131,150 @@ export default class Catalog extends HTMLElement {
             this._repositories = [];
             this._error = true;
         }
+        this._render();
+        this._loadAssistant();
+    }
+
+    /**
+     * Read whether the AI assistant is available for the user
+     * @returns {Promise<void>}
+     */
+    async _loadAssistant() {
+        const url = this.getAttribute('ai-url');
+        if (!url) {
+            return;
+        }
+        try {
+            const response = await fetch(url);
+            if (response.ok) {
+                const data = await response.json();
+                this._ai.enabled = !!data.enabled;
+                this._ai.analysis = !!data.analysis;
+                this._render();
+            }
+        } catch (error) {
+            console.error(error);
+        }
+    }
+
+    /**
+     * POST a form to the assistant
+     * @param {string} url - the action URL
+     * @param {object} params - the form parameters
+     * @returns {Promise<object>} the JSON answer
+     */
+    async _postAssistant(url, params) {
+        const response = await fetch(url, {
+            method: 'POST',
+            body: new URLSearchParams(params),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            const error = new Error(data.error || response.statusText);
+            // A gateway timeout comes from the web server, without JSON
+            error.reason = data.reason || ({ 504: 'timeout', 429: 'busy', 401: 'login' })[response.status] || 'error';
+            throw error;
+        }
+        return data;
+    }
+
+    /**
+     * Search the catalog layers with the question in natural language
+     * @returns {Promise<void>}
+     */
+    async searchWithAssistant() {
+        const question = this._ai.question.trim();
+        if (!question || this._ai.loading) {
+            return;
+        }
+        Object.assign(this._ai, { loading: true, answer: null, results: [], error: false });
+        this._aiPreview = null;
+        this._render();
+        try {
+            const data = await this._postAssistant(this.getAttribute('ai-search-url'), { q: question });
+            this._ai.answer = data.answer;
+            this._ai.results = data.results || [];
+        } catch (error) {
+            console.error(error);
+            this._ai.error = { reason: error.reason || 'error', message: error.message };
+        }
+        this._ai.loading = false;
+        this._render();
+    }
+
+    /**
+     * Find the catalog project of a search result, and load its layers
+     * @param {{repository: string, project: string, name: string}} result - the search result
+     * @returns {Promise<{project: object, layer: object}|null>} the loaded project and layer
+     */
+    async _resultLayer(result) {
+        const repository = this._repositories?.find?.(r => r.id === result.repository);
+        const project = repository?.projects.find(p => p.id === result.project);
+        if (!project) {
+            return null;
+        }
+        project.key = repository.id + '~' + project.id;
+        await this.loadProject(project);
+        const loaded = this._projects.get(project.key);
+        const layer = loaded?.layers?.find(l => l.name === result.name);
+        return layer ? { project: loaded, layer } : null;
+    }
+
+    /**
+     * Add the layer of a search result to the map
+     * @param {object} result - the search result
+     * @returns {Promise<void>}
+     */
+    async addResult(result) {
+        const found = await this._resultLayer(result);
+        if (found) {
+            this.addLayer(found.project, found.layer);
+        }
+    }
+
+    /**
+     * Show or hide the preview of a search result
+     * @param {object} result - the search result
+     * @returns {Promise<void>}
+     */
+    async previewResult(result) {
+        if (this._aiPreview === result.id) {
+            this._aiPreview = null;
+            this._render();
+            return;
+        }
+        this._aiPreview = result.id;
+        await this._resultLayer(result);
+        this._render();
+    }
+
+    /**
+     * Analyse a layer with the assistant
+     * @param {object} project - the loaded project
+     * @param {object} layer - the layer
+     * @returns {Promise<void>}
+     */
+    async analyseLayer(project, layer) {
+        const id = project.key + '~' + layer.name;
+        const analysis = this._analyses.get(id) || { question: '' };
+        if (analysis.loading) {
+            return;
+        }
+        Object.assign(analysis, { loading: true, data: null, error: false });
+        this._analyses.set(id, analysis);
+        this._render();
+        try {
+            analysis.data = await this._postAssistant(this.getAttribute('ai-analyse-url'), {
+                repository: project.repository,
+                project: project.project,
+                layer: layer.name,
+                q: analysis.question || '',
+            });
+        } catch (error) {
+            console.error(error);
+            analysis.error = { reason: error.reason || 'error', message: error.message };
+        }
+        analysis.loading = false;
         this._render();
     }
 
@@ -966,8 +1116,22 @@ export default class Catalog extends HTMLElement {
      * Zoom to the layer extent
      * @param {object} layer - the layer
      */
+    /**
+     * Has the layer a usable extent: not a table without geometry, nor an
+     * empty layer (infinite or inverted extent)
+     * @param {object} layer - the layer
+     * @returns {boolean} true if the layer can be drawn and zoomed to
+     */
+    hasExtent(layer) {
+        if (layer.geometryType === 'none' || !layer.crs || !Array.isArray(layer.extent) || layer.extent.length !== 4) {
+            return false;
+        }
+        const [xmin, ymin, xmax, ymax] = layer.extent.map(Number);
+        return [xmin, ymin, xmax, ymax].every(Number.isFinite) && xmin <= xmax && ymin <= ymax;
+    }
+
     zoomToLayer(layer) {
-        if (!layer.extent || !layer.crs) {
+        if (!this.hasExtent(layer)) {
             return;
         }
         try {
@@ -985,7 +1149,7 @@ export default class Catalog extends HTMLElement {
      * @returns {string} the URL, or an empty string if the layer has no extent
      */
     thumbnailUrl(project, layer) {
-        if (!layer.extent || !layer.crs || layer.extent.length !== 4) {
+        if (!this.hasExtent(layer)) {
             return '';
         }
         let [xmin, ymin, xmax, ymax] = layer.extent.map(Number);
@@ -1156,9 +1320,109 @@ export default class Catalog extends HTMLElement {
                     ${layer.baseLayer ? html` (${lizDict['catalog.preview.baselayer']})` : ''}</dd>
                 ${layer.crs ? html`<dt>${lizDict['catalog.preview.crs']}</dt><dd>${layer.crs}</dd>` : ''}
             </dl>
-            ${layer.extent ? html`<button type="button" class="btn btn-sm catalog-zoom"
+            ${this.hasExtent(layer) ? html`<button type="button" class="btn btn-sm catalog-zoom"
                 @click=${() => this.zoomToLayer(layer)}>${lizDict['catalog.layer.zoom']}</button>` : ''}
+            ${this._ai.enabled ? this._analysisTemplate(project, layer) : ''}
         </div>`;
+    }
+
+    _analysisTemplate(project, layer) {
+        const id = project.key + '~' + layer.name;
+        const analysis = this._analyses.get(id) || { question: '' };
+        const data = analysis.data;
+        return html`
+        <div class="catalog-ai-analysis">
+            <form class="catalog-ai-form" @submit=${(e) => { e.preventDefault(); this.analyseLayer(project, layer); }}>
+                <input type="text" class="catalog-ai-layer-question form-control form-control-sm" maxlength="500"
+                    placeholder="${lizDict['catalog.ai.question']}" .value=${analysis.question || ''}
+                    @input=${(e) => { analysis.question = e.target.value; this._analyses.set(id, analysis); }}>
+                <button type="submit" class="btn btn-sm catalog-ai-analyse" ?disabled=${analysis.loading}>
+                    ${lizDict['catalog.ai.analyse']}</button>
+            </form>
+            ${analysis.loading ? html`<p class="catalog-loading">${lizDict['catalog.ai.analysing']}</p>` : ''}
+            ${analysis.error ? this._errorTemplate(analysis.error) : ''}
+            ${data ? html`
+                <div class="catalog-ai-answer">
+                    <p>${data.answer}</p>
+                    ${data.highlights?.length ? html`<h5>${lizDict['catalog.ai.highlights']}</h5>
+                        <ul>${data.highlights.map(item => html`<li>${item}</li>`)}</ul>` : ''}
+                    ${data.suggestions?.length ? html`<h5>${lizDict['catalog.ai.suggestions']}</h5>
+                        <ul>${data.suggestions.map(item => html`<li>${item}</li>`)}</ul>` : ''}
+                    <p class="catalog-ai-source">${data.statistics
+                        ? lizDict['catalog.ai.statistics'].replace('%s', data.statistics.features)
+                        : lizDict['catalog.ai.nostatistics']}</p>
+                </div>` : ''}
+        </div>`;
+    }
+
+    /**
+     * An assistant error, in simple words, with the technical message aside
+     * @param {{reason: string, message: string}} error - the error
+     * @returns {import('lit-html').TemplateResult} the template
+     */
+    _errorTemplate(error) {
+        const text = lizDict['catalog.ai.error.' + error.reason] || lizDict['catalog.ai.error'];
+        return html`
+        <div class="catalog-error catalog-ai-error">
+            <p>${text}</p>
+            ${error.message ? html`<details><summary>${lizDict['catalog.ai.error.details']}</summary>
+                <code>${error.message}</code></details>` : ''}
+        </div>`;
+    }
+
+    /**
+     * The AI assistant search form and results, displayed in the assistant dock
+     * @returns {import('lit-html').TemplateResult} the template
+     */
+    assistantTemplate() {
+        const ai = this._ai;
+        return html`
+        <div class="catalog-ai">
+            <p class="catalog-ai-title">${lizDict['catalog.ai.title']}</p>
+            <form class="catalog-ai-form" @submit=${(e) => { e.preventDefault(); this.searchWithAssistant(); }}>
+                <textarea class="catalog-ai-question form-control form-control-sm" rows="2" maxlength="500"
+                    placeholder="${lizDict['catalog.ai.placeholder']}" .value=${ai.question}
+                    @input=${(e) => { ai.question = e.target.value; }}
+                    @keydown=${(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.searchWithAssistant(); } }}
+                ></textarea>
+                <button type="submit" class="btn btn-sm btn-primary catalog-ai-search" ?disabled=${ai.loading}>
+                    ${lizDict['catalog.ai.search']}</button>
+            </form>
+            <p class="catalog-help">${lizDict['catalog.ai.notice']}</p>
+            ${ai.loading ? html`<p class="catalog-loading">${lizDict['catalog.ai.searching']}</p>` : ''}
+            ${ai.error ? this._errorTemplate(ai.error) : ''}
+            ${ai.answer !== null ? html`
+                <p class="catalog-ai-answer">${ai.answer}</p>
+                ${ai.results.length === 0 ? html`<p>${lizDict['catalog.ai.noresult']}</p>` : ''}
+                <ul class="catalog-layers catalog-ai-results">
+                    ${ai.results.map(result => this._resultTemplate(result))}
+                </ul>` : ''}
+        </div>`;
+    }
+
+    _resultTemplate(result) {
+        const key = result.repository + '~' + result.project;
+        const loaded = this._projects.get(key);
+        const layer = loaded?.layers?.find?.(l => l.name === result.name);
+        const added = layer ? this.isAdded(loaded, layer) : false;
+        const previewed = this._aiPreview === result.id;
+        return html`
+        <li class="catalog-layer catalog-ai-result ${added ? 'added' : ''} ${previewed ? 'previewed' : ''}">
+            <span class="catalog-layer-title">${result.title}
+                <small class="catalog-ai-map">${result.map}</small></span>
+            <span class="catalog-layer-actions">
+                <button type="button" class="btn btn-sm catalog-preview" title="${lizDict['catalog.layer.preview']}"
+                    @click=${() => this.previewResult(result)}><i class="icon-info-sign"></i></button>
+                ${added
+                    ? html`<button type="button" class="btn btn-sm catalog-remove" title="${lizDict['catalog.layer.remove']}"
+                        @click=${() => this.removeLayer(loaded, layer)}><i class="icon-remove"></i></button>`
+                    : html`<button type="button" class="btn btn-sm btn-primary catalog-add" title="${lizDict['catalog.layer.add']}"
+                        @click=${() => this.addResult(result)}><i class="icon-plus icon-white"></i></button>`}
+            </span>
+            ${result.reason ? html`<p class="catalog-ai-reason">${result.reason}</p>` : ''}
+            ${previewed && layer ? this._previewTemplate(loaded, layer) : ''}
+            ${previewed && loaded === 'loading' ? html`<p class="catalog-loading">${lizDict['catalog.loading']}</p>` : ''}
+        </li>`;
     }
 
     _projectTemplate(repository, project) {
