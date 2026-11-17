@@ -695,7 +695,10 @@ EOT;
         } catch (\Anthropic\Core\Exceptions\RateLimitException $e) {
             throw new AssistantException('Too many requests to the AI assistant, try again later', 429, $e);
         } catch (\Anthropic\Core\Exceptions\APIStatusException $e) {
-            throw new AssistantException('The AI assistant request failed: '.$e->getMessage(), 0, $e);
+            // The API error message tells what is wrong in the request
+            $detail = method_exists($e, 'getAPIMessage') ? $e->getAPIMessage() : null;
+
+            throw new AssistantException('The AI assistant request failed: '.$e->getMessage().($detail ? ' - '.$detail : ''), 0, $e);
         } catch (\Anthropic\Core\Exceptions\APIConnectionException $e) {
             throw new AssistantException('The AI assistant cannot be reached', 0, $e);
         }
