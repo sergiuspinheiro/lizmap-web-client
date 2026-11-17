@@ -639,10 +639,13 @@ EOT;
                 throw new AssistantException('Too many requests to the AI assistant, try again later', 429, $e);
             }
             if ($status == 401 || $status == 403) {
-                throw new AssistantException('Invalid API key of the AI assistant', 0, $e);
+                throw new AssistantException('Invalid API key of the AI assistant (HTTP '.$status.')', 0, $e);
             }
 
-            throw new AssistantException('The AI assistant request failed (HTTP '.$status.')', 0, $e);
+            // The error message of the provider tells what is wrong in the request
+            $body = mb_substr((string) $e->getResponse()->getBody(), 0, 500);
+
+            throw new AssistantException('The AI assistant request failed (HTTP '.$status.'): '.$body, 0, $e);
         } catch (\GuzzleHttp\Exception\GuzzleException $e) {
             throw new AssistantException('The AI assistant request failed: '.$e->getMessage(), 0, $e);
         }
