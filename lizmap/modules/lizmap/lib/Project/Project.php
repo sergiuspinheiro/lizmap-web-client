@@ -2403,6 +2403,21 @@ class Project
             2
         );
 
+        // AI assistant: its own dock, when configured for the user
+        $aiConfig = $this->appContext->appConfig();
+        $assistant = new \Lizmap\Ai\Assistant(
+            property_exists($aiConfig, 'lizmapAi') ? (array) $aiConfig->lizmapAi : array()
+        );
+        if ($assistant->isAllowed($this->appContext->UserIsConnected())) {
+            $assistantTpl = new \jTpl();
+            $dockable[] = new \lizmapMapDockItem(
+                'assistant',
+                $this->appContext->getLocale('view~map.assistant.navbar.title'),
+                $assistantTpl->fetch('view~map_assistant'),
+                2
+            );
+        }
+
         if ($this->hasEditionLayersForCurrentUser()) {
             $tpl = new \jTpl();
             $dockable[] = new \lizmapMapDockItem(

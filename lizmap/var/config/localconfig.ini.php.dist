@@ -44,3 +44,29 @@
 ;quotaSize=20
 ; maximum number of saved files of a user
 ;quotaLayers=20
+
+[lizmapAi]
+;; AI assistant of the data catalog (search in natural language and layer analysis).
+;; By default a local model served by Ollama (https://ollama.com), nothing leaves your network:
+;; install Ollama, then `ollama pull gemma3:4b`.
+;; Only the metadata of the layers the user can see and aggregated statistics of the attributes
+;; (no rows, no geometries) are sent to the AI provider.
+;enabled=on
+;; provider: ollama (default), claude, openai, mistral, gemini or openai-compatible
+;; (LM Studio, vLLM, Groq, OpenRouter...)
+;provider=ollama
+;; the API key, or leave it empty and set the environment variable of PHP:
+;; ANTHROPIC_API_KEY, OPENAI_API_KEY, MISTRAL_API_KEY or GEMINI_API_KEY. Not needed for ollama.
+;apiKey=
+;; the model: gemma3:4b by default with ollama, claude-opus-5-5 with claude,
+;; required with the other providers
+;model=
+;; the API URL: for ollama (default http://localhost:11434, http://host.docker.internal:11434 from Docker)
+;; and openai-compatible (e.g. http://localhost:1234/v1)
+;url=
+;; let anonymous users use the assistant (each request has a cost)
+;allowAnonymous=off
+;; send aggregated statistics of the attributes for the layer analysis (off: metadata only)
+;sendStatistics=on
+;; number of features read for the statistics
+;maxFeatures=1000
