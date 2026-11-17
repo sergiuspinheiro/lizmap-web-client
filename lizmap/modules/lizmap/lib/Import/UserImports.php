@@ -28,6 +28,40 @@ class UserImports
     /** @var int Default maximum number of saved files of a user */
     public const DEFAULT_QUOTA_LAYERS = 20;
 
+    /** @var int Maximum number of external services saved by a user */
+    public const MAX_SERVICES = 50;
+
+    /** @var string[] Types of external services of the data catalog */
+    public const SERVICE_TYPES = array('wms', 'wmts', 'wfs', 'ogcapi', 'arcgis', 'xyz', 'geojson');
+
+    /**
+     * Validate an external service saved by a user.
+     *
+     * @param string $type  the service type
+     * @param string $url   the service URL
+     * @param string $title the service title
+     *
+     * @return null|array{type: string, url: string, title: string} the service, or null if invalid
+     */
+    public static function normalizeService($type, $url, $title)
+    {
+        $type = (string) $type;
+        $url = trim((string) $url);
+        $title = trim(strip_tags((string) $title));
+        if (!in_array($type, self::SERVICE_TYPES, true) || strlen($url) > 2000) {
+            return null;
+        }
+        $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
+        if (!in_array($scheme, array('http', 'https')) || !parse_url($url, PHP_URL_HOST)) {
+            return null;
+        }
+        if ($title === '') {
+            $title = (string) parse_url($url, PHP_URL_HOST);
+        }
+
+        return array('type' => $type, 'url' => $url, 'title' => mb_substr($title, 0, 200));
+    }
+
     /**
      * Quota of each user, from the [catalogImport] section of the
      * configuration (quotaSize in MB, quotaLayers).
@@ -119,7 +153,7 @@ class UserImports
      */
     public static function ensureInstalled()
     {
-        $flag = \jApp::tempPath('lizmap_user_import.created');
+        $flag = \jApp::tempPath('lizmap_user_import.v2.created');
         if (file_exists($flag)) {
             return;
         }

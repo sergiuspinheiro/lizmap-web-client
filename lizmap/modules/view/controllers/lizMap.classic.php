@@ -319,6 +319,9 @@ class lizMapCtrl extends jController
                 'get' => jUrl::get('lizmap~userimport:get'),
                 'save' => jUrl::get('lizmap~userimport:save'),
                 'delete' => jUrl::get('lizmap~userimport:delete'),
+                'services' => jUrl::get('lizmap~userimport:services'),
+                'saveService' => jUrl::get('lizmap~userimport:saveService'),
+                'deleteService' => jUrl::get('lizmap~userimport:deleteService'),
             );
         }
 
