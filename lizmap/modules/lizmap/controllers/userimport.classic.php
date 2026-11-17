@@ -166,6 +166,112 @@ class userimportCtrl extends jController
     }
 
     /**
+     * List the external services saved by the current user.
+     *
+     * @return jResponseJson
+     */
+    public function services()
+    {
+        return $this->safely('doServices');
+    }
+
+    protected function doServices()
+    {
+        $rep = $this->getResponse('json');
+        if ($this->checkMap($rep) === null) {
+            return $rep;
+        }
+        $services = array();
+        foreach ($this->serviceDao()->findByUser($this->login()) as $record) {
+            $services[] = array('id' => (int) $record->id, 'type' => $record->type, 'url' => $record->url, 'title' => $record->title);
+        }
+        $rep->data = $services;
+
+        return $rep;
+    }
+
+    /**
+     * Save an external service, replacing the one of the same type and URL.
+     *
+     * Parameters: repository, project, type, url and title.
+     *
+     * @return jResponseJson
+     */
+    public function saveService()
+    {
+        return $this->safely('doSaveService');
+    }
+
+    protected function doSaveService()
+    {
+        $rep = $this->getResponse('json');
+        if ($this->checkMap($rep) === null) {
+            return $rep;
+        }
+        if (!$this->request->isPostMethod()) {
+            return $this->error($rep, 405, 'POST required');
+        }
+        $service = UserImports::normalizeService($this->param('type'), $this->param('url'), $this->param('title'));
+        if ($service === null) {
+            return $this->error($rep, 400, 'Invalid service');
+        }
+        $dao = $this->serviceDao();
+        $record = $dao->getByUserService($this->login(), $service['type'], $service['url']);
+        if ($record) {
+            $record->title = $service['title'];
+            $dao->update($record);
+        } else {
+            if ($dao->countBy(jDao::createConditions()->addCondition('login', '=', $this->login())) >= UserImports::MAX_SERVICES) {
+                return $this->error($rep, 413, 'Too many saved services');
+            }
+            $record = jDao::createRecord('lizmap~userservice', UserImports::PROFILE);
+            $record->login = $this->login();
+            $record->type = $service['type'];
+            $record->url = $service['url'];
+            $record->title = $service['title'];
+            $dao->insert($record);
+        }
+        $rep->data = array('id' => (int) $record->id) + $service;
+
+        return $rep;
+    }
+
+    /**
+     * Delete an external service of the current user.
+     *
+     * @return jResponseJson
+     */
+    public function deleteService()
+    {
+        return $this->safely('doDeleteService');
+    }
+
+    protected function doDeleteService()
+    {
+        $rep = $this->getResponse('json');
+        if ($this->checkMap($rep) === null) {
+            return $rep;
+        }
+        if (!$this->request->isPostMethod()) {
+            return $this->error($rep, 405, 'POST required');
+        }
+        $dao = $this->serviceDao();
+        $record = $dao->get($this->intParam('id'));
+        if (!$record || $record->login !== $this->login()) {
+            return $this->error($rep, 404, 'Unknown service');
+        }
+        $dao->delete($record->id);
+        $rep->data = array('deleted' => (int) $record->id);
+
+        return $rep;
+    }
+
+    protected function serviceDao()
+    {
+        return jDao::get('lizmap~userservice', UserImports::PROFILE);
+    }
+
+    /**
      * Files of the current user, without their content.
      *
      * @return iterable

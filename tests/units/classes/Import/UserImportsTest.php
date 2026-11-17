@@ -55,4 +55,19 @@ class UserImportsTest extends TestCase
             ),
         ), json_decode(UserImports::normalizeGeoJson($json), true));
     }
+
+    public function testNormalizeService(): void
+    {
+        $this->assertNull(UserImports::normalizeService('ftp', 'https://example.com/wms', 'x'));
+        $this->assertNull(UserImports::normalizeService('wms', 'javascript:alert(1)', 'x'));
+        $this->assertNull(UserImports::normalizeService('wms', 'file:///etc/passwd', 'x'));
+        $this->assertEquals(
+            array('type' => 'wms', 'url' => 'https://geo.example.com/wms', 'title' => 'Ortos'),
+            UserImports::normalizeService('wms', ' https://geo.example.com/wms ', '<b>Ortos</b>')
+        );
+        $this->assertEquals(
+            'geo.example.com',
+            UserImports::normalizeService('xyz', 'https://geo.example.com/{z}/{x}/{y}.png', '')['title']
+        );
+    }
 }

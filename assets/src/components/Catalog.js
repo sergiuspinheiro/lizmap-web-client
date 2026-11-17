@@ -62,6 +62,8 @@ export default class Catalog extends HTMLElement {
         this._import = { loading: false, group: null, count: 0, over: false };
         // Files saved in the user profile: {canSave, quota, files} once read
         this._profile = null;
+        // External services saved in the user profile, once read
+        this._myServices = null;
         // Open sections of the catalog
         this._sections = new Set(['maps']);
         // AI assistant: status from the server, search and analyses
@@ -325,6 +327,87 @@ export default class Catalog extends HTMLElement {
      * Read the layers of the external service given in the form
      * @returns {Promise<void>}
      */
+    /**
+     * Read the external services saved in the user profile
+     * @returns {Promise<void>}
+     */
+    async loadMyServices() {
+        if (!this._profileUrls?.services) {
+            return;
+        }
+        try {
+            this._myServices = await this._profileRequest(this._profileUrls.services);
+        } catch (error) {
+            console.warn(error);
+            this._myServices = [];
+        }
+        this._render();
+    }
+
+    /**
+     * Save the external service read in the user profile
+     * @returns {Promise<void>}
+     */
+    async saveServiceToProfile() {
+        const { type, url, service } = this._ext;
+        try {
+            await this._profileRequest(this._profileUrls.saveService, { type, url: url.trim(), title: service?.title || '' }, true);
+            lizMap.addMessage(lizDict['catalog.external.profile.saved'], 'info', true);
+        } catch (error) {
+            lizMap.addMessage(lizDict['catalog.import.profile.error'] + ' (' + error.message + ')', 'danger', true);
+        }
+        await this.loadMyServices();
+    }
+
+    /**
+     * Delete an external service saved in the user profile
+     * @param {number} id - the saved service id
+     * @returns {Promise<void>}
+     */
+    async deleteServiceFromProfile(id) {
+        try {
+            await this._profileRequest(this._profileUrls.deleteService, { id }, true);
+        } catch (error) {
+            lizMap.addMessage(lizDict['catalog.import.profile.error'] + ' (' + error.message + ')', 'danger', true);
+        }
+        await this.loadMyServices();
+    }
+
+    /**
+     * Read a saved external service, to choose its layers
+     * @param {{type: string, url: string}} saved - the saved service
+     * @returns {Promise<void>}
+     */
+    openSavedService(saved) {
+        this._ext.type = saved.type;
+        this._ext.url = saved.url;
+        return this.readExternalService();
+    }
+
+    _myServicesTemplate() {
+        if (!this._profileUrls?.services || !this._myServices) {
+            return '';
+        }
+        return html`
+            <div class="catalog-import-profile">
+                <h5>${lizDict['catalog.external.profile.title']}</h5>
+                ${this._myServices.length === 0 ? html`<p class="catalog-help">${lizDict['catalog.external.profile.empty']}</p>` : html`
+                    <ul class="catalog-layers">
+                        ${this._myServices.map(saved => html`
+                            <li class="catalog-layer">
+                                <span class="catalog-layer-title" title="${saved.url}">${saved.title}
+                                    <small>(${lizDict['catalog.external.type.' + saved.type] || saved.type})</small></span>
+                                <span class="catalog-layer-actions">
+                                    <button type="button" class="btn btn-sm" title="${lizDict['catalog.external.load']}"
+                                        @click=${() => this.openSavedService(saved)}><i class="icon-folder-open"></i></button>
+                                    <button type="button" class="btn btn-sm catalog-remove" title="${lizDict['catalog.import.profile.delete']}"
+                                        @click=${() => this.deleteServiceFromProfile(saved.id)}><i class="icon-trash"></i></button>
+                                </span>
+                            </li>`)}
+                    </ul>`}
+            </div>`;
+    }
+
     async readExternalService() {
         const { type, url } = this._ext;
         if (!url.trim()) {
@@ -397,6 +480,7 @@ export default class Catalog extends HTMLElement {
         }
         const layerState = entry.group.addOlLayer(layerName, olLayer);
         layerState.wmsTitle = title;
+        this._persistExternal();
         this._render();
     }
 
@@ -417,6 +501,7 @@ export default class Catalog extends HTMLElement {
             mainLizmap.state.rootMapGroup.removeExternalGroup(entry.group.name);
             this._services.delete(key);
         }
+        this._persistExternal();
         this._render();
     }
 
@@ -493,6 +578,10 @@ export default class Catalog extends HTMLElement {
                         @keydown=${(e) => { if (e.key === 'Enter') { this.readExternalService(); } }}>
                     <button type="button" class="btn btn-sm catalog-external-load" ?disabled=${ext.loading}
                         @click=${() => this.readExternalService()}>${lizDict['catalog.external.load']}</button>
+                    ${service && this._profileUrls ? html`
+                        <button type="button" class="btn btn-sm catalog-external-save"
+                            title="${lizDict['catalog.external.profile.save']}"
+                            @click=${() => this.saveServiceToProfile()}><i class="icon-hdd"></i></button>` : ''}
                 </div>
             </div>
             ${ext.loading ? html`<p class="catalog-loading">${lizDict['catalog.loading']}</p>` : ''}
@@ -513,6 +602,7 @@ export default class Catalog extends HTMLElement {
                         </li>`;
                     })}
                 </ul>` : ''}
+            ${this._myServicesTemplate()}
         </div>`;
     }
 
@@ -648,6 +738,25 @@ export default class Catalog extends HTMLElement {
     }
 
     /**
+     * Keep the layers of external services of the map until the browser tab is closed
+     */
+    _persistExternal() {
+        if (this._restoringExternal) {
+            return;
+        }
+        try {
+            const layers = this.externalLayers;
+            if (layers.length) {
+                window.sessionStorage.setItem(this._importStorageKey('external'), JSON.stringify(layers));
+            } else {
+                window.sessionStorage.removeItem(this._importStorageKey('external'));
+            }
+        } catch (error) {
+            console.warn(error);
+        }
+    }
+
+    /**
      * Add again the imported files of the map after a reload
      * @returns {Promise<void>}
      */
@@ -656,6 +765,18 @@ export default class Catalog extends HTMLElement {
             return;
         }
         this._importsRestored = true;
+        try {
+            const external = JSON.parse(window.sessionStorage.getItem(this._importStorageKey('external')) || '[]');
+            if (Array.isArray(external) && external.length) {
+                this._restoringExternal = true;
+                await this.restoreExternal(external);
+            }
+        } catch (error) {
+            console.warn(error);
+        } finally {
+            this._restoringExternal = false;
+            this._persistExternal();
+        }
         let files = [];
         let ids = [];
         try {
@@ -1584,6 +1705,9 @@ export default class Catalog extends HTMLElement {
             this._sections.add(id);
             if (id === 'import' && this._profile === null) {
                 this.loadProfile();
+            }
+            if (id === 'external' && this._myServices === null) {
+                this.loadMyServices();
             }
         }
         this._renderCatalog();
