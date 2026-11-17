@@ -4,6 +4,7 @@
     <url pathinfo="/catalog"     controller="catalog"/>
     <url pathinfo="/convert"     controller="convert"/>
     <url pathinfo="/mapview"     controller="mapview"/>
+    <url pathinfo="/userimport"  controller="userimport"/>
     <url pathinfo="/datatables"  controller="datatables"/>
     <url pathinfo="/edition"     controller="edition"/>
     <url pathinfo="/features"    controller="features"/>

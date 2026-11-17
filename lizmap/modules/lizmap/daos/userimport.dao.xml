@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<dao xmlns="http://jelix.org/ns/dao/1.0">
+    <datasources>
+        <primarytable name="lizmap_user_import" realname="lizmap_user_import" primarykey="id" />
+    </datasources>
+    <record>
+        <property name="id" fieldname="id" datatype="serial" required="true"/>
+        <property name="login" fieldname="usr_login" datatype="text" required="true"/>
+        <property name="title" fieldname="ititle" datatype="text" required="true"/>
+        <property name="geojson" fieldname="igeojson" datatype="text" required="true"/>
+        <property name="size" fieldname="isize" datatype="integer" required="true"/>
+    </record>
+    <factory>
+        <method name="findByUser" type="select">
+            <parameter name="login" />
+            <conditions>
+                <eq property="login" expr="$login" />
+            </conditions>
+            <order>
+                <orderitem property="title" way="asc" />
+            </order>
+        </method>
+    </factory>
+</dao>

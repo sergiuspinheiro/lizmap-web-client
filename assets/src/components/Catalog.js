@@ -18,6 +18,7 @@ import { getDefaultLayerIcon } from '../modules/state/Symbology.js';
 import { IMPORT_ACCEPT, readFiles } from '../modules/FileImport.js';
 import VectorLayer from 'ol/layer/Vector.js';
 import VectorSource from 'ol/source/Vector.js';
+import GeoJSON from 'ol/format/GeoJSON.js';
 import { createEmpty, extend, isEmpty } from 'ol/extent.js';
 
 /** Colors of the imported layers */
@@ -59,6 +60,8 @@ export default class Catalog extends HTMLElement {
         this._services = new Map();
         // Files imported by the user, kept until the page is closed
         this._import = { loading: false, group: null, count: 0, over: false };
+        // Files saved in the user profile: {canSave, quota, files} once read
+        this._profile = null;
     }
 
     connectedCallback() {
@@ -396,10 +399,13 @@ export default class Catalog extends HTMLElement {
      * Add an imported layer to the map
      * @param {string} title - the layer title
      * @param {import('ol/Feature.js').default[]} features - the features in the map projection
+     * @param {number|null} [profileId] - the id of the file saved in the user profile
      */
-    _addImportedLayer(title, features) {
+    _addImportedLayer(title, features, profileId = null) {
         const color = IMPORT_COLORS[this._import.count % IMPORT_COLORS.length];
-        const name = 'import-' + (++this._import.count);
+        ++this._import.count;
+        // Saved files keep their name, so that the tree order of a map view applies
+        const name = profileId ? 'profile-' + profileId : 'import-' + this._import.count;
         const olLayer = new VectorLayer({
             source: new VectorSource({ features }),
             style: {
@@ -414,6 +420,7 @@ export default class Catalog extends HTMLElement {
         });
         olLayer.set('name', name);
         olLayer.set('lizmapCatalog', { key: 'import|', name });
+        olLayer.set('lizmapProfileId', profileId);
         if (!this._import.group) {
             this._import.group = mainLizmap.state.rootMapGroup.createExternalGroup('catalog-imports');
             this._import.group.wmsTitle = lizDict['catalog.import.group'];
@@ -426,6 +433,186 @@ export default class Catalog extends HTMLElement {
         if (icon) {
             layerState.icon = icon;
         }
+    }
+
+    /** @type {object|undefined} URLs of the files saved in the user profile, for connected users */
+    get _profileUrls() {
+        return globalThis.lizUrls?.userImports;
+    }
+
+    async _profileRequest(url, extra = {}, post = false) {
+        const params = new URLSearchParams({ ...globalThis.lizUrls.params, ...extra });
+        const response = post
+            ? await fetch(url, { method: 'POST', body: params })
+            : await fetch(url + '?' + params.toString());
+        if (!response.ok) {
+            let message = response.statusText;
+            if (response.status === 413) {
+                message = lizDict['catalog.import.profile.quota'];
+            } else {
+                try {
+                    message = (await response.json()).error || message;
+                } catch {
+                    // Not a JSON response
+                }
+            }
+            throw new Error(message);
+        }
+        return response.json();
+    }
+
+    /**
+     * Read the files saved in the user profile and the quota
+     * @returns {Promise<void>}
+     */
+    async loadProfile() {
+        if (!this._profileUrls) {
+            return;
+        }
+        try {
+            this._profile = await this._profileRequest(this._profileUrls.list);
+        } catch (error) {
+            console.warn(error);
+            this._profile = null;
+        }
+        this._render();
+    }
+
+    /**
+     * Save an imported layer in the user profile
+     * @param {object} state - the layer state
+     * @returns {Promise<void>}
+     */
+    async saveToProfile(state) {
+        const olLayer = state.olLayer;
+        const geojson = new GeoJSON().writeFeatures(olLayer.getSource().getFeatures(), {
+            dataProjection: 'EPSG:4326',
+            featureProjection: mainLizmap.projection,
+            decimals: 7,
+        });
+        try {
+            const file = await this._profileRequest(this._profileUrls.save, { title: state.wmsTitle, geojson }, true);
+            olLayer.set('lizmapProfileId', file.id);
+            lizMap.addMessage(lizDict['catalog.import.profile.saved'], 'info', true);
+        } catch (error) {
+            lizMap.addMessage(lizDict['catalog.import.profile.error'] + ' (' + error.message + ')', 'danger', true);
+        }
+        await this.loadProfile();
+    }
+
+    /**
+     * State of the layer of a saved file in the map
+     * @param {number} id - the saved file id
+     * @returns {object|undefined} the layer state
+     */
+    _profileLayerState(id) {
+        return this._import.group?.children.find(item => item.olLayer.get('lizmapProfileId') === id);
+    }
+
+    /**
+     * Add a file saved in the user profile to the map
+     * @param {number} id - the saved file id
+     * @param {boolean} [zoom] - zoom to the layer
+     * @returns {Promise<void>}
+     */
+    async addFromProfile(id, zoom = true) {
+        if (this._profileLayerState(id)) {
+            return;
+        }
+        try {
+            const file = await this._profileRequest(this._profileUrls.get, { id });
+            const features = new GeoJSON().readFeatures(file.geojson, {
+                dataProjection: 'EPSG:4326',
+                featureProjection: mainLizmap.projection,
+            });
+            this._addImportedLayer(file.title, features, file.id);
+            const state = this._profileLayerState(file.id);
+            if (zoom && state) {
+                this._zoomToImported(state);
+            }
+        } catch (error) {
+            lizMap.addMessage(lizDict['catalog.import.profile.error'] + ' (' + error.message + ')', 'danger', true);
+        }
+        this._render();
+    }
+
+    /**
+     * Delete a file saved in the user profile, the layer stays in the map until the page is closed
+     * @param {number} id - the saved file id
+     * @returns {Promise<void>}
+     */
+    async deleteFromProfile(id) {
+        try {
+            await this._profileRequest(this._profileUrls.delete, { id }, true);
+            this._profileLayerState(id)?.olLayer.set('lizmapProfileId', null);
+        } catch (error) {
+            lizMap.addMessage(lizDict['catalog.import.profile.error'] + ' (' + error.message + ')', 'danger', true);
+        }
+        await this.loadProfile();
+    }
+
+    /**
+     * Ids of the saved files in the map, to save them in a map view
+     * @type {number[]}
+     */
+    get profileLayers() {
+        return (this._import.group?.children || [])
+            .map(item => item.olLayer.get('lizmapProfileId'))
+            .filter(id => id)
+            .reverse();
+    }
+
+    /**
+     * Replace the saved files in the map by the ones of a map view
+     * @param {number[]} ids - the saved file ids
+     * @returns {Promise<void>}
+     */
+    async restoreProfile(ids) {
+        for (const item of [...(this._import.group?.children || [])]) {
+            if (item.olLayer.get('lizmapProfileId')) {
+                this.removeImportedLayer(item.name);
+            }
+        }
+        for (const id of (Array.isArray(ids) ? ids : [])) {
+            if (Number.isInteger(id) && this._profileUrls) {
+                await this.addFromProfile(id, false);
+            }
+        }
+    }
+
+    _profileTemplate() {
+        const profile = this._profile;
+        if (!this._profileUrls || !profile) {
+            return '';
+        }
+        const used = profile.files.reduce((total, file) => total + file.size, 0);
+        const mb = bytes => (bytes / 1024 / 1024).toFixed(1);
+        return html`
+            <div class="catalog-import-profile">
+                <h5>${lizDict['catalog.import.profile.title']}</h5>
+                <p class="catalog-help">
+                    ${lizDict['catalog.import.profile.quota.used']
+                        .replace('%1', mb(used)).replace('%2', mb(profile.quota.size))
+                        .replace('%3', profile.files.length).replace('%4', profile.quota.layers)}
+                </p>
+                ${profile.files.length ? html`
+                    <ul class="catalog-layers">
+                        ${profile.files.map(file => {
+                            const added = !!this._profileLayerState(file.id);
+                            return html`
+                            <li class="catalog-layer ${added ? 'added' : ''}">
+                                <span class="catalog-layer-title">${file.title} <small>(${mb(file.size)} MB)</small></span>
+                                <span class="catalog-layer-actions">
+                                    ${added ? '' : html`<button type="button" class="btn btn-sm btn-primary catalog-add"
+                                        title="${lizDict['catalog.layer.add']}"
+                                        @click=${() => this.addFromProfile(file.id)}><i class="icon-plus icon-white"></i></button>`}
+                                    <button type="button" class="btn btn-sm catalog-remove" title="${lizDict['catalog.import.profile.delete']}"
+                                        @click=${() => this.deleteFromProfile(file.id)}><i class="icon-trash"></i></button>
+                                </span>
+                            </li>`;
+                        })}
+                    </ul>` : ''}
+            </div>`;
     }
 
     /**
@@ -459,8 +646,10 @@ export default class Catalog extends HTMLElement {
     _importTemplate() {
         const imp = this._import;
         const layers = imp.group ? imp.group.children : [];
+        const canSave = this._profile?.canSave;
         return html`
-        <details class="catalog-external catalog-import">
+        <details class="catalog-external catalog-import"
+            @toggle=${(e) => { if (e.target.open && this._profile === null) { this.loadProfile(); } }}>
             <summary>${lizDict['catalog.import.title']}</summary>
             <div class="catalog-import-drop ${imp.over ? 'over' : ''}"
                 @dragover=${(e) => {
@@ -490,11 +679,16 @@ export default class Catalog extends HTMLElement {
                             <span class="catalog-layer-actions">
                                 <button type="button" class="btn btn-sm" title="${lizDict['catalog.layer.zoom']}"
                                     @click=${() => this._zoomToImported(state)}><i class="icon-zoom-in"></i></button>
+                                ${canSave && !state.olLayer.get('lizmapProfileId') ? html`
+                                    <button type="button" class="btn btn-sm catalog-import-save"
+                                        title="${lizDict['catalog.import.profile.save']}"
+                                        @click=${() => this.saveToProfile(state)}><i class="icon-hdd"></i></button>` : ''}
                                 <button type="button" class="btn btn-sm catalog-remove" title="${lizDict['catalog.layer.remove']}"
                                     @click=${() => this.removeImportedLayer(state.name)}><i class="icon-remove"></i></button>
                             </span>
                         </li>`)}
                 </ul>` : ''}
+            ${this._profileTemplate()}
         </details>`;
     }
 

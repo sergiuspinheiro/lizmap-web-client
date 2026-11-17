@@ -312,6 +312,14 @@ class lizMapCtrl extends jController
                 'save' => jUrl::get('lizmap~mapview:save'),
                 'delete' => jUrl::get('lizmap~mapview:delete'),
             );
+            // Files imported in the data catalog and saved in the user profile
+            \Lizmap\Import\UserImports::ensureInstalled();
+            $lizUrls['userImports'] = array(
+                'list' => jUrl::get('lizmap~userimport:index'),
+                'get' => jUrl::get('lizmap~userimport:get'),
+                'save' => jUrl::get('lizmap~userimport:save'),
+                'delete' => jUrl::get('lizmap~userimport:delete'),
+            );
         }
 
         if (jAcl2::check('lizmap.admin.access') || jAcl2::check('lizmap.admin.server.information.view')) {

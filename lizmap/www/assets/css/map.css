@@ -4813,6 +4813,12 @@ lizmap-catalog .catalog-import-drop.over {
   background-color: rgb(255 255 255 / 15%);
 }
 
+lizmap-catalog .catalog-import-profile h5 {
+  margin: 8px 0 2px;
+  font-size: 1em;
+  font-weight: bold;
+}
+
 lizmap-catalog .catalog-import-drop .catalog-help {
   margin: 0 0 4px;
 }

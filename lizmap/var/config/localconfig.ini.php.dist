@@ -36,3 +36,11 @@
 [auth_db]
 ; uncomment to enable authentication with the login or the email
 ;authenticateWith=login-email
+
+;[catalogImport]
+; Quota of the files imported in the data catalog and saved in the user
+; profile (needs the right "lizmap.tools.import.save" on the repository)
+; maximum size of the saved files of a user, in MB
+;quotaSize=20
+; maximum number of saved files of a user
+;quotaLayers=20
