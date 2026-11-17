@@ -208,6 +208,10 @@ class catalogCtrl extends jController
         $index = $this->cachedCatalogIndex();
         $indexTime = microtime(true) - $start;
 
+        // The answer can take minutes: release the PHP session lock, so that
+        // the other requests of the user (map, tiles, popups) are not blocked
+        session_write_close();
+
         try {
             $data = $assistant->search($question, $index, jLocale::getCurrentLocale());
             if ($data['keywords']) {
@@ -294,6 +298,10 @@ class catalogCtrl extends jController
         if ($assistant->canAnalyse() && $layer['attributeTable']) {
             $statistics = $this->layerStatistics($project, $layer, $assistant->maxFeatures());
         }
+
+        // The answer can take minutes: release the PHP session lock, so that
+        // the other requests of the user (map, tiles, popups) are not blocked
+        session_write_close();
 
         try {
             $rep->data = $assistant->analyse($entry, $statistics, $question, jLocale::getCurrentLocale());
