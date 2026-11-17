@@ -354,7 +354,7 @@ export default class Catalog extends HTMLElement {
             await this._profileRequest(this._profileUrls.saveService, { type, url: url.trim(), title: service?.title || '' }, true);
             lizMap.addMessage(lizDict['catalog.external.profile.saved'], 'info', true);
         } catch (error) {
-            lizMap.addMessage(lizDict['catalog.import.profile.error'] + ' (' + error.message + ')', 'danger', true);
+            lizMap.addMessage(lizDict['catalog.external.profile.error'] + ' (' + error.message + ')', 'danger', true);
         }
         await this.loadMyServices();
     }
@@ -368,7 +368,7 @@ export default class Catalog extends HTMLElement {
         try {
             await this._profileRequest(this._profileUrls.deleteService, { id }, true);
         } catch (error) {
-            lizMap.addMessage(lizDict['catalog.import.profile.error'] + ' (' + error.message + ')', 'danger', true);
+            lizMap.addMessage(lizDict['catalog.external.profile.error'] + ' (' + error.message + ')', 'danger', true);
         }
         await this.loadMyServices();
     }
