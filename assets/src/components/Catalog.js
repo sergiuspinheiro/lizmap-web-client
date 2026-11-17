@@ -21,6 +21,10 @@ import VectorSource from 'ol/source/Vector.js';
 import GeoJSON from 'ol/format/GeoJSON.js';
 import { createEmpty, extend, isEmpty } from 'ol/extent.js';
 import { Utils } from '../modules/Utils.js';
+import {
+    GEOMETRY_CLASS, buildClasses, classifiableFields, defaultImportStyle, geometryKind,
+    importStyleFunction, legendIcon, sanitizeImportStyle,
+} from '../modules/ImportStyle.js';
 
 /** Colors of the imported layers */
 const IMPORT_COLORS = ['#e6194b', '#3cb44b', '#4363d8', '#f58231', '#911eb4', '#42d4f4', '#f032e6', '#9a6324'];
@@ -783,23 +787,12 @@ export default class Catalog extends HTMLElement {
      * @param {import('ol/Feature.js').default[]} features - the features in the map projection
      * @param {number|null} [profileId] - the id of the file saved in the user profile
      */
-    _addImportedLayer(title, features, profileId = null) {
+    _addImportedLayer(title, features, profileId = null, style = null) {
         const color = IMPORT_COLORS[this._import.count % IMPORT_COLORS.length];
         ++this._import.count;
         // Saved files keep their name, so that the tree order of a map view applies
         const name = profileId ? 'profile-' + profileId : 'import-' + this._import.count;
-        const olLayer = new VectorLayer({
-            source: new VectorSource({ features }),
-            style: {
-                'fill-color': color + '40',
-                'stroke-color': color,
-                'stroke-width': 2,
-                'circle-radius': 5,
-                'circle-fill-color': color,
-                'circle-stroke-color': '#ffffff',
-                'circle-stroke-width': 1,
-            },
-        });
+        const olLayer = new VectorLayer({ source: new VectorSource({ features }) });
         olLayer.set('name', name);
         olLayer.set('lizmapCatalog', { key: 'import|', name });
         olLayer.set('lizmapProfileId', profileId);
@@ -809,12 +802,155 @@ export default class Catalog extends HTMLElement {
         }
         const layerState = this._import.group.addOlLayer(name, olLayer);
         layerState.wmsTitle = title;
-        const type = features.find(f => f.getGeometry())?.getGeometry().getType() || '';
-        const geometryType = /Point/.test(type) ? 'point' : /Line/.test(type) ? 'line' : /Polygon/.test(type) ? 'polygon' : null;
-        const icon = geometryType ? getDefaultLayerIcon({ type: 'layer', layerType: 'vector', geometryType }) : null;
-        if (icon) {
-            layerState.icon = icon;
+        const saved = profileId ? this._savedProfileStyle(profileId) : null;
+        const spec = sanitizeImportStyle(saved || style, color) || defaultImportStyle(features, color);
+        if (spec.classifyBy) {
+            // Classes of new values, e.g. when the style was saved for other features
+            spec.classes = buildClasses(features, spec.classifyBy, spec.classes);
         }
+        this._setImportStyle(layerState, spec);
+    }
+
+    /**
+     * Main geometry type of an imported layer
+     * @param {object} state - the layer state
+     * @returns {string} point, line or polygon
+     */
+    _importKind(state) {
+        const feature = state.olLayer.getSource().getFeatures().find(f => f.getGeometry());
+        const kind = feature ? geometryKind(feature) : '';
+        return ['point', 'line', 'polygon'].includes(kind) ? kind : 'polygon';
+    }
+
+    /**
+     * Apply the style of an imported layer: map style, layer icon and legend of the classes
+     * @param {object} state - the layer state
+     * @param {import('../modules/ImportStyle.js').ImportStyleSpec} spec - the style
+     */
+    _setImportStyle(state, spec) {
+        const olLayer = state.olLayer;
+        olLayer.set('lizmapImportStyle', spec);
+        olLayer.setStyle(importStyleFunction(spec));
+        const kind = this._importKind(state);
+        state.icon = legendIcon(spec.classifyBy ? (spec.classes[0]?.color || spec.color) : spec.color, kind, spec.fillOpacity);
+        olLayer.set('lizmapCatalogSymbols', spec.classifyBy ? spec.classes.map(item => ({
+            title: this._classLabel(item.value, spec.classifyBy),
+            icon: legendIcon(item.color, spec.classifyBy === GEOMETRY_CLASS ? item.value : kind, spec.fillOpacity),
+            checked: item.visible,
+            toggle: () => this.updateImportStyle(state, { classes: spec.classes.map(c => c === item ? { ...c, visible: !c.visible } : c) }),
+        })) : []);
+    }
+
+    /**
+     * Label of a class
+     * @param {string} value - the class value
+     * @param {string} classifyBy - the field of the classes, or GEOMETRY_CLASS
+     * @returns {string} the label
+     */
+    _classLabel(value, classifyBy) {
+        if (classifyBy === GEOMETRY_CLASS) {
+            return lizDict['catalog.style.geometry.' + value] || value;
+        }
+        return value === '' ? lizDict['catalog.style.empty'] : value;
+    }
+
+    /**
+     * Change the style of an imported layer
+     * @param {object} state - the layer state
+     * @param {object} changes - the changed properties of the style
+     */
+    updateImportStyle(state, changes) {
+        const current = state.olLayer.get('lizmapImportStyle');
+        const spec = { ...current, ...changes };
+        if ('classifyBy' in changes && changes.classifyBy !== current.classifyBy) {
+            spec.classes = buildClasses(state.olLayer.getSource().getFeatures(), spec.classifyBy);
+        }
+        this._setImportStyle(state, spec);
+        const profileId = state.olLayer.get('lizmapProfileId');
+        if (profileId) {
+            this._saveProfileStyle(profileId, spec);
+        }
+        this._persistImports();
+        this._render();
+    }
+
+    /**
+     * Style of a file saved in the user profile, changed in this browser
+     * @param {number} id - the saved file id
+     * @returns {object|null} the style
+     */
+    _savedProfileStyle(id) {
+        try {
+            return JSON.parse(window.localStorage.getItem('lizmap-catalog-import-style-' + id) || 'null');
+        } catch {
+            return null;
+        }
+    }
+
+    _saveProfileStyle(id, spec) {
+        try {
+            window.localStorage.setItem('lizmap-catalog-import-style-' + id, JSON.stringify(spec));
+        } catch (error) {
+            console.warn(error);
+        }
+    }
+
+    /**
+     * Style editor of an imported layer, in the information panel
+     * @param {object} state - the layer state
+     * @returns {import('lit-html').TemplateResult} the template
+     */
+    _importStyleTemplate(state) {
+        const spec = state.olLayer.get('lizmapImportStyle');
+        const fields = classifiableFields(state.olLayer.getSource().getFeatures());
+        if (spec.classifyBy && !fields.includes(spec.classifyBy)) {
+            fields.unshift(spec.classifyBy);
+        }
+        const update = changes => this.updateImportStyle(state, changes);
+        const setClass = (item, changes) => update({ classes: spec.classes.map(c => c === item ? { ...c, ...changes } : c) });
+        return html`
+            <dt>${lizDict['catalog.style.title']}</dt>
+            <dd class="catalog-import-style">
+                ${spec.classifyBy ? '' : html`
+                    <label>${lizDict['catalog.style.color']}
+                        <input type="color" class="form-control form-control-color" .value=${spec.color}
+                            @change=${(e) => update({ color: e.target.value })}></label>`}
+                <label>${lizDict['catalog.style.width']} (${spec.width} px)
+                    <input type="range" class="form-range" min="0.5" max="10" step="0.5" .value=${String(spec.width)}
+                        @change=${(e) => update({ width: Number(e.target.value) })}></label>
+                <label>${lizDict['catalog.style.fill']} (${Math.round(spec.fillOpacity * 100)} %)
+                    <input type="range" class="form-range" min="0" max="100" step="5" .value=${String(Math.round(spec.fillOpacity * 100))}
+                        @change=${(e) => update({ fillOpacity: Number(e.target.value) / 100 })}></label>
+                <label>${lizDict['catalog.style.point']} (${spec.pointSize} px)
+                    <input type="range" class="form-range" min="1" max="20" step="1" .value=${String(spec.pointSize)}
+                        @change=${(e) => update({ pointSize: Number(e.target.value) })}></label>
+                <label>${lizDict['catalog.style.classify']}
+                    <select class="form-select form-select-sm" @change=${(e) => update({ classifyBy: e.target.value })}>
+                        <option value="" ?selected=${!spec.classifyBy}>${lizDict['catalog.style.classify.none']}</option>
+                        ${fields.map(field => html`<option value="${field}" ?selected=${spec.classifyBy === field}>
+                            ${field === GEOMETRY_CLASS ? lizDict['catalog.style.classify.geometry'] : field}</option>`)}
+                    </select></label>
+                ${spec.classifyBy ? html`
+                    <div class="catalog-import-classes-actions">
+                        <button type="button" class="btn btn-sm"
+                            @click=${() => update({ classes: spec.classes.map(c => ({ ...c, visible: true })) })}>
+                            ${lizDict['catalog.style.showall']}</button>
+                        <button type="button" class="btn btn-sm"
+                            @click=${() => update({ classes: spec.classes.map(c => ({ ...c, visible: false })) })}>
+                            ${lizDict['catalog.style.hideall']}</button>
+                    </div>
+                    <ul class="catalog-import-classes">
+                        ${spec.classes.map(item => html`
+                            <li>
+                                <input type="checkbox" class="form-check-input" .checked=${item.visible}
+                                    title="${lizDict['catalog.style.visible']}"
+                                    @change=${(e) => setClass(item, { visible: e.target.checked })}>
+                                <input type="color" class="form-control form-control-color" .value=${item.color}
+                                    @change=${(e) => setClass(item, { color: e.target.value })}>
+                                <span>${this._classLabel(item.value, spec.classifyBy)}</span>
+                            </li>`)}
+                    </ul>` : ''}
+            </dd>`;
     }
 
     /**
@@ -839,6 +975,7 @@ export default class Catalog extends HTMLElement {
             .filter(item => !item.olLayer.get('lizmapProfileId'))
             .map(item => ({
                 title: item.wmsTitle,
+                style: item.olLayer.get('lizmapImportStyle'),
                 geojson: format.writeFeaturesObject(item.olLayer.getSource().getFeatures(), {
                     dataProjection: 'EPSG:4326',
                     featureProjection: mainLizmap.projection,
@@ -934,7 +1071,7 @@ export default class Catalog extends HTMLElement {
                     featureProjection: mainLizmap.projection,
                 });
                 if (features.length) {
-                    this._addImportedLayer(String(file.title || ''), features);
+                    this._addImportedLayer(String(file.title || ''), features, null, file.style);
                 }
             } catch (error) {
                 console.warn(error);
@@ -994,11 +1131,14 @@ export default class Catalog extends HTMLElement {
      */
     async saveToProfile(state) {
         const olLayer = state.olLayer;
-        const geojson = new GeoJSON().writeFeatures(olLayer.getSource().getFeatures(), {
+        const collection = new GeoJSON().writeFeaturesObject(olLayer.getSource().getFeatures(), {
             dataProjection: 'EPSG:4326',
             featureProjection: mainLizmap.projection,
             decimals: 7,
         });
+        // The style is saved with the features
+        collection.lizmapStyle = olLayer.get('lizmapImportStyle');
+        const geojson = JSON.stringify(collection);
         try {
             const file = await this._profileRequest(this._profileUrls.save, { title: state.wmsTitle, geojson }, true);
             olLayer.set('lizmapProfileId', file.id);
@@ -1035,7 +1175,7 @@ export default class Catalog extends HTMLElement {
                 dataProjection: 'EPSG:4326',
                 featureProjection: mainLizmap.projection,
             });
-            this._addImportedLayer(file.title, features, file.id);
+            this._addImportedLayer(file.title, features, file.id, file.geojson?.lizmapStyle);
             this._persistImports();
             const state = this._profileLayerState(file.id);
             if (zoom && state) {
@@ -1700,6 +1840,7 @@ export default class Catalog extends HTMLElement {
                 + (state.olLayer.get('lizmapProfileId') ? ' (' + lizDict['catalog.info.origin.profile'] + ')' : '');
             details = [[lizDict['catalog.info.features'], String(source.getFeatures().length)]];
             zoom = () => this._zoomToImported(state);
+            styles = this._importStyleTemplate(state);
             exportGeoJson = () => Utils.downloadFileFromString(
                 new GeoJSON().writeFeatures(source.getFeatures(), { featureProjection: mainLizmap.projection }),
                 'application/geo+json', (state.wmsTitle || 'import') + '.geojson'
