@@ -1,5 +1,6 @@
 <?php
 
+use Lizmap\Import\CrsRequiredException;
 use Lizmap\Import\OgrConverter;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\TestCase;
@@ -77,6 +78,47 @@ class OgrConverterTest extends TestCase
         $coordinates = $geojson['features'][3]['geometry']['coordinates'];
         $this->assertEqualsWithDelta(-8.61, $coordinates[0], 0.0001);
         $this->assertEqualsWithDelta(41.15, $coordinates[1], 0.0001);
+    }
+
+    public function testFilesWithoutCrs(): void
+    {
+        $converter = new OgrConverter();
+        // Coordinates in PT-TM06, which can't be longitudes and latitudes
+        file_put_contents($this->tmpDir.'/tm06.csv', "name,x,y\nPorto,-41316.6,165270.4\n");
+        try {
+            $converter->toGeoJson($this->tmpDir.'/tm06.csv', 'csv');
+            $this->fail('The CRS should be required');
+        } catch (CrsRequiredException $e) {
+            $this->assertStringContainsString('coordinate reference system', $e->getMessage());
+        }
+        $geojson = $converter->toGeoJson($this->tmpDir.'/tm06.csv', 'csv', 'EPSG:3763');
+        $coordinates = $geojson['features'][0]['geometry']['coordinates'];
+        $this->assertEqualsWithDelta(-8.6253, $coordinates[0], 0.0001);
+        $this->assertEqualsWithDelta(41.1556, $coordinates[1], 0.0001);
+
+        // An invalid CRS is ignored
+        $this->expectException(CrsRequiredException::class);
+        $converter->toGeoJson($this->tmpDir.'/tm06.csv', 'csv', 'EPSG:3763 -oo');
+    }
+
+    public function testDxfAlwaysNeedsCrs(): void
+    {
+        $converter = new OgrConverter();
+        $csv = escapeshellarg($this->tmpDir.'/points.csv');
+        $dxf = escapeshellarg($this->tmpDir.'/points.dxf');
+        exec("ogr2ogr -f DXF {$dxf} {$csv} -oo X_POSSIBLE_NAMES=lon -oo Y_POSSIBLE_NAMES=lat 2>/dev/null");
+        $this->assertFalse($converter->layerInfo($this->tmpDir.'/points.dxf', 'entities')['hasCrs']);
+        $geojson = $converter->toGeoJson($this->tmpDir.'/points.dxf', 'dxf', 'EPSG:4326');
+        $this->assertCount(2, $geojson['features']);
+        $this->expectException(CrsRequiredException::class);
+        $converter->toGeoJson($this->tmpDir.'/points.dxf', 'dxf');
+    }
+
+    public function testGeographicExtent(): void
+    {
+        $this->assertTrue(OgrConverter::isGeographicExtent(array(-9.5, 37.0, -6.2, 42.1)));
+        $this->assertFalse(OgrConverter::isGeographicExtent(array(-41316.6, 165270.4, -41316.6, 165270.4)));
+        $this->assertFalse(OgrConverter::isGeographicExtent(null));
     }
 
     public function testInvalidFile(): void

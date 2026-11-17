@@ -15,7 +15,7 @@ import { openCatalogTable } from './CatalogTable.js';
 import { SERVICE_TYPES, readService, createLayer, serviceBaseUrl, withParams } from '../modules/ExternalServices.js';
 import { base64png } from '../modules/state/SymbologyIcons.js';
 import { getDefaultLayerIcon } from '../modules/state/Symbology.js';
-import { IMPORT_ACCEPT, readFiles } from '../modules/FileImport.js';
+import { IMPORT_ACCEPT, readFiles, IMPORT_CRS, normalizeCrs } from '../modules/FileImport.js';
 import VectorLayer from 'ol/layer/Vector.js';
 import VectorSource from 'ol/source/Vector.js';
 import GeoJSON from 'ol/format/GeoJSON.js';
@@ -682,9 +682,14 @@ export default class Catalog extends HTMLElement {
         this._import.loading = true;
         this._render();
         try {
-            const { layers, errors } = await readFiles(files, mainLizmap.projection);
+            const { layers, errors, warnings } = await readFiles(
+                files, mainLizmap.projection, fileName => this._askCrs(fileName)
+            );
             for (const error of errors) {
                 lizMap.addMessage(error, 'danger', true);
+            }
+            for (const warning of warnings) {
+                lizMap.addMessage(warning, 'info', true);
             }
             if (!layers.length && !errors.length) {
                 lizMap.addMessage(lizDict['catalog.import.empty'], 'info', true);
@@ -702,6 +707,73 @@ export default class Catalog extends HTMLElement {
             this._import.loading = false;
             this._render();
         }
+    }
+
+    /**
+     * Ask the user the coordinate reference system of a file without one
+     * @param {string} fileName - the file name
+     * @returns {Promise<string|null>} the code like EPSG:3763, or null when cancelled
+     */
+    _askCrs(fileName) {
+        this._sections.add('import');
+        const known = IMPORT_CRS.some(crs => crs.code === mainLizmap.projection);
+        return new Promise(resolve => {
+            this._import.crsQuestion = {
+                fileName,
+                code: known ? mainLizmap.projection : IMPORT_CRS[0].code,
+                other: '',
+                invalid: false,
+                resolve: code => {
+                    this._import.crsQuestion = null;
+                    this._render();
+                    resolve(code);
+                },
+            };
+            this._render();
+        });
+    }
+
+    /**
+     * Form asking the coordinate reference system of a file
+     * @returns {import('lit-html').TemplateResult|string} the form
+     */
+    _crsQuestionTemplate() {
+        const question = this._import.crsQuestion;
+        if (!question) {
+            return '';
+        }
+        const groups = [...new Set(IMPORT_CRS.map(crs => crs.group))];
+        const submit = () => {
+            const code = question.other.trim() ? normalizeCrs(question.other) : question.code;
+            if (!code) {
+                question.invalid = true;
+                this._render();
+                return;
+            }
+            question.resolve(code);
+        };
+        return html`
+        <form class="catalog-import-crs alert alert-warning" @submit=${(e) => { e.preventDefault(); submit(); }}>
+            <p>${lizDict['catalog.import.crs.question'].replace('%s', question.fileName)}</p>
+            <select class="form-select form-select-sm" aria-label="${lizDict['catalog.import.crs.label']}"
+                @change=${(e) => { question.code = e.target.value; }}>
+                ${groups.map(group => html`
+                    <optgroup label="${group === 'World' ? lizDict['catalog.import.crs.world'] : group}">
+                        ${IMPORT_CRS.filter(crs => crs.group === group).map(crs => html`
+                            <option value="${crs.code}" ?selected=${crs.code === question.code}>
+                                ${crs.label} (${crs.code})</option>`)}
+                    </optgroup>`)}
+            </select>
+            <input type="text" class="form-control form-control-sm ${question.invalid ? 'is-invalid' : ''}"
+                placeholder="${lizDict['catalog.import.crs.other']}" .value=${question.other}
+                @input=${(e) => { question.other = e.target.value; }}>
+            ${question.invalid ? html`<div class="invalid-feedback">${lizDict['catalog.import.crs.invalid']}</div>` : ''}
+            <div class="catalog-import-crs-actions">
+                <button type="submit" class="btn btn-sm btn-primary">${lizDict['catalog.import.crs.apply']}</button>
+                <button type="button" class="btn btn-sm" @click=${() => question.resolve(null)}>
+                    ${lizDict['catalog.import.crs.cancel']}</button>
+            </div>
+        </form>`;
     }
 
     /**
@@ -1108,7 +1180,8 @@ export default class Catalog extends HTMLElement {
                     accept="${IMPORT_ACCEPT}" ?disabled=${imp.loading}
                     @change=${(e) => { this.importFiles(e.target.files).then(() => { e.target.value = ''; }); }}>
             </div>
-            ${imp.loading ? html`<p class="catalog-loading">${lizDict['catalog.loading']}</p>` : ''}
+            ${this._crsQuestionTemplate()}
+            ${imp.loading && !imp.crsQuestion ? html`<p class="catalog-loading">${lizDict['catalog.loading']}</p>` : ''}
             ${layers.length ? html`
                 <ul class="catalog-layers">
                     ${layers.map(state => html`

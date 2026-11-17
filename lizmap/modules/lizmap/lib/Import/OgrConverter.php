@@ -167,17 +167,62 @@ class OgrConverter
     }
 
     /**
+     * Coordinate reference system and extent of a layer.
+     *
+     * @param string   $dataset     the GDAL dataset path
+     * @param string   $layer       the layer name
+     * @param string[] $openOptions the -oo arguments
+     *
+     * @return array{hasCrs: bool, extent: null|float[]} the extent is [minx, miny, maxx, maxy]
+     */
+    public function layerInfo($dataset, $layer, $openOptions = array())
+    {
+        $output = array();
+        $code = 1;
+        $args = array_merge(array('-ro', '-so'), $openOptions, array($dataset, $layer));
+        exec($this->command($this->ogrinfo, $args).' 2>/dev/null', $output, $code);
+        $text = implode("\n", $output);
+        $extent = null;
+        if (preg_match('/^Extent: \(([-\d.eE+]+), ([-\d.eE+]+)\) - \(([-\d.eE+]+), ([-\d.eE+]+)\)/m', $text, $m)) {
+            $extent = array((float) $m[1], (float) $m[2], (float) $m[3], (float) $m[4]);
+        }
+
+        return array(
+            // ogrinfo prints "Layer SRS WKT:" followed by "(unknown)" for a layer without CRS
+            'hasCrs' => $code === 0 && !preg_match('/Layer SRS WKT:\s*\(unknown\)/', $text),
+            'extent' => $extent,
+        );
+    }
+
+    /**
+     * Can an extent be in longitudes and latitudes.
+     *
+     * @param null|float[] $extent [minx, miny, maxx, maxy]
+     */
+    public static function isGeographicExtent($extent): bool
+    {
+        return is_array($extent)
+            && $extent[0] >= -180 && $extent[2] <= 180
+            && $extent[1] >= -90 && $extent[3] <= 90;
+    }
+
+    /**
      * Convert a file to a GeoJSON FeatureCollection in EPSG:4326.
      *
      * Every layer of the dataset is converted, and the layer name is kept in
      * the `layer` property when there are several layers.
      *
+     * Layers without CRS use the given CRS. Without it, a CrsRequiredException is
+     * thrown for DXF files and for coordinates that can't be longitudes and latitudes,
+     * else WGS 84 is used.
+     *
      * @param string $path      the uploaded file path
      * @param string $extension the uploaded file extension
-     * @param string $sourceCrs CRS of CSV and DXF files, which have none, like EPSG:3763
+     * @param string $sourceCrs CRS of the layers without one, like EPSG:3763
      *
      * @return array the GeoJSON FeatureCollection, as an array
      *
+     * @throws CrsRequiredException
      * @throws \RuntimeException
      */
     public function toGeoJson($path, $extension, $sourceCrs = '')
@@ -191,11 +236,42 @@ class OgrConverter
         if (count($layers) == 0) {
             throw new \RuntimeException('Unable to read the file');
         }
+        if (!preg_match('/^EPSG:\d{4,6}$/', $sourceCrs)) {
+            $sourceCrs = '';
+        }
+        $isCsv = ($extension == 'csv' || preg_match('/\.csv$/i', $dataset));
+        $isDxf = ($extension == 'dxf' || preg_match('/\.dxf$/i', $dataset));
+        $openOptions = array();
+        if ($isCsv) {
+            // Read coordinates or WKT columns
+            $openOptions = array(
+                '-oo', 'X_POSSIBLE_NAMES=x,lon,lng,long,longitude,easting',
+                '-oo', 'Y_POSSIBLE_NAMES=y,lat,latitude,northing',
+                '-oo', 'GEOM_POSSIBLE_NAMES=wkt,geom,geometry,the_geom',
+                '-oo', 'KEEP_GEOM_COLUMNS=NO',
+            );
+        }
+
+        // Layers without CRS
+        $sourceCrsOf = array();
+        foreach ($layers as $layer) {
+            $info = $this->layerInfo($dataset, $layer, $openOptions);
+            if ($info['hasCrs']) {
+                continue;
+            }
+            if ($sourceCrs) {
+                $sourceCrsOf[$layer] = $sourceCrs;
+            } elseif ($isDxf || ($info['extent'] !== null && !self::isGeographicExtent($info['extent']))) {
+                throw new CrsRequiredException('The file has no coordinate reference system');
+            } else {
+                $sourceCrsOf[$layer] = 'EPSG:4326';
+            }
+        }
 
         $features = array();
         $size = 0;
         foreach ($layers as $layer) {
-            $args = array(
+            $args = array_merge(array(
                 '-f', 'GeoJSON', '/vsistdout/', $dataset, $layer,
                 '-t_srs', 'EPSG:4326',
                 '-lco', 'RFC7946=YES',
@@ -203,28 +279,10 @@ class OgrConverter
                 '--config', 'GDAL_HTTP_TIMEOUT', '1',
                 '--config', 'CPL_VSIL_CURL_ALLOWED_EXTENSIONS', '.lizmap-none',
                 '--config', 'GML_SKIP_RESOLVE_ELEMS', 'ALL',
-            );
-            $isCsv = ($extension == 'csv' || preg_match('/\.csv$/i', $dataset));
-            if ($isCsv) {
-                // Read coordinates or WKT columns
-                $args[] = '-oo';
-                $args[] = 'X_POSSIBLE_NAMES=x,lon,lng,long,longitude,easting';
-                $args[] = '-oo';
-                $args[] = 'Y_POSSIBLE_NAMES=y,lat,latitude,northing';
-                $args[] = '-oo';
-                $args[] = 'GEOM_POSSIBLE_NAMES=wkt,geom,geometry,the_geom';
-                $args[] = '-oo';
-                $args[] = 'KEEP_GEOM_COLUMNS=NO';
-            }
-            // CSV and DXF files have no CRS: use the given one, or WGS 84 for CSV
-            if ($isCsv || $extension == 'dxf' || preg_match('/\.dxf$/i', $dataset)) {
-                if ($sourceCrs && preg_match('/^EPSG:\d+$/', $sourceCrs)) {
-                    $args[] = '-s_srs';
-                    $args[] = $sourceCrs;
-                } elseif ($isCsv) {
-                    $args[] = '-s_srs';
-                    $args[] = 'EPSG:4326';
-                }
+            ), $openOptions);
+            if (isset($sourceCrsOf[$layer])) {
+                $args[] = '-s_srs';
+                $args[] = $sourceCrsOf[$layer];
             }
             $output = $this->run($this->command($this->ogr2ogr, $args));
             $size += strlen($output);

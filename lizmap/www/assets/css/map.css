@@ -4847,6 +4847,23 @@ lizmap-catalog .catalog-import-drop .catalog-help {
   margin: 0 0 4px;
 }
 
+lizmap-catalog .catalog-import-crs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+  padding: 8px;
+}
+
+lizmap-catalog .catalog-import-crs p {
+  margin: 0;
+}
+
+lizmap-catalog .catalog-import-crs-actions {
+  display: flex;
+  gap: 6px;
+}
+
 lizmap-catalog .catalog-external-form {
   display: flex;
   flex-direction: column;

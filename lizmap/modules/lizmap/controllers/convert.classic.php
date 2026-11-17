@@ -12,6 +12,7 @@
  * @license Mozilla Public License : http://www.mozilla.org/MPL/
  */
 
+use Lizmap\Import\CrsRequiredException;
 use Lizmap\Import\OgrConverter;
 
 class convertCtrl extends jController
@@ -23,8 +24,9 @@ class convertCtrl extends jController
      * Convert the uploaded file `file` to GeoJSON in EPSG:4326.
      *
      * Parameters: repository, project (the user must be connected and have
-     * access to the project), file (uploaded file) and optional crs (EPSG code of CSV and
-     * DXF files, which have no CRS).
+     * access to the project), file (uploaded file) and optional crs (EPSG code of the
+     * layers without CRS, like DXF files). When it is needed and missing, the answer
+     * is a 422 error with `crsRequired`.
      *
      * @return jResponseJson
      */
@@ -86,6 +88,11 @@ class convertCtrl extends jController
 
         try {
             $rep->data = $converter->toGeoJson($tmpFile, $extension, (string) $this->param('crs', ''));
+        } catch (CrsRequiredException $e) {
+            $rep = $this->error($rep, 422, 'The coordinate reference system of the file is required');
+            $rep->data['crsRequired'] = true;
+
+            return $rep;
         } catch (\RuntimeException $e) {
             jLog::log('Import conversion: '.$e->getMessage(), 'lizmapadmin');
 
