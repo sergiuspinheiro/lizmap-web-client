@@ -4642,7 +4642,9 @@ lizmap-ai-assistant .catalog-help {
 }
 
 lizmap-catalog .catalog-repository h4 {
-  margin: 10px 0 4px;
+  margin: 8px 0 4px;
+  font-size: 12px;
+  font-weight: bold;
 }
 
 lizmap-catalog .catalog-project summary {
@@ -4796,30 +4798,43 @@ lizmap-mapviews input {
   display: none !important;
 }
 
-lizmap-catalog .catalog-external {
-  margin: 6px 0;
-  padding: 4px 0;
-  border-top: 1px solid rgb(255 255 255 / 60%);
-  border-bottom: 1px solid rgb(255 255 255 / 60%);
+/* Catalog sections: compact Bootstrap accordion, like the dock forms */
+lizmap-catalog .catalog-sections {
+  margin-top: 6px;
+
+  --bs-accordion-btn-padding-x: 0.6rem;
+  --bs-accordion-btn-padding-y: 0.4rem;
+  --bs-accordion-body-padding-x: 0.5rem;
+  --bs-accordion-body-padding-y: 0.4rem;
 }
 
-lizmap-catalog .catalog-external summary {
-  cursor: pointer;
+lizmap-catalog .catalog-sections .accordion-button {
+  font-size: 12px;
+  font-weight: bold;
 }
 
-lizmap-catalog .catalog-import {
-  border-top: none;
+lizmap-catalog .catalog-sections .accordion-button i {
+  margin-right: 4px;
+}
+
+lizmap-catalog .catalog-sections .accordion-body {
+  font-size: 12px;
+}
+
+lizmap-catalog .catalog-sections .catalog-help {
+  margin-top: 0;
 }
 
 lizmap-catalog .catalog-import-drop {
-  margin: 4px 0;
+  margin: 0 0 4px;
   padding: 6px;
-  border: 1px dashed rgb(255 255 255 / 60%);
+  border: 1px dashed var(--bs-border-color, #dee2e6);
   border-radius: 4px;
 }
 
 lizmap-catalog .catalog-import-drop.over {
-  background-color: rgb(255 255 255 / 15%);
+  background-color: var(--bs-tertiary-bg, #f8f9fa);
+  border-color: var(--bs-primary, #0d6efd);
 }
 
 lizmap-catalog .catalog-import-profile h5 {

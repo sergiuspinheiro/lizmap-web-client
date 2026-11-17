@@ -62,6 +62,8 @@ export default class Catalog extends HTMLElement {
         this._import = { loading: false, group: null, count: 0, over: false };
         // Files saved in the user profile: {canSave, quota, files} once read
         this._profile = null;
+        // Open sections of the catalog
+        this._sections = new Set(['maps']);
         // AI assistant: status from the server, search and analyses
         this._ai = { enabled: false, analysis: false, question: '', loading: false, answer: null, results: [], error: false };
         // Layer analyses by "repo~project~layer": {loading, question, data, error}
@@ -471,8 +473,7 @@ export default class Catalog extends HTMLElement {
         const ext = this._ext;
         const service = ext.service;
         return html`
-        <details class="catalog-external">
-            <summary>${lizDict['catalog.external.title']}</summary>
+        <div class="catalog-external">
             <div class="catalog-external-form">
                 <select class="catalog-external-type form-select form-select-sm"
                     @change=${(e) => { ext.type = e.target.value; ext.service = null; this._render(); }}>
@@ -507,7 +508,7 @@ export default class Catalog extends HTMLElement {
                         </li>`;
                     })}
                 </ul>` : ''}
-        </details>`;
+        </div>`;
     }
 
     /**
@@ -798,9 +799,7 @@ export default class Catalog extends HTMLElement {
         const layers = imp.group ? imp.group.children : [];
         const canSave = this._profile?.canSave;
         return html`
-        <details class="catalog-external catalog-import"
-            @toggle=${(e) => { if (e.target.open && this._profile === null) { this.loadProfile(); } }}>
-            <summary>${lizDict['catalog.import.title']}</summary>
+        <div class="catalog-import">
             <div class="catalog-import-drop ${imp.over ? 'over' : ''}"
                 @dragover=${(e) => {
                     if (e.dataTransfer?.types?.includes('Files')) {
@@ -839,7 +838,7 @@ export default class Catalog extends HTMLElement {
                         </li>`)}
                 </ul>` : ''}
             ${this._profileTemplate()}
-        </details>`;
+        </div>`;
     }
 
     /**
@@ -1449,6 +1448,40 @@ export default class Catalog extends HTMLElement {
         </details>`;
     }
 
+    /**
+     * Collapsible section of the catalog, a Bootstrap accordion item
+     * @param {string} id - the section id
+     * @param {string} title - the section title
+     * @param {string} icon - the icon class
+     * @param {Function} content - gives the section content
+     * @returns {import('lit-html').TemplateResult} the template
+     */
+    _sectionTemplate(id, title, icon, content) {
+        const open = this._sections.has(id);
+        return html`
+        <div class="accordion-item catalog-section catalog-section-${id}">
+            <h2 class="accordion-header">
+                <button type="button" class="accordion-button ${open ? '' : 'collapsed'}" aria-expanded="${open}"
+                    @click=${() => this._toggleSection(id)}>
+                    <i class="${icon}"></i>&nbsp;${title}
+                </button>
+            </h2>
+            ${open ? html`<div class="accordion-collapse collapse show"><div class="accordion-body">${content()}</div></div>` : ''}
+        </div>`;
+    }
+
+    _toggleSection(id) {
+        if (this._sections.has(id)) {
+            this._sections.delete(id);
+        } else {
+            this._sections.add(id);
+            if (id === 'import' && this._profile === null) {
+                this.loadProfile();
+            }
+        }
+        this._renderCatalog();
+    }
+
     _renderCatalog() {
         let content;
         if (this._repositories === null || this._repositories === 'loading') {
@@ -1468,10 +1501,13 @@ export default class Catalog extends HTMLElement {
             <input type="search" class="catalog-filter form-control form-control-sm" placeholder="${lizDict['catalog.filter']}"
                 .value=${this._filter}
                 @input=${(e) => { this._filter = e.target.value.trim(); this._render(); }}>
-            <p class="catalog-help">${lizDict['catalog.help']}</p>
-            ${this._externalTemplate()}
-            ${this._importTemplate()}
-            <div class="catalog-list">${content}</div>
+            <div class="accordion catalog-sections">
+                ${this._sectionTemplate('external', lizDict['catalog.external.title'], 'icon-globe', () => this._externalTemplate())}
+                ${this._sectionTemplate('import', lizDict['catalog.import.title'], 'icon-upload', () => this._importTemplate())}
+                ${this._sectionTemplate('maps', lizDict['catalog.maps.title'], 'icon-th-list', () => html`
+                    <p class="catalog-help">${lizDict['catalog.help']}</p>
+                    <div class="catalog-list">${content}</div>`)}
+            </div>
         `, this);
     }
 }
