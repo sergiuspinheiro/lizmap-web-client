@@ -15,6 +15,7 @@ use GuzzleHttp\Psr7\StreamWrapper as Psr7StreamWrapper;
 use JsonMachine\Items as JsonMachineItems;
 use Lizmap\Ai\Assistant;
 use Lizmap\Ai\AssistantException;
+use Lizmap\Ai\FeatureLocator;
 use Lizmap\Ai\LayerStatistics;
 use Lizmap\Request\WFSRequest;
 
@@ -259,31 +260,12 @@ class catalogCtrl extends jController
             return $this->error($rep, 400, 'The question must have at most 500 characters');
         }
 
-        $repository = $this->param('repository');
-        $projectKey = $this->param('project');
-        $layerName = $this->param('layer');
-        $project = null;
-        if ($repository && $projectKey) {
-            try {
-                $project = lizmap::getProject($repository.'~'.$projectKey);
-            } catch (\Exception $e) {
-                $project = null;
-            }
-        }
-        if (!$project || !$project->checkAcl()) {
-            return $this->error($rep, 404, 'Unknown project');
-        }
-        $layer = null;
-        foreach ($this->projectLayers($project) as $item) {
-            if ($item['name'] === $layerName) {
-                $layer = $item;
-
-                break;
-            }
-        }
+        list($project, $layer) = $this->requestedLayer();
         if (!$layer) {
             return $this->error($rep, 404, 'Unknown layer');
         }
+        $repository = $this->param('repository');
+        $projectKey = $this->param('project');
 
         $lrep = lizmap::getRepository($repository);
         $entry = Assistant::layerIndexEntry(
@@ -437,6 +419,99 @@ class catalogCtrl extends jController
         }
 
         return $index;
+    }
+
+    /**
+     * Find the features of a layer having a value, e.g. a name given by the assistant,
+     * to zoom to them. Only their number and their extent in EPSG:4326 are given back.
+     *
+     * @return jResponseJson
+     */
+    public function locate()
+    {
+        /** @var jResponseJson $rep */
+        $rep = $this->getResponse('json');
+        $assistant = $this->getAssistant();
+        if (!$assistant->isEnabled()) {
+            return $this->error($rep, 404, 'The AI assistant is not enabled');
+        }
+        if (!$assistant->isAllowed(jAuth::isConnected())) {
+            return $this->error($rep, 401, 'User is not connected');
+        }
+        if (!$this->request->isPostMethod()) {
+            return $this->error($rep, 405, 'POST is required');
+        }
+        $value = trim((string) $this->param('value', ''));
+        if ($value === '' || mb_strlen($value) > 200) {
+            return $this->error($rep, 400, 'The value must have 1 to 200 characters');
+        }
+        list($project, $layer) = $this->requestedLayer();
+        if (!$layer || $layer['geometryType'] === 'none') {
+            return $this->error($rep, 404, 'Unknown layer');
+        }
+        session_write_close();
+
+        $maxFeatures = 10000;
+        $params = array(
+            'SERVICE' => 'WFS',
+            'VERSION' => '1.0.0',
+            'REQUEST' => 'GetFeature',
+            'TYPENAME' => $layer['typeName'],
+            'OUTPUTFORMAT' => 'GeoJSON',
+            'SRSNAME' => 'EPSG:4326',
+            'MAXFEATURES' => (string) $maxFeatures,
+        );
+
+        try {
+            $request = new WFSRequest($project, $params, lizmap::getServices());
+            $result = $request->process();
+            if ($result->getCode() >= 400 || !str_contains(strtolower($result->getMime()), 'json')) {
+                return $this->error($rep, 404, 'The features of the layer cannot be read');
+            }
+            $stream = Psr7StreamWrapper::getResource($result->getBodyAsStream());
+            $features = JsonMachineItems::fromStream($stream, array('pointer' => '/features'));
+            $locator = new FeatureLocator($value);
+            $locator->addFeatures($features, $maxFeatures);
+            $rep->data = $locator->toArray();
+            $rep->data['crs'] = 'EPSG:4326';
+        } catch (\Throwable $e) {
+            jLog::logEx($e, 'error');
+
+            return $this->error($rep, 500, 'The features of the layer cannot be read');
+        }
+
+        return $rep;
+    }
+
+    /**
+     * The project and the layer given by the request parameters repository, project and layer,
+     * if the user can access them.
+     *
+     * @return array{0: null|\Lizmap\Project\Project, 1: null|array} the project and the layer
+     */
+    protected function requestedLayer()
+    {
+        $repository = $this->param('repository');
+        $projectKey = $this->param('project');
+        $layerName = $this->param('layer');
+        $project = null;
+        if ($repository && $projectKey) {
+            try {
+                $project = lizmap::getProject($repository.'~'.$projectKey);
+            } catch (\Exception $e) {
+                $project = null;
+            }
+        }
+        if (!$project || !$project->checkAcl()) {
+            return array(null, null);
+        }
+        foreach ($this->projectLayers($project) as $item) {
+            if ($item['name'] === $layerName) {
+                return array($project, $item);
+            }
+        }
+
+        return array($project, null);
     }
 
     /**
