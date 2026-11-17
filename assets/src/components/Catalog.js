@@ -15,6 +15,13 @@ import { openCatalogTable } from './CatalogTable.js';
 import { SERVICE_TYPES, readService, createLayer, serviceBaseUrl, withParams } from '../modules/ExternalServices.js';
 import { base64png } from '../modules/state/SymbologyIcons.js';
 import { getDefaultLayerIcon } from '../modules/state/Symbology.js';
+import { IMPORT_ACCEPT, readFiles } from '../modules/FileImport.js';
+import VectorLayer from 'ol/layer/Vector.js';
+import VectorSource from 'ol/source/Vector.js';
+import { createEmpty, extend, isEmpty } from 'ol/extent.js';
+
+/** Colors of the imported layers */
+const IMPORT_COLORS = ['#e6194b', '#3cb44b', '#4363d8', '#f58231', '#911eb4', '#42d4f4', '#f032e6', '#9a6324'];
 
 /** Drag and drop data type used to move a catalog layer onto the map */
 export const CATALOG_DRAG_TYPE = 'application/x-lizmap-catalog-layer';
@@ -50,6 +57,8 @@ export default class Catalog extends HTMLElement {
         this._ext = { type: 'wms', url: '', loading: false, service: null };
         // External services added to the map: "type|url" => {type, url, title, capabilities, group}
         this._services = new Map();
+        // Files imported by the user, kept until the page is closed
+        this._import = { loading: false, group: null, count: 0, over: false };
     }
 
     connectedCallback() {
@@ -344,6 +353,147 @@ export default class Catalog extends HTMLElement {
                             </span>
                         </li>`;
                     })}
+                </ul>` : ''}
+        </details>`;
+    }
+
+    /**
+     * Import files selected or dropped by the user as temporary layers, in
+     * an external group of the layer tree. They are not saved.
+     * @param {FileList|File[]} fileList - the files
+     * @returns {Promise<void>}
+     */
+    async importFiles(fileList) {
+        const files = Array.from(fileList || []);
+        if (!files.length || this._import.loading) {
+            return;
+        }
+        this._import.loading = true;
+        this._render();
+        try {
+            const { layers, errors } = await readFiles(files, mainLizmap.projection);
+            for (const error of errors) {
+                lizMap.addMessage(error, 'danger', true);
+            }
+            if (!layers.length && !errors.length) {
+                lizMap.addMessage(lizDict['catalog.import.empty'], 'info', true);
+            }
+            const extent = createEmpty();
+            for (const layer of layers) {
+                this._addImportedLayer(layer.name, layer.features);
+                extend(extent, new VectorSource({ features: layer.features }).getExtent());
+            }
+            if (!isEmpty(extent)) {
+                mainLizmap.map.getView().fit(extent, { padding: [20, 20, 20, 20], maxZoom: 18 });
+            }
+        } finally {
+            this._import.loading = false;
+            this._render();
+        }
+    }
+
+    /**
+     * Add an imported layer to the map
+     * @param {string} title - the layer title
+     * @param {import('ol/Feature.js').default[]} features - the features in the map projection
+     */
+    _addImportedLayer(title, features) {
+        const color = IMPORT_COLORS[this._import.count % IMPORT_COLORS.length];
+        const name = 'import-' + (++this._import.count);
+        const olLayer = new VectorLayer({
+            source: new VectorSource({ features }),
+            style: {
+                'fill-color': color + '40',
+                'stroke-color': color,
+                'stroke-width': 2,
+                'circle-radius': 5,
+                'circle-fill-color': color,
+                'circle-stroke-color': '#ffffff',
+                'circle-stroke-width': 1,
+            },
+        });
+        olLayer.set('name', name);
+        olLayer.set('lizmapCatalog', { key: 'import|', name });
+        if (!this._import.group) {
+            this._import.group = mainLizmap.state.rootMapGroup.createExternalGroup('catalog-imports');
+            this._import.group.wmsTitle = lizDict['catalog.import.group'];
+        }
+        const layerState = this._import.group.addOlLayer(name, olLayer);
+        layerState.wmsTitle = title;
+        const type = features.find(f => f.getGeometry())?.getGeometry().getType() || '';
+        const geometryType = /Point/.test(type) ? 'point' : /Line/.test(type) ? 'line' : /Polygon/.test(type) ? 'polygon' : null;
+        const icon = geometryType ? getDefaultLayerIcon({ type: 'layer', layerType: 'vector', geometryType }) : null;
+        if (icon) {
+            layerState.icon = icon;
+        }
+    }
+
+    /**
+     * Remove an imported layer
+     * @param {string} name - the layer name
+     */
+    removeImportedLayer(name) {
+        const group = this._import.group;
+        if (!group) {
+            return;
+        }
+        group.removeOlLayer(name);
+        if (group.childrenCount === 0) {
+            mainLizmap.state.rootMapGroup.removeExternalGroup(group.name);
+            this._import.group = null;
+        }
+        this._render();
+    }
+
+    /**
+     * Zoom to an imported layer
+     * @param {object} state - the layer state
+     */
+    _zoomToImported(state) {
+        const extent = state.olLayer.getSource().getExtent();
+        if (!isEmpty(extent)) {
+            mainLizmap.map.getView().fit(extent, { padding: [20, 20, 20, 20], maxZoom: 18 });
+        }
+    }
+
+    _importTemplate() {
+        const imp = this._import;
+        const layers = imp.group ? imp.group.children : [];
+        return html`
+        <details class="catalog-external catalog-import">
+            <summary>${lizDict['catalog.import.title']}</summary>
+            <div class="catalog-import-drop ${imp.over ? 'over' : ''}"
+                @dragover=${(e) => {
+                    if (e.dataTransfer?.types?.includes('Files')) {
+                        e.preventDefault();
+                        if (!imp.over) { imp.over = true; this._renderCatalog(); }
+                    }
+                }}
+                @dragleave=${() => { imp.over = false; this._renderCatalog(); }}
+                @drop=${(e) => {
+                    e.preventDefault();
+                    imp.over = false;
+                    this.importFiles(e.dataTransfer?.files);
+                }}>
+                <p class="catalog-help">${lizDict['catalog.import.help']}</p>
+                <input type="file" multiple class="form-control form-control-sm catalog-import-file"
+                    accept="${IMPORT_ACCEPT}" ?disabled=${imp.loading}
+                    @change=${(e) => { this.importFiles(e.target.files).then(() => { e.target.value = ''; }); }}>
+            </div>
+            ${imp.loading ? html`<p class="catalog-loading">${lizDict['catalog.loading']}</p>` : ''}
+            ${layers.length ? html`
+                <ul class="catalog-layers">
+                    ${layers.map(state => html`
+                        <li class="catalog-layer added">
+                            <span class="catalog-layer-title">${state.wmsTitle}
+                                <small>(${state.olLayer.getSource().getFeatures().length})</small></span>
+                            <span class="catalog-layer-actions">
+                                <button type="button" class="btn btn-sm" title="${lizDict['catalog.layer.zoom']}"
+                                    @click=${() => this._zoomToImported(state)}><i class="icon-zoom-in"></i></button>
+                                <button type="button" class="btn btn-sm catalog-remove" title="${lizDict['catalog.layer.remove']}"
+                                    @click=${() => this.removeImportedLayer(state.name)}><i class="icon-remove"></i></button>
+                            </span>
+                        </li>`)}
                 </ul>` : ''}
         </details>`;
     }
@@ -715,6 +865,10 @@ export default class Catalog extends HTMLElement {
      * @returns {import('lit-html').TemplateResult|string} the template
      */
     settingsTemplate(key, name) {
+        if (key === 'import|') {
+            const state = this._import.group?.children.find(item => item.name === name);
+            return state ? this._opacityTemplate(state) : '';
+        }
         if (key.startsWith('external|')) {
             return this._externalSettingsTemplate(key.substring('external|'.length), name);
         }
@@ -727,6 +881,17 @@ export default class Catalog extends HTMLElement {
         this._renderCatalog();
         // The layer tree displays the settings too
         document.dispatchEvent(new CustomEvent('lizmapcatalogchanged'));
+    }
+
+    _opacityTemplate(state) {
+        return html`
+        <div class="catalog-layer-settings">
+            <label class="form-label">${lizDict['catalog.layer.opacity']}
+                <input type="range" class="catalog-opacity form-range" min="0" max="100" step="10"
+                    .value=${String(Math.round(state.opacity * 100))}
+                    @input=${(e) => { state.opacity = Number(e.target.value) / 100; this._render(); }}>
+            </label>
+        </div>`;
     }
 
     _externalSettingsTemplate(serviceKey, name) {
@@ -847,6 +1012,7 @@ export default class Catalog extends HTMLElement {
                 @input=${(e) => { this._filter = e.target.value.trim(); this._render(); }}>
             <p class="catalog-help">${lizDict['catalog.help']}</p>
             ${this._externalTemplate()}
+            ${this._importTemplate()}
             <div class="catalog-list">${content}</div>
         `, this);
     }

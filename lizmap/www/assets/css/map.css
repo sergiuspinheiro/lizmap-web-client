@@ -4798,6 +4798,25 @@ lizmap-catalog .catalog-external summary {
   cursor: pointer;
 }
 
+lizmap-catalog .catalog-import {
+  border-top: none;
+}
+
+lizmap-catalog .catalog-import-drop {
+  margin: 4px 0;
+  padding: 6px;
+  border: 1px dashed rgb(255 255 255 / 60%);
+  border-radius: 4px;
+}
+
+lizmap-catalog .catalog-import-drop.over {
+  background-color: rgb(255 255 255 / 15%);
+}
+
+lizmap-catalog .catalog-import-drop .catalog-help {
+  margin: 0 0 4px;
+}
+
 lizmap-catalog .catalog-external-form {
   display: flex;
   flex-direction: column;
