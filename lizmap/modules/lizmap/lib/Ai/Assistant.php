@@ -628,9 +628,30 @@ EOT;
      */
     protected function postJson($url, array $headers, array $body)
     {
+        $client = new \GuzzleHttp\Client(array('timeout' => 300));
+
         try {
-            $client = new \GuzzleHttp\Client(array('timeout' => 300));
-            $response = $client->post($url, array('json' => $body, 'headers' => $headers));
+            // The cloud services answer 429 or 5xx when they are overloaded:
+            // try again twice, after 2 then 5 seconds
+            $delays = array(2, 5);
+            while (true) {
+                try {
+                    $response = $client->post($url, array('json' => $body, 'headers' => $headers));
+
+                    break;
+                } catch (\GuzzleHttp\Exception\BadResponseException $e) {
+                    $status = $e->getResponse()->getStatusCode();
+                    if (!$delays || ($status != 429 && $status < 500)) {
+                        throw $e;
+                    }
+                    sleep(array_shift($delays));
+                }
+            }
+        } catch (\GuzzleHttp\Exception\ServerException $e) {
+            $status = $e->getResponse()->getStatusCode();
+            $body = mb_substr((string) $e->getResponse()->getBody(), 0, 300);
+
+            throw new AssistantException('The AI service is overloaded or unavailable (HTTP '.$status.'), try again in a few minutes: '.$body, 503, $e);
         } catch (\GuzzleHttp\Exception\ConnectException $e) {
             throw new AssistantException('The AI service cannot be reached', 0, $e);
         } catch (\GuzzleHttp\Exception\ClientException $e) {
