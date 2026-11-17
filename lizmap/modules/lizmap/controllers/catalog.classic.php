@@ -219,7 +219,7 @@ class catalogCtrl extends jController
                 $assistant->lastAnswerInfo(),
             ), 'lizmapadmin');
         } catch (AssistantException $e) {
-            jLog::log('AI assistant search failed ('.$assistant->lastAnswerInfo().')', 'lizmapadmin');
+            jLog::log('AI assistant search failed: '.$e->getMessage().' ('.$assistant->lastAnswerInfo().')', 'lizmapadmin');
 
             return $this->assistantError($rep, $e);
         }
