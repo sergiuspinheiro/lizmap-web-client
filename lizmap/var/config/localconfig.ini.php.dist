@@ -44,6 +44,10 @@
 ;quotaSize=20
 ; maximum number of saved files of a user
 ;quotaLayers=20
+; DWG files are converted to DXF with ODA File Converter (https://www.opendesign.com/guestfiles/oda_file_converter)
+; or dwg2dxf of LibreDWG, found in the PATH, else read by GDAL (DWG R2000 only).
+; Path of the converter, when it is not in the PATH
+;dwgConverter=/usr/bin/ODAFileConverter
 
 [lizmapAi]
 ;; AI assistant of the data catalog (search in natural language and layer analysis).

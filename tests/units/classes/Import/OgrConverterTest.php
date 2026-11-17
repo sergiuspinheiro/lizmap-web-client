@@ -114,6 +114,27 @@ class OgrConverterTest extends TestCase
         $converter->toGeoJson($this->tmpDir.'/points.dxf', 'dxf');
     }
 
+    public function testDwgConvertedToDxf(): void
+    {
+        $converter = new OgrConverter();
+        $csv = escapeshellarg($this->tmpDir.'/points.csv');
+        $dxf = $this->tmpDir.'/points.dxf';
+        exec('ogr2ogr -f DXF '.escapeshellarg($dxf)." {$csv} -oo X_POSSIBLE_NAMES=lon -oo Y_POSSIBLE_NAMES=lat 2>/dev/null");
+        file_put_contents($this->tmpDir.'/drawing.dwg', 'not a DWG file');
+        // A fake dwg2dxf (LibreDWG): dwg2dxf -y -o output input
+        $fake = $this->tmpDir.'/dwg2dxf';
+        file_put_contents($fake, "#!/bin/sh\ncp ".escapeshellarg($dxf)." \"\$3\"\n");
+        chmod($fake, 0755);
+        $converter->setDwgConverter($fake);
+        $geojson = $converter->toGeoJson($this->tmpDir.'/drawing.dwg', 'dwg', 'EPSG:4326');
+        $this->assertCount(2, $geojson['features']);
+        $this->assertFalse(is_dir($this->tmpDir.'/drawing.dwg.dwg-convert'));
+
+        // A DWG file has no CRS
+        $this->expectException(CrsRequiredException::class);
+        $converter->toGeoJson($this->tmpDir.'/drawing.dwg', 'dwg');
+    }
+
     public function testGeographicExtent(): void
     {
         $this->assertTrue(OgrConverter::isGeographicExtent(array(-9.5, 37.0, -6.2, 42.1)));

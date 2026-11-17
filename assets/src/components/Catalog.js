@@ -1554,14 +1554,13 @@ export default class Catalog extends HTMLElement {
         const added = this.isAdded(project, layer);
         const previewed = this._preview?.project === project && this._preview?.layer === layer;
         return html`
-        <li class="catalog-layer ${added ? 'added' : ''} ${previewed ? 'previewed' : ''}"
-            draggable="true"
-            title="${lizDict['catalog.layer.drag']}"
-            @dragstart=${(e) => {
-                e.dataTransfer.setData(CATALOG_DRAG_TYPE, JSON.stringify({ key: project.key, name: layer.name }));
-                e.dataTransfer.effectAllowed = 'copy';
-            }}>
-            <span class="catalog-layer-title">${layer.title}</span>
+        <li class="catalog-layer ${added ? 'added' : ''} ${previewed ? 'previewed' : ''}">
+            <span class="catalog-layer-title catalog-layer-drag" draggable="true"
+                title="${lizDict['catalog.layer.drag']}"
+                @dragstart=${(e) => {
+                    e.dataTransfer.setData(CATALOG_DRAG_TYPE, JSON.stringify({ key: project.key, name: layer.name }));
+                    e.dataTransfer.effectAllowed = 'copy';
+                }}>${layer.title}</span>
             <span class="catalog-layer-actions">
                 <button type="button" class="btn btn-sm catalog-preview" title="${lizDict['catalog.layer.preview']}"
                     @click=${() => { this._preview = previewed ? null : { project, layer }; this._render(); }}>

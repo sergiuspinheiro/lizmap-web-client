@@ -4666,6 +4666,9 @@ lizmap-ai-assistant .catalog-layer {
   align-items: center;
   gap: 4px;
   padding: 2px 0;
+}
+
+lizmap-catalog .catalog-layer-drag {
   cursor: grab;
 }
 
