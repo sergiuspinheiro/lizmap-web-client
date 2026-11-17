@@ -4641,15 +4641,47 @@ lizmap-ai-assistant .catalog-help {
   opacity: 0.8;
 }
 
+lizmap-catalog .catalog-repository {
+  margin-bottom: 8px;
+}
+
 lizmap-catalog .catalog-repository h4 {
-  margin: 8px 0 4px;
-  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 10px 0 4px;
+  padding-bottom: 2px;
+  font-size: 11px;
   font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--bs-secondary-color, #6c757d);
+  border-bottom: 1px solid var(--bs-border-color, #dee2e6);
 }
 
 lizmap-catalog .catalog-project summary {
   cursor: pointer;
-  padding: 2px 0;
+  padding: 3px 4px;
+  font-weight: 600;
+  border-radius: var(--bs-border-radius-sm, 0.25rem);
+}
+
+lizmap-catalog .catalog-project summary:hover {
+  background-color: var(--bs-tertiary-bg, #f8f9fa);
+}
+
+lizmap-catalog .catalog-project[open] > summary {
+  background-color: var(--bs-secondary-bg, #e9ecef);
+}
+
+lizmap-catalog .catalog-project > .catalog-layers {
+  margin: 2px 0 6px 10px;
+  padding-left: 8px;
+  border-left: 2px solid var(--bs-border-color, #dee2e6);
+}
+
+lizmap-catalog .catalog-project > p {
+  margin: 2px 0 4px 18px;
 }
 
 lizmap-catalog .catalog-layers,
