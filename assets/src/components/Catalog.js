@@ -238,6 +238,8 @@ export default class Catalog extends HTMLElement {
         const found = await this._resultLayer(result);
         if (found) {
             this.addLayer(found.project, found.layer);
+            // Show where the data is
+            this.zoomToLayer(found.layer);
         }
     }
 
@@ -284,6 +286,51 @@ export default class Catalog extends HTMLElement {
             analysis.error = { reason: error.reason || 'error', message: error.message };
         }
         analysis.loading = false;
+        this._render();
+    }
+
+    /**
+     * Zoom to the features named by the assistant, e.g. a site name,
+     * adding the layer to the map if needed
+     * @param {object} project - the loaded project
+     * @param {object} layer - the layer
+     * @param {{text: string, feature: string}} highlight - the highlight of the analysis
+     * @returns {Promise<void>}
+     */
+    async locateFeature(project, layer, highlight) {
+        if (highlight.locating) {
+            return;
+        }
+        highlight.locating = true;
+        this._render();
+        try {
+            const data = await this._postAssistant(this.getAttribute('ai-locate-url'), {
+                repository: project.repository,
+                project: project.project,
+                layer: layer.name,
+                value: highlight.feature,
+            });
+            if (!data.count || !Array.isArray(data.extent)) {
+                lizMap.addMessage(lizDict['catalog.ai.locate.none'].replace('%s', highlight.feature), 'info', true);
+            } else {
+                if (!this.isAdded(project, layer)) {
+                    this.addLayer(project, layer);
+                }
+                let [xmin, ymin, xmax, ymax] = data.extent.map(Number);
+                // A single point: show its surroundings
+                const margin = 0.002;
+                xmin -= margin; ymin -= margin; xmax += margin; ymax += margin;
+                const extent = transformExtent([xmin, ymin, xmax, ymax], data.crs || 'EPSG:4326', mainLizmap.projection);
+                mainLizmap.map.getView().fit(extent, { maxZoom: 18, padding: [40, 40, 40, 40] });
+                if (data.count > 1) {
+                    lizMap.addMessage(lizDict['catalog.ai.locate.many'].replace('%s', data.count), 'info', true);
+                }
+            }
+        } catch (error) {
+            console.error(error);
+            lizMap.addMessage(lizDict['catalog.ai.locate.error'] + ' (' + error.message + ')', 'danger', true);
+        }
+        highlight.locating = false;
         this._render();
     }
 
@@ -1572,7 +1619,7 @@ export default class Catalog extends HTMLElement {
                 <div class="catalog-ai-answer">
                     <p>${data.answer}</p>
                     ${data.highlights?.length ? html`<h5>${lizDict['catalog.ai.highlights']}</h5>
-                        <ul>${data.highlights.map(item => html`<li>${item}</li>`)}</ul>` : ''}
+                        <ul>${data.highlights.map(item => this._highlightTemplate(project, layer, item))}</ul>` : ''}
                     ${data.suggestions?.length ? html`<h5>${lizDict['catalog.ai.suggestions']}</h5>
                         <ul>${data.suggestions.map(item => html`<li>${item}</li>`)}</ul>` : ''}
                     <p class="catalog-ai-source">${data.statistics
@@ -1580,6 +1627,25 @@ export default class Catalog extends HTMLElement {
                         : lizDict['catalog.ai.nostatistics']}</p>
                 </div>` : ''}
         </div>`;
+    }
+
+    /**
+     * A highlight of the analysis, with a button to zoom to the features it names
+     * @param {object} project - the loaded project
+     * @param {object} layer - the layer
+     * @param {{text: string, feature: string}|string} item - the highlight
+     * @returns {import('lit-html').TemplateResult} the template
+     */
+    _highlightTemplate(project, layer, item) {
+        if (typeof item === 'string') {
+            return html`<li>${item}</li>`;
+        }
+        const canLocate = item.feature && this.getAttribute('ai-locate-url') && this.hasExtent(layer);
+        return html`<li>${item.text}
+            ${canLocate ? html`<button type="button" class="btn btn-sm catalog-ai-locate" ?disabled=${item.locating}
+                title="${lizDict['catalog.ai.locate'] + ' : ' + item.feature}"
+                @click=${() => this.locateFeature(project, layer, item)}><i class="icon-zoom-in"></i>
+                ${lizDict['catalog.ai.locate']}</button>` : ''}</li>`;
     }
 
     /**

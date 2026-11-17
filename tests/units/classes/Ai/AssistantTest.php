@@ -96,11 +96,20 @@ class AssistantTest extends TestCase
     public function testAnalyse(): void
     {
         $assistant = new AssistantForTests(array('enabled' => 'on', 'apiKey' => 'key', 'maxFeatures' => 50));
-        $assistant->answer = array('answer' => 'Paragens de elétrico.', 'highlights' => array('a', 1), 'suggestions' => 'wrong');
+        $assistant->answer = array('answer' => 'Paragens de elétrico.', 'highlights' => array(
+            'a',
+            1,
+            array('text' => 'A Lapa Furada', 'feature' => ' Lapa Furada '),
+            array('feature' => 'No text'),
+        ), 'suggestions' => 'wrong');
         $result = $assistant->analyse($this->layers()[1], array('features' => 3, 'fields' => array()), '', 'pt_PT');
 
         $this->assertEquals('Paragens de elétrico.', $result['answer']);
-        $this->assertEquals(array('a', '1'), $result['highlights']);
+        $this->assertEquals(array(
+            array('text' => 'a', 'feature' => ''),
+            array('text' => '1', 'feature' => ''),
+            array('text' => 'A Lapa Furada', 'feature' => 'Lapa Furada'),
+        ), $result['highlights']);
         $this->assertEquals(array(), $result['suggestions']);
 
         $content = $assistant->requests[0]['content'];
