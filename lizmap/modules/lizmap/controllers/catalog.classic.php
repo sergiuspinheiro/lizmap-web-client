@@ -211,13 +211,16 @@ class catalogCtrl extends jController
         try {
             $rep->data = $assistant->search($question, $index);
             jLog::log(sprintf(
-                'AI assistant search: %d layers read in %.1f s, answer of %s in %.1f s',
+                'AI assistant search: %d layers read in %.1f s, answer of %s in %.1f s (%s)',
                 count($index),
                 $indexTime,
                 $assistant->provider(),
                 microtime(true) - $start - $indexTime,
+                $assistant->lastAnswerInfo(),
             ), 'lizmapadmin');
         } catch (AssistantException $e) {
+            jLog::log('AI assistant search failed ('.$assistant->lastAnswerInfo().')', 'lizmapadmin');
+
             return $this->assistantError($rep, $e);
         }
 
