@@ -5,7 +5,7 @@
  * @license MPL-2.0
  */
 
-import { Circle, Fill, Stroke, Style } from 'ol/style.js';
+import { Circle, Fill, Stroke, Style, Text } from 'ol/style.js';
 
 /** Classify by the geometry type instead of a field */
 export const GEOMETRY_CLASS = '__geometry';
@@ -34,6 +34,14 @@ export const CLASS_COLORS = [
  * @property {number} pointSize - the point radius in pixels
  * @property {string} classifyBy - the field of the classes, GEOMETRY_CLASS, or empty
  * @property {ImportClass[]} classes - the classes
+ * @property {LabelSpec} [label] - the labels
+ */
+
+/**
+ * @typedef {object} LabelSpec
+ * @property {string} field - the field displayed, empty for no label
+ * @property {number} size - the font size in pixels
+ * @property {string} color - the text color, like #000000
  */
 
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -100,6 +108,23 @@ export function classifiableFields(features) {
 }
 
 /**
+ * Fields of the features, to label them
+ * @param {import('ol/Feature.js').default[]} features - the features
+ * @returns {string[]} the field names
+ */
+export function featureFields(features) {
+    const fields = new Set();
+    for (const feature of features.slice(0, 200)) {
+        for (const [key, value] of Object.entries(feature.getProperties())) {
+            if (key !== feature.getGeometryName() && (value === null || typeof value !== 'object')) {
+                fields.add(key);
+            }
+        }
+    }
+    return [...fields];
+}
+
+/**
  * Classes of the features, keeping the colors and visibility of the current ones
  * @param {import('ol/Feature.js').default[]} features - the features
  * @param {string} classifyBy - the field of the classes, GEOMETRY_CLASS, or empty
@@ -149,6 +174,7 @@ export function defaultImportStyle(features, color) {
         pointSize: 5,
         classifyBy,
         classes: buildClasses(features, classifyBy),
+        label: sanitizeLabel(null),
     };
 }
 
@@ -175,7 +201,48 @@ export function sanitizeImportStyle(value, fallbackColor) {
         classes: (Array.isArray(value.classes) ? value.classes : []).slice(0, MAX_CLASSES)
             .filter(item => item && typeof item === 'object' && HEX.test(item.color))
             .map(item => ({ value: String(item.value ?? '').substring(0, 200), color: item.color, visible: item.visible !== false })),
+        label: sanitizeLabel(value.label),
     };
+}
+
+/**
+ * Check the label settings
+ * @param {object} value - the label settings
+ * @returns {LabelSpec} the label settings, without field if not valid
+ */
+export function sanitizeLabel(value) {
+    const label = value && typeof value === 'object' ? value : {};
+    const size = Number(label.size);
+    return {
+        field: typeof label.field === 'string' ? label.field.substring(0, 100) : '',
+        size: Number.isFinite(size) ? Math.min(40, Math.max(6, size)) : 12,
+        color: HEX.test(label.color) ? label.color : '#000000',
+    };
+}
+
+/**
+ * Label style of a feature
+ * @param {import('ol/Feature.js').default} feature - the feature
+ * @param {LabelSpec} label - the label settings
+ * @returns {Style|null} the style, null without text
+ */
+export function labelStyle(feature, label) {
+    const value = feature.get(label.field);
+    if (value === undefined || value === null || value === '') {
+        return null;
+    }
+    const kind = geometryKind(feature);
+    return new Style({
+        text: new Text({
+            text: String(value).substring(0, 200),
+            font: `${label.size}px sans-serif`,
+            fill: new Fill({ color: label.color }),
+            stroke: new Stroke({ color: '#ffffff', width: 3 }),
+            placement: kind === 'line' ? 'line' : 'point',
+            offsetY: kind === 'point' ? -(label.size) : 0,
+            overflow: true,
+        }),
+    });
 }
 
 /**
@@ -206,7 +273,7 @@ function rgba(hex, opacity) {
 /**
  * OpenLayers style function of an imported layer
  * @param {ImportStyleSpec} spec - the style
- * @returns {function(import('ol/Feature.js').default): (Style|undefined)} the style function
+ * @returns {function(import('ol/Feature.js').default): (Style|Style[]|undefined)} the style function
  */
 export function importStyleFunction(spec) {
     const cache = new Map();
@@ -225,16 +292,21 @@ export function importStyleFunction(spec) {
         }
         return cache.get(color);
     };
+    const label = spec.label?.field ? spec.label : null;
+    const withLabel = (feature, style) => {
+        const text = label ? labelStyle(feature, label) : null;
+        return text ? [style, text] : style;
+    };
     if (!spec.classifyBy || !spec.classes.length) {
-        return () => styleOf(spec.color);
+        return feature => withLabel(feature, styleOf(spec.color));
     }
     const classes = new Map(spec.classes.map(item => [item.value, item]));
     return feature => {
         const item = classes.get(classValue(feature, spec.classifyBy));
         if (!item) {
-            return styleOf(spec.color);
+            return withLabel(feature, styleOf(spec.color));
         }
-        return item.visible ? styleOf(item.color) : undefined;
+        return item.visible ? withLabel(feature, styleOf(item.color)) : undefined;
     };
 }
 

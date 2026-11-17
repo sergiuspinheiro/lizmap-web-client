@@ -6,7 +6,7 @@ import LineString from 'ol/geom/LineString.js';
 
 import {
     GEOMETRY_CLASS, buildClasses, classifiableFields, defaultImportStyle,
-    importStyleFunction, legendIcon, sanitizeImportStyle,
+    importStyleFunction, labelStyle, legendIcon, sanitizeImportStyle, sanitizeLabel,
 } from 'assets/src/modules/ImportStyle.js';
 
 const dxfFeatures = () => [
@@ -55,6 +55,19 @@ describe('ImportStyle', function () {
         expect(style.width).to.equal(20);
         expect(style.fillOpacity).to.equal(0);
         expect(style.classes).to.deep.equal([{ value: 'A', color: '#00ff00', visible: true }]);
+        expect(style.label.field).to.equal('');
         expect(legendIcon('#00ff00', 'point')).to.match(/^data:image\/svg\+xml;base64,/);
+    });
+
+    it('Labels the features with a field', function () {
+        const features = dxfFeatures();
+        const style = defaultImportStyle(features, '#4363d8');
+        style.label = sanitizeLabel({ field: 'EntityHandle', size: 99, color: 'x' });
+        expect(style.label).to.deep.equal({ field: 'EntityHandle', size: 40, color: '#000000' });
+        const styles = importStyleFunction(style)(features[1]);
+        expect(styles).to.have.length(2);
+        expect(styles[1].getText().getText()).to.equal('2');
+        expect(styles[1].getText().getPlacement()).to.equal('line');
+        expect(labelStyle(new Feature({ geometry: new Point([0, 0]) }), style.label)).to.be.null;
     });
 });

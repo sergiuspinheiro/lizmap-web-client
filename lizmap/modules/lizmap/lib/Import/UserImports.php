@@ -202,6 +202,11 @@ class UserImports
             'pointSize' => $number($style['pointSize'] ?? null, 1, 30, 5),
             'classifyBy' => is_string($style['classifyBy'] ?? null) ? mb_substr($style['classifyBy'], 0, 100) : '',
             'classes' => $classes,
+            'label' => array(
+                'field' => is_string($style['label']['field'] ?? null) ? mb_substr($style['label']['field'], 0, 100) : '',
+                'size' => $number($style['label']['size'] ?? null, 6, 40, 12),
+                'color' => $color($style['label']['color'] ?? null) ?? '#000000',
+            ),
         );
     }
 
