@@ -103,6 +103,22 @@ class DocumentStoreTest extends TestCase
         $result = $context->forLayer('r', 'p', 'ordenamento', 'edificação dispersa', null, 60);
         $this->assertCount(1, $result['sources']);
 
+        // Correct a link: same id, same place
+        $linkId = $store->links()[0]['id'];
+        $store->addLink(array('id' => $linkId, 'collection' => $id, 'repository' => 'r', 'project' => 'p', 'layer' => 'ordenamento',
+            'field' => 'classe', 'value' => 'Espaço urbano', 'parts' => array('67-A')));
+        $this->assertCount(2, $store->links());
+        $this->assertEquals($linkId, $store->links()[0]['id']);
+        $this->assertEquals('Espaço urbano', $store->links()[0]['value']);
+        $this->assertEquals(array('67-A'), $store->links()[0]['parts']);
+        // A link of another collection is not replaced
+        try {
+            $store->addLink(array('id' => $store->links()[1]['id'], 'collection' => $id, 'repository' => 'r', 'project' => 'p'));
+            $this->fail('A link of another collection was replaced');
+        } catch (\RuntimeException $e) {
+            $this->assertEquals('Unknown link', $e->getMessage());
+        }
+
         $store->deleteLink($store->links()[0]['id']);
         $this->assertCount(0, $store->linksOf('r', 'p', 'ordenamento'));
         $store->deleteCollection($id);
