@@ -213,8 +213,10 @@ class Assistant
         if ($this->config['provider'] !== 'ollama') {
             return array('features' => $withDocuments ? 8000 : 12000, 'documents' => 30000);
         }
-        // About 3 characters by token, without the instructions, metadata and answer
-        $total = max(2000, ($this->config['contextLength'] - 1500) * 3);
+        // About 3 characters by token, without the instructions, metadata and answer.
+        // A model without GPU reads about 10 tokens a second: 8000 characters take
+        // about 4 minutes, so a local model gets less even with a large context.
+        $total = min(8000, max(2000, ($this->config['contextLength'] - 1500) * 3));
 
         return array(
             'features' => min($withDocuments ? 8000 : 12000, $withDocuments ? intdiv($total, 2) : $total),
@@ -255,6 +257,8 @@ class Assistant
         $system = <<<'EOT'
 You help the users of a web map application find geographic data layers in a catalog.
 You receive the catalog, as a JSON list of the layers the user is allowed to see, then the user request.
+"documents" lists the regulations or documents linked to a layer, with their articles: a layer whose documents answer
+the request (e.g. where and what can be built) matches it.
 Choose the layers that answer the request, the best first, at most 10. Use only ids from the catalog.
 A short request (one word or a theme, e.g. "transports", "water", "urbanism") asks for every layer of this theme:
 return the layers of the theme or related to it, never an empty list because the request is generic.
@@ -268,7 +272,8 @@ EOT;
             // A local model without GPU reads about 20 to 50 words a second:
             // a short list, short numbers as ids, one line by layer
             $system = <<<'EOT'
-Find geographic data layers for the user request in the catalog below (one layer by line: number | title | map | type | description).
+Find geographic data layers for the user request in the catalog below (one layer by line: number | title | map | type | description | docs).
+"docs" are the regulations linked to the layer and their articles: a layer whose docs answer the request matches it.
 Return the numbers of the layers related to the request, the best first, at most 5, each with a reason of at most 8 words.
 A request of one word is a theme: return the layers of this theme, even if the request is generic.
 Answer in one short sentence, in the language of the request, or else in the language given as "language".
@@ -282,6 +287,10 @@ EOT;
                 $description = trim($layer['keywords'].' '.$layer['abstract']);
                 if (mb_strlen($description) > 100) {
                     $description = mb_substr($description, 0, 100).'…';
+                }
+                if (($layer['documents'] ?? '') !== '') {
+                    // The regulation linked to the layer, and its articles closest to the question
+                    $description .= ' | docs: '.self::closestText($question, $layer['documents'], 160);
                 }
                 $lines[] = implode(' | ', array($number, $layer['title'], $layer['map'], $layer['type'], $description));
             }
@@ -298,6 +307,7 @@ EOT;
                 'type' => $layer['type'],
                 'map' => $layer['map'],
                 'repository' => $layer['repository'],
+                'documents' => mb_substr($layer['documents'] ?? '', 0, 600),
             ));
         }, $layers)), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
@@ -564,11 +574,44 @@ EOT;
         $questionStems = self::stems($question);
         $scores = array();
         foreach ($layers as $index => $layer) {
-            $layerStems = self::stems(implode(' ', array($layer['title'], $layer['abstract'], $layer['keywords'], $layer['map'], $layer['type'])));
+            $layerStems = self::stems(implode(' ', array($layer['title'], $layer['abstract'], $layer['keywords'], $layer['map'], $layer['type'], $layer['documents'] ?? '')));
             $scores[$index] = count(array_intersect_key($questionStems, $layerStems));
         }
 
         return $scores;
+    }
+
+    /**
+     * The parts of a list (separated by commas) sharing the most words with the question.
+     *
+     * @param string $question  the question
+     * @param string $text      the list, e.g. "PDM: Definição, Condicionantes à construção"
+     * @param int    $maxLength maximum length
+     *
+     * @return string the closest parts first, cut to the length
+     */
+    public static function closestText($question, $text, $maxLength)
+    {
+        $questionStems = self::stems($question);
+        $items = preg_split('/\s*[,;]\s*/u', (string) $text, -1, PREG_SPLIT_NO_EMPTY);
+        $scores = array();
+        foreach ($items as $index => $item) {
+            $scores[$index] = count(array_intersect_key($questionStems, self::stems($item)));
+        }
+        $indexes = array_keys($items);
+        usort($indexes, static function ($a, $b) use ($scores) {
+            return $scores[$b] <=> $scores[$a] ?: $a <=> $b;
+        });
+        $result = '';
+        foreach ($indexes as $index) {
+            $next = $result === '' ? $items[$index] : $result.', '.$items[$index];
+            if (mb_strlen($next) > $maxLength) {
+                break;
+            }
+            $result = $next;
+        }
+
+        return $result !== '' ? $result : mb_substr((string) $text, 0, $maxLength);
     }
 
     /**

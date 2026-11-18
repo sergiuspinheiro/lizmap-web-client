@@ -251,12 +251,32 @@ class AssistantTest extends TestCase
         $this->assertCount(0, $result['results']);
         $this->assertEquals('No layer matches the request because it is too generic.', $result['answer']);
     }
+    public function testSearchWithDocuments(): void
+    {
+        $this->assertEquals(
+            'Condicionantes à construção, PDM: Definição',
+            Assistant::closestText('Onde posso construir?', 'PDM: Definição, Condicionantes à construção, Rede elétrica', 45),
+        );
+        $layers = $this->layers();
+        $layers[] = Assistant::layerIndexEntry('obidos', 'Óbidos', 'pdm', 'PDM', array('name' => 'ordenamento', 'title' => 'Ordenamento', 'geometryType' => 'polygon'))
+            + array('documents' => 'PDM de Óbidos: Definição, Condicionantes à construção');
+        $scores = Assistant::keywordScores('Onde posso construir no Pinhal', $layers);
+        $this->assertEquals(array(0, 0, 1), array_values($scores));
+
+        $assistant = new AssistantForTests(array('enabled' => 'on', 'provider' => 'ollama'));
+        $assistant->answer = array('answer' => '', 'results' => array(array('id' => '3', 'reason' => 'Regulamento')));
+        $result = $assistant->search('Onde posso construir?', $layers);
+        $this->assertEquals('ordenamento', $result['results'][0]['name']);
+        $this->assertStringContainsString('3 | Ordenamento | PDM | polygon |  | docs: Condicionantes à construção', $assistant->requests[0]['content'][0]['text']);
+    }
+
     public function testAnalysisBudget(): void
     {
         $this->assertEquals(array('features' => 12000, 'documents' => 30000), (new Assistant(array('provider' => 'gemini')))->analysisBudget(false));
         $local = new Assistant(array('provider' => 'ollama'));
         $this->assertEquals(8192, $local->contextLength());
-        $this->assertEquals(array('features' => 8000, 'documents' => 8000), $local->analysisBudget(true));
+        $this->assertEquals(array('features' => 4000, 'documents' => 4000), $local->analysisBudget(true));
+        $this->assertEquals(8000, $local->analysisBudget(false)['features']);
         $small = new Assistant(array('provider' => 'ollama', 'contextLength' => '4096'));
         $this->assertEquals(array('features' => 7788, 'documents' => 3894), $small->analysisBudget(false));
         $this->assertEquals(3894, $small->analysisBudget(true)['features']);
