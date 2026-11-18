@@ -19,7 +19,7 @@
     </tr>
   </thead>
   <tbody>
-  {foreach $collection['documents'] as $document}
+  {if count($collection['documents'])}{foreach $collection['documents'] as $document}
     <tr>
       <td><a href="{jurl 'admin~documents:document', array('collection' => $collection['id'], 'document' => $document['id'])}">{$document['title']|eschtml}</a></td>
       <td>{$document['date']}</td>
@@ -35,9 +35,9 @@
         </form>
       </td>{/if}
     </tr>
-  {foreachelse}
+  {/foreach}{else}
     <tr><td colspan="5">{@admin~documents.document.none@}</td></tr>
-  {/foreach}
+  {/if}
   </tbody>
 </table>
 
@@ -74,7 +74,7 @@
     </tr>
   </thead>
   <tbody>
-  {foreach $links as $link}
+  {if count($links)}{foreach $links as $link}
     <tr>
       <td>{$link['repository']|eschtml}~{$link['project']|eschtml}</td>
       <td>{if $link['layer']}{$link['layer']|eschtml}{else}<em>{@admin~documents.link.alllayers@}</em>{/if}</td>
@@ -90,9 +90,9 @@
         </form>
       </td>{/if}
     </tr>
-  {foreachelse}
+  {/foreach}{else}
     <tr><td colspan="6">{@admin~documents.link.none@}</td></tr>
-  {/foreach}
+  {/if}
   </tbody>
 </table>
 
