@@ -17,7 +17,7 @@
     </tr>
   </thead>
   <tbody>
-  {foreach $collections as $collection}
+  {if count($collections)}{foreach $collections as $collection}
     <tr>
       <td><a href="{jurl 'admin~documents:collection', array('id' => $collection['id'])}">{$collection['title']|eschtml}</a>
         {if $collection['description']}<br><small>{$collection['description']|eschtml}</small>{/if}</td>
@@ -25,9 +25,9 @@
       <td>{$collection['documentCount']}</td>
       <td>{$collection['linkCount']}</td>
     </tr>
-  {foreachelse}
+  {/foreach}{else}
     <tr><td colspan="4">{@admin~documents.collection.none@}</td></tr>
-  {/foreach}
+  {/if}
   </tbody>
 </table>
 
