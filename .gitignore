@@ -147,3 +147,4 @@ assets/node_modules/
 
 /.composer
 /.npm
+lizmap/var/config/catalogServices.json
