@@ -24,8 +24,22 @@ require_once $root.'/modules/lizmap/lib/Ai/Assistant.php';
 
 $ini = parse_ini_file($root.'/var/config/localconfig.ini.php', true, INI_SCANNER_RAW);
 $config = $ini['lizmapAi'] ?? array();
+// The settings saved in the administration (Modules page) take precedence
+$modulesFile = $root.'/var/config/lizmapModules.ini.php';
+if (is_file($modulesFile)) {
+    $modules = parse_ini_file($modulesFile, true, INI_SCANNER_RAW);
+    foreach ($modules['lizmapAi'] ?? array() as $key => $value) {
+        if ($value !== '') {
+            $config[$key] = $value;
+        }
+    }
+    if (isset($modules['modules']['aiAssistant'])) {
+        $config['enabled'] = $modules['modules']['aiAssistant'];
+    }
+}
 $assistant = new Lizmap\Ai\Assistant($config);
 echo 'Provider: '.$assistant->provider().', enabled: '.($assistant->isEnabled() ? 'yes' : 'no')."\n";
+echo 'URL: '.($config['url'] ?? ($config['ollamaUrl'] ?? '(default)')).', model: '.($config['model'] ?? '(default)')."\n";
 if (class_exists('Composer\InstalledVersions') && Composer\InstalledVersions::isInstalled('anthropic-ai/sdk')) {
     echo 'Anthropic SDK: '.Composer\InstalledVersions::getPrettyVersion('anthropic-ai/sdk')."\n";
 }

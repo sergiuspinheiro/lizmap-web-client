@@ -791,7 +791,8 @@ EOT;
 
             throw new AssistantException('The AI service is overloaded or unavailable (HTTP '.$status.'), try again in a few minutes: '.$body, 503, $e);
         } catch (\GuzzleHttp\Exception\ConnectException $e) {
-            throw new AssistantException('The AI service cannot be reached', 0, $e);
+            // The message gives the address and the cause, e.g. "Failed to connect to localhost port 11434"
+            throw new AssistantException('The AI service cannot be reached: '.mb_substr($e->getMessage(), 0, 300), 0, $e);
         } catch (\GuzzleHttp\Exception\ClientException $e) {
             $status = $e->getResponse()->getStatusCode();
             if ($status == 429) {
