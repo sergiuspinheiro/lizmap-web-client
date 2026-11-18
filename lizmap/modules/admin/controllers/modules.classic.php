@@ -93,6 +93,7 @@ class modulesCtrl extends jController
             'maxFeatures' => $form->getData('maxFeatures'),
             'sendFeatures' => $form->getData('sendFeatures') === 'on',
             'maxRows' => $form->getData('maxRows'),
+            'contextLength' => $form->getData('contextLength'),
             'requestsPerHour' => $form->getData('requestsPerHour'),
             'quotaSize' => $form->getData('quotaSize'),
             'quotaLayers' => $form->getData('quotaLayers'),

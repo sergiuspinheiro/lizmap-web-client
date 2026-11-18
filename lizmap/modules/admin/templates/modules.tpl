@@ -30,7 +30,7 @@
         <div class="mb-2">{ctrl_control 'removeApiKey'} {ctrl_label 'removeApiKey'}</div>
       </td>
     </tr>
-    {formcontrols array('allowAnonymous', 'sendStatistics', 'maxFeatures', 'sendFeatures', 'maxRows', 'requestsPerHour')}
+    {formcontrols array('allowAnonymous', 'sendStatistics', 'maxFeatures', 'sendFeatures', 'maxRows', 'contextLength', 'requestsPerHour')}
       <tr><th>{ctrl_label}</th><td>{ctrl_control}</td></tr>
     {/formcontrols}
   </table>

@@ -79,3 +79,5 @@
 ;sendFeatures=
 ;; maximum number of features sent for an analysis
 ;maxRows=100
+;; context window of a local model (tokens): 4096 on a server with 4 GB of memory or less
+;contextLength=8192

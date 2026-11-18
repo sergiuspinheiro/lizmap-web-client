@@ -292,7 +292,7 @@ class catalogCtrl extends jController
         if ($assistant->canSendFeatures()) {
             // The features themselves (e.g. to a local model): read once for both,
             // less of them when documents are sent too
-            list($statistics, $sample) = $this->layerFeatures($project, $layer, $assistant, $question, $hasDocuments ? 8000 : 12000);
+            list($statistics, $sample) = $this->layerFeatures($project, $layer, $assistant, $question, $assistant->analysisBudget($hasDocuments)['features']);
         } elseif ($assistant->canAnalyse() && $layer['attributeTable']) {
             $statistics = $this->layerStatistics($project, $layer, $assistant->maxFeatures());
         }
@@ -312,7 +312,7 @@ class catalogCtrl extends jController
                 $layer['name'],
                 $question,
                 $rows,
-                $assistant->provider() === 'ollama' ? 8000 : 30000,
+                $assistant->analysisBudget(true)['documents'],
             );
         }
 
