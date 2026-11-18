@@ -27,6 +27,10 @@ class PdfText
      */
     public static function isAvailable($command = 'pdftotext')
     {
+        // exec() may be disabled in php.ini
+        if (!function_exists('exec')) {
+            return false;
+        }
         $output = array();
         $code = 1;
         @exec(escapeshellcmd($command).' -v 2>&1', $output, $code);
@@ -46,6 +50,9 @@ class PdfText
      */
     public static function fromFile($path, $command = 'pdftotext')
     {
+        if (!function_exists('exec')) {
+            throw new \RuntimeException('The text of a PDF file cannot be read: exec() is disabled in php.ini');
+        }
         $output = array();
         $code = 1;
         exec(escapeshellcmd($command).' -enc UTF-8 -bbox-layout '.escapeshellarg($path).' - 2>/dev/null', $output, $code);
