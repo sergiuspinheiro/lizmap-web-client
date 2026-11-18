@@ -100,7 +100,7 @@ class overlayCtrl extends jController
                 $linked[] = $layer;
             }
         }
-        $budget = $assistant->analysisBudget(count($linked) > 0);
+        $budget = $assistant->areaBudget();
         $intersected = array_values(array_filter($overlay['layers'], static function ($layer) {
             return count($layer['features']) > 0;
         }));
@@ -144,6 +144,7 @@ class overlayCtrl extends jController
 
         // The answer can take minutes: release the PHP session lock
         session_write_close();
+        $start = microtime(true);
 
         try {
             $rep->data = $assistant->analyseArea(
@@ -154,8 +155,18 @@ class overlayCtrl extends jController
                 $documents['text'],
             );
             $rep->data['documents'] = $documents['sources'];
+            jLog::log(sprintf(
+                'AI assistant overlay analysis: %d layers, %d characters of features and %d of documents, answer in %.1f s (%s)',
+                count($layers),
+                array_sum(array_map(static function ($layer) {
+                    return mb_strlen($layer['table']);
+                }, $layers)),
+                mb_strlen($documents['text']),
+                microtime(true) - $start,
+                $assistant->lastAnswerInfo(),
+            ), 'lizmapadmin');
         } catch (AssistantException $e) {
-            jLog::log('AI assistant overlay analysis: '.$e->getMessage(), 'lizmapadmin');
+            jLog::log(sprintf('AI assistant overlay analysis failed after %.1f s: %s', microtime(true) - $start, $e->getMessage()), 'lizmapadmin');
             $this->error($rep, $e->getCode() >= 400 ? $e->getCode() : 502, $e->getMessage());
             $rep->data['reason'] = Assistant::errorReason($e->getMessage(), $e->getCode());
         }
