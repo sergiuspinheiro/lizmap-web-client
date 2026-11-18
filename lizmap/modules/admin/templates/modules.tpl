@@ -9,7 +9,7 @@
 <div>
   <h2>{@admin~modules.section.modules@}</h2>
   <table class="table services-table">
-    {formcontrols array('catalog', 'layerCompare', 'aiAssistant')}
+    {formcontrols array('catalog', 'layerCompare', 'overlay', 'aiAssistant')}
       <tr><th>{ctrl_label}</th><td>{ctrl_control}</td></tr>
     {/formcontrols}
   </table>

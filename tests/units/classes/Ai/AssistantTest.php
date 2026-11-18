@@ -321,6 +321,26 @@ class AssistantTest extends TestCase
         $this->assertNull((new Assistant(array('provider' => 'claude')))->installedModels());
     }
 
+    public function testAnalyseArea(): void
+    {
+        $assistant = new AssistantForTests(array('enabled' => 'on', 'provider' => 'ollama'));
+        $assistant->answer = array('answer' => 'Espaço agrícola.', 'feature' => '', 'highlights' => array(array('text' => 'Agrícola 81,77%', 'feature' => 'Espaços agrícolas')), 'suggestions' => array());
+        $result = $assistant->analyseArea(
+            array('area' => 2954.678, 'buffer' => 10, 'map' => 'PDM'),
+            array(array('title' => 'Ordenamento', 'table' => "classe | area_m2 | percent\nEspaços agrícolas | 2416.13 | 81.77", 'rows' => 1, 'count' => 1, 'truncated' => false)),
+            'Posso construir?',
+            'pt_PT',
+            'PDM — Artigo 20.º',
+        );
+        $this->assertEquals('Espaço agrícola.', $result['answer']);
+        $this->assertEquals('Espaços agrícolas', $result['highlights'][0]['feature']);
+        $content = implode("\n", array_column($assistant->requests[0]['content'], 'text'));
+        $this->assertStringContainsString('"area_m2":2954.68', $content);
+        $this->assertStringContainsString('<layer title="Ordenamento" features="1" rows="1">', $content);
+        $this->assertStringContainsString("<documents>\nPDM — Artigo 20.º", $content);
+        $this->assertStringContainsString("<question>\nPosso construir?", $content);
+    }
+
     public function testAnalysisBudget(): void
     {
         $this->assertEquals(array('features' => 12000, 'documents' => 30000), (new Assistant(array('provider' => 'gemini')))->analysisBudget(false));
