@@ -31,7 +31,7 @@
         {/formcontrols}
       </td>
     </tr>
-    {formcontrols array('allowAnonymous', 'sendStatistics', 'maxFeatures', 'requestsPerHour')}
+    {formcontrols array('allowAnonymous', 'sendStatistics', 'maxFeatures', 'sendFeatures', 'maxRows', 'requestsPerHour')}
       <tr><th>{ctrl_label}</th><td>{ctrl_control}</td></tr>
     {/formcontrols}
   </table>
