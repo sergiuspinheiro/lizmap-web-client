@@ -180,6 +180,17 @@ export default class OverlayAnalysis extends HTMLElement {
         return data;
     }
 
+    async _getJson(url, params) {
+        const response = await fetch(url + (url.includes('?') ? '&' : '?') + new URLSearchParams(params));
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            const error = new Error(data.error || response.statusText);
+            error.reason = data.reason || ({ 504: 'timeout', 429: 'busy', 401: 'login' })[response.status] || 'error';
+            throw error;
+        }
+        return data;
+    }
+
     /**
      * Intersect the area with the layers chosen
      * @returns {Promise<void>}
@@ -230,7 +241,25 @@ export default class OverlayAnalysis extends HTMLElement {
         this._ai = { loading: true, data: null, error: null };
         this._render();
         try {
-            this._ai.data = await this._post(this.getAttribute('ai-url'), { q: this._question.trim() });
+            let data = await this._post(this.getAttribute('ai-url'), { q: this._question.trim(), async: '1' });
+            // Answered in the background: ask for the answer until it is ready
+            const started = Date.now();
+            while (data.job && this.getAttribute('ai-job-url')) {
+                const job = data.job;
+                await new Promise(resolve => setTimeout(resolve, 4000));
+                this._ai.elapsed = Math.round((Date.now() - started) / 1000);
+                this._render();
+                data = await this._getJson(this.getAttribute('ai-job-url'), { id: job });
+                if (data.state === 'running') {
+                    if (Date.now() - started > 8 * 60 * 1000) {
+                        const error = new Error('timeout');
+                        error.reason = 'timeout';
+                        throw error;
+                    }
+                    data = { job };
+                }
+            }
+            this._ai.data = data;
         } catch (error) {
             this._ai.error = error;
         }
@@ -367,7 +396,8 @@ export default class OverlayAnalysis extends HTMLElement {
                     @input=${(e) => { this._question = e.target.value; }}></textarea>
                 <button type="submit" class="btn btn-sm btn-primary mt-1" ?disabled=${ai.loading}>${lizDict['overlay.ai.analyse']}</button>
             </form>
-            ${ai.loading ? html`<p class="catalog-loading">${lizDict['overlay.ai.analysing']}</p>` : ''}
+            ${ai.loading ? html`<p class="catalog-loading">${lizDict['overlay.ai.analysing']}
+                ${ai.elapsed ? html`(${ai.elapsed} s)` : ''}</p>` : ''}
             ${ai.error ? html`<div class="catalog-error"><p>${lizDict['catalog.ai.error.' + ai.error.reason] || lizDict['catalog.ai.error']}</p>
                 ${ai.error.message ? html`<details><summary>${lizDict['catalog.ai.error.details']}</summary><code>${ai.error.message}</code></details>` : ''}</div>` : ''}
             ${data ? html`<div class="catalog-ai-answer">
