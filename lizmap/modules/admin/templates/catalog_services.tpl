@@ -99,7 +99,7 @@
 </form>
 {/if}
 
-<script>
+<script>{literal}
 (() => {
     const input = document.getElementById('service-users');
     const list = document.getElementById('service-users-list');
@@ -181,4 +181,4 @@
         }
     });
 })();
-</script>
+{/literal}</script>
