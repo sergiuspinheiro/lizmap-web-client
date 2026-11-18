@@ -145,6 +145,35 @@ class OverlayRequest extends WFSRequest
     }
 
     /**
+     * WHERE clause of the request, with the datasource, bbox, login and
+     * polygon filters, like WFSRequest::getfeaturePostgres() in 3.10.
+     *
+     * @param \jDbConnection $cnx    The database connection
+     * @param array          $params The request parameters
+     *
+     * @return false|string the clause, false when QGIS Server must be used
+     */
+    protected function getWhereClause($cnx, $params)
+    {
+        $sql = ' WHERE True';
+        $sql .= $this->getDatasourceSql();
+        $sql .= $this->getBboxSql($params);
+        // This also include the filter by login, as done in "parameters"
+        $expFilterSql = $this->parseExpFilter($cnx, $params);
+        if ($expFilterSql === false) {
+            return false;
+        }
+        $sql .= $expFilterSql;
+        $polygonFilter = $this->qgisLayer->getPolygonFilter($this->editingContext, 5);
+        if ($polygonFilter) {
+            $sql .= ' AND ( '.$polygonFilter.' )';
+        }
+        $sql .= $this->parseFeatureId($cnx, $params);
+
+        return $sql;
+    }
+
+    /**
      * A feature intersecting the area, with the measures of the intersection.
      *
      * @param array           $properties the attributes
