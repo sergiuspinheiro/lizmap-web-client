@@ -43,6 +43,8 @@ lizmap/var/sessions/*
 !lizmap/var/sessions/.empty
 lizmap/var/uploads/*
 !lizmap/var/uploads/.empty
+lizmap/var/documents/*
+!lizmap/var/documents/.empty
 lizmap/www/cache/images/*
 !lizmap/www/cache/images/.empty
 lizmap/www/live/images/home/*

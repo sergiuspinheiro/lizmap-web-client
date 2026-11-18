@@ -16,8 +16,11 @@ VARDIR="$SCRIPTDIR/../var"
 WWWDIR="$SCRIPTDIR/../www"
 
 DIRS="$VARDIR/config $VARDIR/db $VARDIR/log $VARDIR/themes $VARDIR/overloads"
-DIRS="$DIRS $VARDIR/mails $VARDIR/uploads $VARDIR/lizmap-theme-config"
+DIRS="$DIRS $VARDIR/mails $VARDIR/uploads $VARDIR/lizmap-theme-config $VARDIR/documents"
 DIRS="$DIRS $SCRIPTDIR/../../temp/lizmap $WWWDIR/cache/ $WWWDIR/document/ $WWWDIR/live/"
+
+# Documents linked to the data (administration), created on an existing installation
+mkdir -p "$VARDIR/documents"
 
 chown -R $USER:$GROUP $DIRS
 chmod -R ug+w $DIRS
