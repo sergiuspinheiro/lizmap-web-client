@@ -61,6 +61,16 @@ class configListener extends jEventListener
                 'lizmap'
             );
         }
+        // Optional modules of the map: data catalog, layer comparison, AI assistant
+        if (jAcl2::check('lizmap.admin.services.view')) {
+            $bloc->childItems[] = new masterAdminMenuItem(
+                'lizmap_modules',
+                jLocale::get('admin~modules.menu'),
+                jUrl::get('admin~modules:index'),
+                112,
+                'lizmap'
+            );
+        }
         if (jAcl2::check('lizmap.admin.services.view')) {
             // configure profil for lizmap search
             $bloc->childItems[] = new masterAdminMenuItem(

@@ -56,6 +56,7 @@ services:
       - { type: bind, source: "tmp/", target: /tmp/ }
       - { type: bind, source: ./docker-conf/pg_service.conf, target: /srv/etc/pg_service.conf }
       - { type: bind, source: ./docker-conf/phpfpm/admin.conf, target: /srv/etc/admin.conf }
+      - { type: bind, source: ./docker-conf/phpfpm/uploads.ini, target: "/etc/php/${PHP_VERSION}/fpm/conf.d/90-uploads.ini" }
     depends_on:
       pgsql:
         condition: service_healthy

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<dao xmlns="http://jelix.org/ns/dao/1.0">
+    <datasources>
+        <primarytable name="lizmap_map_view" realname="lizmap_map_view" primarykey="id" />
+    </datasources>
+    <record>
+        <property name="id" fieldname="id" datatype="serial" required="true"/>
+        <property name="login" fieldname="usr_login" datatype="text" required="true"/>
+        <property name="name" fieldname="vname" datatype="text" required="true"/>
+        <property name="map" fieldname="vmap" datatype="text" required="true"/>
+        <property name="config" fieldname="vconfig" datatype="text" required="true"/>
+    </record>
+    <factory>
+        <method name="findByUserMap" type="select">
+            <parameter name="login" />
+            <parameter name="map" />
+            <conditions>
+                <eq property="login" expr="$login" />
+                <eq property="map" expr="$map" />
+            </conditions>
+            <order>
+                <orderitem property="name" way="asc" />
+            </order>
+        </method>
+        <method name="getByUserMapName" type="selectfirst">
+            <parameter name="login" />
+            <parameter name="map" />
+            <parameter name="name" />
+            <conditions>
+                <eq property="login" expr="$login" />
+                <eq property="map" expr="$map" />
+                <eq property="name" expr="$name" />
+            </conditions>
+        </method>
+    </factory>
+</dao>

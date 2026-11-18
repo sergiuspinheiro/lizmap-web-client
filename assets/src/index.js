@@ -32,6 +32,12 @@ import Message from './components/Message.js';
 import TypeAHead from './components/TypeAHead.js';
 import GroupPopupByLayer from './components/GroupPopupByLayer.js';
 import Panoramax from './components/Panoramax.js';
+import LayerCompare from './components/LayerCompare.js';
+import Catalog from './components/Catalog.js';
+import AiAssistant from './components/AiAssistant.js';
+import MapViews from './components/MapViews.js';
+import CatalogTable from './components/CatalogTable.js';
+import { initDockResizer } from './modules/DockResizer.js';
 
 import { mainLizmap, mainEventDispatcher } from './modules/Globals.js';
 import executeJSFromServer from './modules/ExecuteJSFromServer.js';
@@ -113,6 +119,11 @@ const definedCustomElements = () => {
     window.customElements.define('lizmap-typeahead', TypeAHead);
     window.customElements.define('lizmap-group-popup-layer', GroupPopupByLayer);
     window.customElements.define('lizmap-panoramax', Panoramax);
+    window.customElements.define('lizmap-layercompare', LayerCompare);
+    window.customElements.define('lizmap-catalog', Catalog);
+    window.customElements.define('lizmap-ai-assistant', AiAssistant);
+    window.customElements.define('lizmap-mapviews', MapViews);
+    window.customElements.define('lizmap-catalog-table', CatalogTable);
 
     /**
          * At this point the user interface is fully loaded.
@@ -130,6 +141,8 @@ const definedCustomElements = () => {
          *     'lizmap.uicreated'
          * );
          */
+    initDockResizer();
+
     lizMap.mainEventDispatcher.dispatch('lizmap.uicreated');
 }
 

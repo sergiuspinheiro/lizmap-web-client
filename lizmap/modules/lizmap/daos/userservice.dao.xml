@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<dao xmlns="http://jelix.org/ns/dao/1.0">
+    <datasources>
+        <primarytable name="lizmap_user_service" realname="lizmap_user_service" primarykey="id" />
+    </datasources>
+    <record>
+        <property name="id" fieldname="id" datatype="serial" required="true"/>
+        <property name="login" fieldname="usr_login" datatype="text" required="true"/>
+        <property name="type" fieldname="stype" datatype="text" required="true"/>
+        <property name="url" fieldname="surl" datatype="text" required="true"/>
+        <property name="title" fieldname="stitle" datatype="text" required="true"/>
+    </record>
+    <factory>
+        <method name="findByUser" type="select">
+            <parameter name="login" />
+            <conditions>
+                <eq property="login" expr="$login" />
+            </conditions>
+            <order>
+                <orderitem property="title" way="asc" />
+            </order>
+        </method>
+        <method name="getByUserService" type="selectfirst">
+            <parameter name="login" />
+            <parameter name="type" />
+            <parameter name="url" />
+            <conditions>
+                <eq property="login" expr="$login" />
+                <eq property="type" expr="$type" />
+                <eq property="url" expr="$url" />
+            </conditions>
+        </method>
+    </factory>
+</dao>

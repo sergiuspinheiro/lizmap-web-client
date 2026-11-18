@@ -212,6 +212,7 @@ class lizMapCtrl extends jController
             'nominatim' => jUrl::get('lizmap~osm:nominatim'),
             'ign' => jUrl::get('lizmap~ign:address'),
             'edition' => jUrl::get('lizmap~edition:getFeature'),
+            'convert' => jUrl::get('lizmap~convert:index'),
             'editableFeatures' => jUrl::get('lizmap~edition:editableFeatures'),
             'unlinkChild' => jUrl::get('lizmap~edition:unlinkChild'),
             'permalink' => jUrl::getFull('view~map:index'),
@@ -301,6 +302,31 @@ class lizMapCtrl extends jController
 
         if (jAcl2::check('lizmap.admin.repositories.delete')) {
             $lizUrls['removeCache'] = jUrl::get('admin~maps:removeLayerCache');
+        }
+
+        // Map views (layer order and catalog layers) saved by connected users
+        if (jAuth::isConnected()) {
+            $lizUrls['mapViews'] = array(
+                'list' => jUrl::get('lizmap~mapview:index'),
+                'get' => jUrl::get('lizmap~mapview:get'),
+                'save' => jUrl::get('lizmap~mapview:save'),
+                'delete' => jUrl::get('lizmap~mapview:delete'),
+            );
+        }
+        // Files imported in the data catalog and saved in the user profile
+        if (jAuth::isConnected() && (new \Lizmap\App\ModulesConfig())->isEnabled('catalog')) {
+            \Lizmap\Import\UserImports::ensureInstalled();
+            $lizUrls['userImports'] = array(
+                'list' => jUrl::get('lizmap~userimport:index'),
+                'get' => jUrl::get('lizmap~userimport:get'),
+                'save' => jUrl::get('lizmap~userimport:save'),
+                'delete' => jUrl::get('lizmap~userimport:delete'),
+                'services' => jUrl::get('lizmap~userimport:services'),
+                'saveService' => jUrl::get('lizmap~userimport:saveService'),
+                'deleteService' => jUrl::get('lizmap~userimport:deleteService'),
+                // The temporary files kept in the browser are separated by user, without giving the login
+                'scope' => sha1('lizmap-import-'.jAuth::getUserSession()->login),
+            );
         }
 
         if (jAcl2::check('lizmap.admin.access') || jAcl2::check('lizmap.admin.server.information.view')) {

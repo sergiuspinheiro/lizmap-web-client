@@ -10,6 +10,7 @@ LABEL Description="Lizmap web client" Vendor="3liz.org" Version="23.02.0"
 
 RUN apk update && apk upgrade && \
     apk --no-cache add git fcgi \
+    gdal-tools \
     icu-data-full \
     php83 \
     php83-ctype \
