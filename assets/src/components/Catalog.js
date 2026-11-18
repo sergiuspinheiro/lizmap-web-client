@@ -2586,9 +2586,11 @@ export default class Catalog extends HTMLElement {
                         <ul>${data.highlights.map(item => this._highlightTemplate(project, layer, item))}</ul>` : ''}
                     ${data.suggestions?.length ? html`<h5>${lizDict['catalog.ai.suggestions']}</h5>
                         <ul>${data.suggestions.map(item => html`<li>${item}</li>`)}</ul>` : ''}
-                    <p class="catalog-ai-source">${data.statistics
-                        ? lizDict['catalog.ai.statistics'].replace('%s', data.statistics.features)
-                        : lizDict['catalog.ai.nostatistics']}</p>
+                    <p class="catalog-ai-source">${data.features?.rows
+                        ? lizDict['catalog.ai.features'].replace('%s', data.features.rows).replace('%r', data.features.read)
+                        : data.statistics
+                            ? lizDict['catalog.ai.statistics'].replace('%s', data.statistics.features)
+                            : lizDict['catalog.ai.nostatistics']}</p>
                 </div>` : ''}
         </div>`;
     }

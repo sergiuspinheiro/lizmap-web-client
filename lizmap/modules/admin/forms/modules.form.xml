@@ -52,6 +52,14 @@
     <input ref="maxFeatures" type="integer" minvalue="1" maxvalue="100000">
         <label locale="admin~modules.maxFeatures.label"/>
     </input>
+    <checkbox ref="sendFeatures" valueoncheck="on" valueonuncheck="off">
+        <label locale="admin~modules.sendFeatures.label"/>
+        <help locale="admin~modules.sendFeatures.help"/>
+    </checkbox>
+    <input ref="maxRows" type="integer" minvalue="1" maxvalue="2000">
+        <label locale="admin~modules.maxRows.label"/>
+        <help locale="admin~modules.maxRows.help"/>
+    </input>
     <input ref="requestsPerHour" type="integer" minvalue="1" maxvalue="10000">
         <label locale="admin~modules.requestsPerHour.label"/>
         <help locale="admin~modules.requestsPerHour.help"/>
