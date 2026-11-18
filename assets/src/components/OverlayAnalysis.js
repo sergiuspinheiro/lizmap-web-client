@@ -80,8 +80,12 @@ export default class OverlayAnalysis extends HTMLElement {
         });
         mainLizmap.map.addToolLayer(this._areaLayer);
 
-        this._drawnHandler = () => {
+        this._drawnHandler = (event) => {
             this._geometries = this._drawnGeometries().length;
+            // A geometry drawn: stop drawing, so that the map can be moved again
+            if (event?.type === 'digitizing.featureDrawn' && mainLizmap.digitizing?.context === 'overlay') {
+                setTimeout(() => { mainLizmap.digitizing.toolSelected = 'deactivate'; }, 0);
+            }
             this._render();
         };
         this._eventTypes = ['digitizing.featureDrawn', 'digitizing.editionEnds', 'digitizing.erase', 'digitizing.erase.all'];
@@ -107,13 +111,13 @@ export default class OverlayAnalysis extends HTMLElement {
         const walk = (item) => {
             if (item.type === 'group') {
                 const children = item.children.map(walk).filter(Boolean);
-                return children.length ? { name: item.name, title: item.wmsTitle || item.name, children } : null;
+                return children.length ? { name: item.name, title: item.layerConfig?.title || item.wmsTitle || item.name, children } : null;
             }
             const geometryType = item.layerConfig?.geometryType;
             if (!['point', 'line', 'polygon'].includes(geometryType)) {
                 return null;
             }
-            return { name: item.name, title: item.wmsTitle || item.name, geometryType };
+            return { name: item.name, title: item.layerConfig?.title || item.wmsTitle || item.name, geometryType };
         };
         return walk(mainLizmap.state.layerTree) || { name: '', title: '', children: [] };
     }
@@ -154,7 +158,20 @@ export default class OverlayAnalysis extends HTMLElement {
             ...extra,
         });
         const response = await fetch(url, { method: 'POST', body: params });
-        const data = await response.json().catch(() => ({}));
+        const text = await response.text();
+        let data = {};
+        try {
+            data = JSON.parse(text);
+        } catch {
+            // Not a JSON answer, e.g. an error page of the server
+            console.error('Overlay analysis: answer of the server', response.status, text.slice(0, 2000));
+            data = { error: response.ok ? lizDict['overlay.error.answer'] : '' };
+            if (response.ok) {
+                const error = new Error(data.error);
+                error.reason = 'error';
+                throw error;
+            }
+        }
         if (!response.ok) {
             const error = new Error(data.error || response.statusText);
             error.reason = data.reason || ({ 504: 'timeout', 429: 'busy', 401: 'login' })[response.status] || 'error';
@@ -186,10 +203,16 @@ export default class OverlayAnalysis extends HTMLElement {
         this._ai = { loading: false, data: null, error: null };
         this._render();
         try {
-            this._result = await this._post(this.getAttribute('url'));
+            const result = await this._post(this.getAttribute('url'));
+            if (!result?.area || !Array.isArray(result.layers)) {
+                console.error('Overlay analysis: unexpected answer', result);
+                throw new Error(lizDict['overlay.error.answer']);
+            }
+            this._result = result;
             this._showResultArea();
         } catch (error) {
-            this._error = error.message;
+            console.error(error);
+            this._error = error.message || lizDict['overlay.error.answer'];
             this._result = null;
         }
         this._loading = false;
@@ -466,6 +489,18 @@ export default class OverlayAnalysis extends HTMLElement {
     }
 
     _render() {
+        try {
+            this._renderPanel();
+        } catch (error) {
+            // Never a blank panel: show the error
+            console.error(error);
+            this._result = null;
+            this._error = (lizDict['overlay.error.answer'] || 'Error') + ' (' + error.message + ')';
+            this._renderPanel();
+        }
+    }
+
+    _renderPanel() {
         const leaves = this._leaves(this._tree);
         const count = leaves.filter(leaf => this._selected.has(leaf.name)).length;
         render(html`
