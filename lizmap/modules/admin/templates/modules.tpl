@@ -26,9 +26,8 @@
       <th>{@admin~modules.apiKey.label@}</th>
       <td>
         <p>{if $hasApiKey}<span class="badge text-bg-success">{@admin~modules.apiKey.saved@}</span>{else}<span class="badge text-bg-secondary">{@admin~modules.apiKey.none@}</span>{/if}</p>
-        {formcontrols array('apiKey', 'removeApiKey')}
-          <div class="mb-2">{ctrl_control}{if $ctrlref == 'removeApiKey'} {ctrl_label}{/if}</div>
-        {/formcontrols}
+        <div class="mb-2">{ctrl_control 'apiKey'}</div>
+        <div class="mb-2">{ctrl_control 'removeApiKey'} {ctrl_label 'removeApiKey'}</div>
       </td>
     </tr>
     {formcontrols array('allowAnonymous', 'sendStatistics', 'maxFeatures', 'sendFeatures', 'maxRows', 'requestsPerHour')}
