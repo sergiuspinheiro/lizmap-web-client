@@ -40,6 +40,15 @@ class catalog_servicesCtrl extends jController
         if ($id !== '') {
             $edit = $store->get($id);
         }
+        // A service of an ArcGIS directory, with the availability of the directory
+        $from = $store->get((string) $this->param('from', ''));
+        $pick = $this->intParam('pick');
+        if ($from && $pick !== null && isset($from['test']['services'][$pick])) {
+            $picked = $from['test']['services'][$pick];
+            $edit = array('id' => '', 'type' => 'arcgis', 'url' => $picked['url'], 'title' => $picked['title'],
+                'description' => $from['description'], 'access' => $from['access'],
+                'groups' => $from['groups'], 'users' => $from['users']);
+        }
         // Keep the values of a form with errors
         if (!empty($_SESSION['lizmapSharedServiceForm'])) {
             $edit = $_SESSION['lizmapSharedServiceForm'];
@@ -56,6 +65,8 @@ class catalog_servicesCtrl extends jController
                 return $groups[$group] ?? $group;
             }, $service['groups']));
             $service['usersText'] = implode(', ', $service['users']);
+            $service['layerCount'] = count($service['test']['layers'] ?? array());
+            $service['serviceCount'] = count($service['test']['services'] ?? array());
         }
         unset($service);
         $edit = $edit ?? array(
@@ -204,15 +215,34 @@ class catalog_servicesCtrl extends jController
     {
         try {
             list($body, $contentType, $code) = Proxy::getRemoteData(SharedServices::testUrl($service['type'], $service['url']));
-            $result = SharedServices::checkResponse($service['type'], (int) $code, (string) $contentType, (string) $body);
+            $result = SharedServices::checkResponse($service['type'], (int) $code, (string) $contentType, (string) $body, $service['url']);
+            // The services of the folders of an ArcGIS directory
+            foreach (array_slice($result['folders'] ?? array(), 0, 20) as $folder) {
+                $folderUrl = SharedServices::arcgisFolderUrl($service['url'], $folder);
+                if ($folderUrl === null) {
+                    continue;
+                }
+                list($body, , $code) = Proxy::getRemoteData($folderUrl);
+                $data = json_decode((string) $body, true);
+                if ((int) $code === 200 && is_array($data)) {
+                    $result['services'] = array_merge($result['services'], SharedServices::arcgisServices($data, $service['url']));
+                }
+            }
+            if (isset($result['folders'])) {
+                $result['message'] = 'Directory: '.count($result['services']).' service(s)';
+            }
         } catch (\Throwable $e) {
             $result = array('ok' => false, 'message' => $e->getMessage());
         }
         $store->setTest($service['id'], $result);
-        jMessage::add(
-            jLocale::get('admin~catalog_services.test.'.($result['ok'] ? 'ok' : 'error'), array($service['title'], $result['message'])),
-            $result['ok'] ? 'info' : 'warning'
-        );
+        if (isset($result['folders'])) {
+            jMessage::add(jLocale::get('admin~catalog_services.test.directory', array($service['title'], count($result['services']))), 'warning');
+        } else {
+            jMessage::add(
+                jLocale::get('admin~catalog_services.test.'.($result['ok'] ? 'ok' : 'error'), array($service['title'], $result['message'])),
+                $result['ok'] ? 'info' : 'warning'
+            );
+        }
     }
 
     /**
