@@ -489,6 +489,8 @@ export default class Catalog extends HTMLElement {
     openSavedService(saved) {
         this._ext.type = saved.type;
         this._ext.url = saved.url;
+        // The title given when the service was saved or shared
+        this._ext.savedTitle = saved.title || '';
         return this.readExternalService();
     }
 
@@ -547,7 +549,10 @@ export default class Catalog extends HTMLElement {
         this._render();
         try {
             this._ext.service = await readService(type, url);
-            if (this._ext.service.layers.length === 0) {
+            if (this._ext.savedTitle) {
+                this._ext.service.title = this._ext.savedTitle;
+            }
+            if (this._ext.service.layers.length === 0 && !this._ext.service.services?.length) {
                 lizMap.addMessage(lizDict['catalog.external.nolayer'], 'warning', true);
             }
         } catch (error) {
@@ -679,6 +684,7 @@ export default class Catalog extends HTMLElement {
                 list.push({
                     type: entry.type,
                     url: entry.url,
+                    serviceTitle: entry.title,
                     layer: item.name === 'layer' ? '' : item.name,
                     title: item.wmsTitle,
                     opacity: item.opacity,
@@ -709,7 +715,12 @@ export default class Catalog extends HTMLElement {
             const key = this._serviceKey(item.type, item.url);
             try {
                 if (!services.has(key)) {
-                    services.set(key, await readService(item.type, item.url));
+                    const service = await readService(item.type, item.url);
+                    // Keep the title of a saved or shared service
+                    if (typeof item.serviceTitle === 'string' && item.serviceTitle.trim()) {
+                        service.title = item.serviceTitle.trim().substring(0, 200);
+                    }
+                    services.set(key, service);
                 }
                 this.addExternalLayer(item.type, item.url, item.layer || '', item.title || item.layer, services.get(key), {
                     style: typeof item.style === 'string' ? item.style : '',
@@ -742,7 +753,7 @@ export default class Catalog extends HTMLElement {
                     <input type="url" class="catalog-external-url form-control form-control-sm"
                         placeholder="${lizDict['catalog.external.url.' + ext.type] || lizDict['catalog.external.url']}"
                         .value=${ext.url}
-                        @input=${(e) => { ext.url = e.target.value; }}
+                        @input=${(e) => { ext.url = e.target.value; ext.savedTitle = ''; }}
                         @keydown=${(e) => { if (e.key === 'Enter') { this.readExternalService(); } }}>
                     <button type="button" class="btn btn-sm catalog-external-load" ?disabled=${ext.loading}
                         @click=${() => this.readExternalService()}>${lizDict['catalog.external.load']}</button>
@@ -753,6 +764,19 @@ export default class Catalog extends HTMLElement {
                 </div>
             </div>
             ${ext.loading ? html`<p class="catalog-loading">${lizDict['catalog.loading']}</p>` : ''}
+            ${service?.services?.length ? html`
+                <ul class="catalog-layers catalog-external-directory">
+                    ${service.services.filter(item => this._match(item.title, item.url)).map(item => html`
+                        <li class="catalog-layer">
+                            <span class="catalog-layer-title" title="${item.url}">
+                                <i class="${item.folder ? 'icon-folder-close' : 'icon-globe'}"></i> ${item.title}</span>
+                            <span class="catalog-layer-actions">
+                                <button type="button" class="btn btn-sm" title="${lizDict['catalog.external.load']}"
+                                    @click=${() => this.openSavedService({ type: ext.type, url: item.url, title: item.folder ? '' : item.title.replace(/ \((FeatureServer|MapServer)\)$/, '') })}>
+                                    <i class="icon-folder-open"></i></button>
+                            </span>
+                        </li>`)}
+                </ul>` : ''}
             ${service ? html`
                 <ul class="catalog-layers">
                     ${service.layers.filter(l => this._match(l.title, l.name)).map(l => {
