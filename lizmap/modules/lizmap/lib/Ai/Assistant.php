@@ -113,6 +113,9 @@ class Assistant
             'allowAnonymous' => $bool($config['allowAnonymous'] ?? null, false),
             'sendStatistics' => $bool($config['sendStatistics'] ?? null, true),
             'maxFeatures' => max(1, (int) ($config['maxFeatures'] ?? 1000)),
+            // The features themselves leave the server only to a local model, unless set
+            'sendFeatures' => $bool($config['sendFeatures'] ?? null, $provider === 'ollama'),
+            'maxRows' => max(1, (int) ($config['maxRows'] ?? 100)),
         );
     }
 
@@ -167,6 +170,24 @@ class Assistant
     public function canAnalyse()
     {
         return $this->config['sendStatistics'];
+    }
+
+    /**
+     * Can the layer analysis send the features themselves (attributes and position).
+     *
+     * @return bool
+     */
+    public function canSendFeatures()
+    {
+        return $this->config['sendFeatures'];
+    }
+
+    /**
+     * @return int maximum number of features sent to the assistant
+     */
+    public function maxRows()
+    {
+        return $this->config['maxRows'];
     }
 
     /**
@@ -316,10 +337,11 @@ EOT;
      * @param null|array $statistics the attributes statistics, from LayerStatistics::toArray()
      * @param string     $question   optional user question about the layer
      * @param string     $language   the user interface language, e.g. pt_PT
+     * @param null|array $sample     the features, from FeatureSample::toArray(), when they can be sent
      *
-     * @return array{answer: string, highlights: list<string>, suggestions: list<string>}
+     * @return array{answer: string, feature: string, highlights: list<array>, suggestions: list<string>}
      */
-    public function analyse(array $layer, $statistics, $question, $language)
+    public function analyse(array $layer, $statistics, $question, $language, $sample = null)
     {
         $system = <<<'EOT'
 You help the users of a web map application understand a geographic data layer.
@@ -329,7 +351,10 @@ The statistics may cover only the first features of the layer: say so when "feat
 Describe what the layer contains and what stands out (data quality, distribution, outliers), then suggest
 a few analyses or filters that the user could do with the map. Be concrete and short.
 Answer the user question when there is one.
-You do not see the features themselves: never guess where a feature is, nor its attributes, from the layer name or title.
+You may receive a sample of the features, as a table (one feature by line, values separated by " | ",
+lon and lat are the position of the feature in WGS 84): use it to answer, quote the values found in it,
+and say when the answer may be in features that are not in the sample ("rows" less than "read").
+Without the feature you need, never guess where a feature is, nor its attributes, from the layer name or title.
 When the question is about a feature (e.g. "where is X?"), give in "feature" the name or value of this feature as written
 in the question, e.g. "Lapa Furada", and say that the button below the answer shows it on the map; else "feature" is empty.
 A highlight about one feature or a group of features (a place, a site, a value of a field) gives in "feature"
@@ -378,6 +403,15 @@ EOT;
         $content = array(
             array('type' => 'text', 'text' => "<layer>\n".json_encode($input, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)."\n</layer>"),
         );
+        if (is_array($sample) && ($sample['table'] ?? '') !== '') {
+            $content[] = array('type' => 'text', 'text' => sprintf(
+                "<features read=\"%d\" rows=\"%d\" matching_question=\"%d\">\n%s\n</features>",
+                $sample['read'],
+                $sample['rows'],
+                $sample['matched'],
+                $sample['table'],
+            ));
+        }
         if (trim((string) $question) !== '') {
             $content[] = array('type' => 'text', 'text' => "<question>\n".$question."\n</question>");
         }
@@ -506,7 +540,7 @@ EOT;
      *
      * @return array<string, true> the stems as keys
      */
-    protected static function stems($text)
+    public static function stems($text)
     {
         $text = mb_strtolower((string) $text);
         if (function_exists('iconv')) {

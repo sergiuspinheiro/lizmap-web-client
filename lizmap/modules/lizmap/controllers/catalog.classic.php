@@ -16,6 +16,7 @@ use JsonMachine\Items as JsonMachineItems;
 use Lizmap\Ai\Assistant;
 use Lizmap\Ai\AssistantException;
 use Lizmap\Ai\FeatureLocator;
+use Lizmap\Ai\FeatureSample;
 use Lizmap\Ai\LayerStatistics;
 use Lizmap\App\ModulesConfig;
 use Lizmap\Request\WFSRequest;
@@ -281,7 +282,11 @@ class catalogCtrl extends jController
         );
 
         $statistics = null;
-        if ($assistant->canAnalyse() && $layer['attributeTable']) {
+        $sample = null;
+        if ($assistant->canSendFeatures()) {
+            // The features themselves (e.g. to a local model): read once for both
+            list($statistics, $sample) = $this->layerFeatures($project, $layer, $assistant, $question);
+        } elseif ($assistant->canAnalyse() && $layer['attributeTable']) {
             $statistics = $this->layerStatistics($project, $layer, $assistant->maxFeatures());
         }
 
@@ -290,8 +295,9 @@ class catalogCtrl extends jController
         session_write_close();
 
         try {
-            $rep->data = $assistant->analyse($entry, $statistics, $question, jLocale::getCurrentLocale());
+            $rep->data = $assistant->analyse($entry, $statistics, $question, jLocale::getCurrentLocale(), $sample);
             $rep->data['statistics'] = $statistics;
+            $rep->data['features'] = $sample ? array('rows' => $sample['rows'], 'read' => $sample['read']) : null;
             // The feature asked about: found on the map, so that the user can zoom to it
             $rep->data['location'] = null;
             if ($rep->data['feature'] !== '' && $layer['geometryType'] !== 'none') {
@@ -464,6 +470,60 @@ class catalogCtrl extends jController
         $rep->data = $location;
 
         return $rep;
+    }
+
+    /**
+     * Read the features of a layer, for both the statistics and the sample sent to the assistant.
+     *
+     * @param \Lizmap\Project\Project $project   the project
+     * @param array                   $layer     the layer, from projectLayers()
+     * @param Assistant               $assistant the assistant
+     * @param string                  $question  the user question, its features come first
+     *
+     * @return array{0: null|array, 1: null|array} the statistics and the sample, null if the layer cannot be read
+     */
+    protected function layerFeatures($project, $layer, $assistant, $question)
+    {
+        $maxFeatures = $assistant->maxFeatures();
+        $params = array(
+            'SERVICE' => 'WFS',
+            'VERSION' => '1.0.0',
+            'REQUEST' => 'GetFeature',
+            'TYPENAME' => $layer['typeName'],
+            'OUTPUTFORMAT' => 'GeoJSON',
+            'MAXFEATURES' => (string) $maxFeatures,
+        );
+        if ($layer['geometryType'] === 'none') {
+            $params['GEOMETRYNAME'] = 'none';
+        } else {
+            $params['SRSNAME'] = 'EPSG:4326';
+        }
+
+        try {
+            $request = new WFSRequest($project, $params, lizmap::getServices());
+            $result = $request->process();
+            if ($result->getCode() >= 400 || !str_contains(strtolower($result->getMime()), 'json')) {
+                return array(null, null);
+            }
+            $stream = Psr7StreamWrapper::getResource($result->getBodyAsStream());
+            $features = JsonMachineItems::fromStream($stream, array('pointer' => '/features'));
+            $statistics = new LayerStatistics();
+            $sample = new FeatureSample($question, $assistant->maxRows());
+            foreach ($features as $feature) {
+                if ($sample->count() >= $maxFeatures) {
+                    break;
+                }
+                $feature = json_decode(json_encode($feature), true);
+                $statistics->add($feature['properties'] ?? array());
+                $sample->add($feature);
+            }
+
+            return array($statistics->toArray(), $sample->toArray());
+        } catch (\Throwable $e) {
+            jLog::logEx($e, 'error');
+
+            return array(null, null);
+        }
     }
 
     /**

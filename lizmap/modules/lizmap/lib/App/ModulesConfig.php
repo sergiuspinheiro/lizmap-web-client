@@ -29,7 +29,7 @@ class ModulesConfig
     public const MODULES = array('catalog', 'layerCompare', 'aiAssistant');
 
     /** Settings of the AI assistant editable in the administration */
-    public const AI_SETTINGS = array('provider', 'model', 'url', 'allowAnonymous', 'sendStatistics', 'maxFeatures', 'requestsPerHour');
+    public const AI_SETTINGS = array('provider', 'model', 'url', 'allowAnonymous', 'sendStatistics', 'sendFeatures', 'maxFeatures', 'maxRows', 'requestsPerHour');
 
     /** Default number of requests to the AI assistant by user and hour */
     public const DEFAULT_REQUESTS_PER_HOUR = 60;
@@ -180,6 +180,9 @@ class ModulesConfig
             'allowAnonymous' => $bool($ai['allowAnonymous'] ?? null, false),
             'sendStatistics' => $bool($ai['sendStatistics'] ?? null, true),
             'maxFeatures' => (string) ($ai['maxFeatures'] ?? '1000'),
+            // By default, the features are sent to a local model only
+            'sendFeatures' => $bool($ai['sendFeatures'] ?? null, ($ai['provider'] ?? \Lizmap\Ai\Assistant::DEFAULT_PROVIDER) === 'ollama'),
+            'maxRows' => (string) ($ai['maxRows'] ?? '100'),
             'requestsPerHour' => (string) $this->requestsPerHour(),
             'quotaSize' => (string) ($import['quotaSize'] ?? '20'),
             'quotaLayers' => (string) ($import['quotaLayers'] ?? '20'),
@@ -221,6 +224,7 @@ class ModulesConfig
         }
         $numbers = array(
             'maxFeatures' => array(1, 100000),
+            'maxRows' => array(1, 2000),
             'requestsPerHour' => array(1, 10000),
             'quotaSize' => array(1, 10000),
             'quotaLayers' => array(1, 10000),
@@ -245,6 +249,8 @@ class ModulesConfig
             'allowAnonymous' => !empty($data['allowAnonymous']) ? 'on' : 'off',
             'sendStatistics' => !empty($data['sendStatistics']) ? 'on' : 'off',
             'maxFeatures' => $values['maxFeatures'],
+            'sendFeatures' => !empty($data['sendFeatures']) ? 'on' : 'off',
+            'maxRows' => $values['maxRows'],
             'requestsPerHour' => $values['requestsPerHour'],
             // The key is not displayed: an empty field keeps the saved one
             'apiKey' => !empty($data['removeApiKey']) ? '' : ($apiKey !== '' ? $apiKey : ($current['apiKey'] ?? '')),

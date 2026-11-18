@@ -74,3 +74,8 @@
 ;sendStatistics=on
 ;; number of features read for the statistics
 ;maxFeatures=1000
+;; send the features themselves (attributes and position) for the layer analysis,
+;; on by default with ollama only: the data does not leave the server
+;sendFeatures=
+;; maximum number of features sent for an analysis
+;maxRows=100
