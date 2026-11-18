@@ -116,6 +116,8 @@ class Assistant
             // The features themselves leave the server only to a local model, unless set
             'sendFeatures' => $bool($config['sendFeatures'] ?? null, $provider === 'ollama'),
             'maxRows' => max(1, (int) ($config['maxRows'] ?? 100)),
+            // Context window of a local model, in tokens: the memory used grows with it
+            'contextLength' => max(2048, (int) ($config['contextLength'] ?? 8192)),
         );
     }
 
@@ -188,6 +190,36 @@ class Assistant
     public function maxRows()
     {
         return $this->config['maxRows'];
+    }
+
+    /**
+     * @return int context window of a local model, in tokens
+     */
+    public function contextLength()
+    {
+        return $this->config['contextLength'];
+    }
+
+    /**
+     * Maximum length of the texts sent with a layer analysis, so that they fit
+     * the context window of a local model.
+     *
+     * @param bool $withDocuments are linked documents sent too
+     *
+     * @return array{features: int, documents: int} the maximum number of characters
+     */
+    public function analysisBudget($withDocuments)
+    {
+        if ($this->config['provider'] !== 'ollama') {
+            return array('features' => $withDocuments ? 8000 : 12000, 'documents' => 30000);
+        }
+        // About 3 characters by token, without the instructions, metadata and answer
+        $total = max(2000, ($this->config['contextLength'] - 1500) * 3);
+
+        return array(
+            'features' => min($withDocuments ? 8000 : 12000, $withDocuments ? intdiv($total, 2) : $total),
+            'documents' => min(8000, intdiv($total, 2)),
+        );
     }
 
     /**
@@ -707,7 +739,7 @@ EOT;
                     'format' => $schema,
                     // Room for the short catalog, and a bounded answer: a model
                     // that does not stop would block the request until the timeout
-                    'options' => array('num_ctx' => 8192, 'num_predict' => 600),
+                    'options' => array('num_ctx' => $this->config['contextLength'], 'num_predict' => 600),
                     // Keep the model in memory between the questions
                     'keep_alive' => '30m',
                     'messages' => array(
