@@ -381,6 +381,57 @@ class catalogCtrl extends jController
     }
 
     /**
+     * Add to the catalog index the documents linked to the layers (regulations...),
+     * with the titles of their articles, so that the search can find the layers by them.
+     *
+     * @param list<array> $index the layers
+     *
+     * @return list<array> the layers
+     */
+    protected function withDocuments(array $index)
+    {
+        $store = new DocumentStore(jApp::varPath('documents/'));
+        $links = $store->links();
+        if (count($links) === 0) {
+            return $index;
+        }
+        $collections = $store->collections();
+        $titles = array();
+        foreach ($index as &$entry) {
+            $documents = array();
+            foreach ($links as $link) {
+                if ($link['repository'] !== $entry['repositoryKey'] || $link['project'] !== $entry['project']
+                    || ($link['layer'] !== '' && $link['layer'] !== $entry['name'])) {
+                    continue;
+                }
+                $collection = $link['collection'];
+                if (!isset($titles[$collection])) {
+                    // The titles of the articles or sections, once each
+                    $titles[$collection] = array();
+                    foreach ($store->parts($collection) as $number => $part) {
+                        if ($part['title'] !== '' && empty($part['revoked'])) {
+                            $titles[$collection][$part['title']] = $number;
+                        }
+                    }
+                }
+                $parts = $titles[$collection];
+                if ($link['parts']) {
+                    $parts = array_intersect($parts, $link['parts']);
+                }
+                $documents[] = ($collections[$collection]['title'] ?? $collection)
+                    .($link['value'] !== '' ? ' ('.$link['value'].')' : '')
+                    .': '.implode(', ', array_keys($parts));
+            }
+            if ($documents) {
+                $entry['documents'] = mb_substr(implode('; ', $documents), 0, 3000);
+            }
+        }
+        unset($entry);
+
+        return $index;
+    }
+
+    /**
      * The catalog index, cached for some minutes by user: reading every
      * project of the server is long.
      *
@@ -402,7 +453,7 @@ class catalogCtrl extends jController
         } catch (\Exception $e) {
             // No cache: read the projects
         }
-        $index = $this->catalogIndex();
+        $index = $this->withDocuments($this->catalogIndex());
 
         try {
             jCache::set($key, json_encode($index), 900);
