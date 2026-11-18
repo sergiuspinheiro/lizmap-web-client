@@ -75,7 +75,7 @@ class catalogCtrl extends jController
             );
         }
 
-        $rep->data = array('repositories' => $repositories);
+        $rep->data = array('repositories' => $repositories, 'services' => $this->sharedServices());
 
         return $rep;
     }
@@ -748,5 +748,24 @@ class catalogCtrl extends jController
         $rep->data = array('error' => $message);
 
         return $rep;
+    }
+
+    /**
+     * External services offered to the current user by the administrator.
+     *
+     * @return list<array> the services
+     */
+    protected function sharedServices()
+    {
+        try {
+            $login = jAuth::isConnected() ? jAuth::getUserSession()->login : null;
+            $groups = $login !== null ? jAcl2DbUserGroup::getGroups() : array();
+
+            return (new \Lizmap\Import\SharedServices())->forUser($login, $groups);
+        } catch (\Throwable $e) {
+            jLog::log('Shared external services: '.$e->getMessage(), 'lizmapadmin');
+
+            return array();
+        }
     }
 }
