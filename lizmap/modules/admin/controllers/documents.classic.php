@@ -67,7 +67,7 @@ class documentsCtrl extends jController
         $store = $this->store();
         $collection = $store->collection((string) $this->param('id'));
         if (!$collection) {
-            return $this->redirect('admin~documents:index');
+            return $this->toAction('admin~documents:index');
         }
         $links = array();
         foreach ($store->links() as $link) {
@@ -102,7 +102,7 @@ class documentsCtrl extends jController
         $store = $this->store();
         $collection = $store->collection((string) $this->param('collection'));
         if (!$collection) {
-            return $this->redirect('admin~documents:index');
+            return $this->toAction('admin~documents:index');
         }
         $documentId = (string) $this->param('document', '');
         $document = null;
@@ -113,7 +113,7 @@ class documentsCtrl extends jController
                 }
             }
             if (!$document) {
-                return $this->redirect('admin~documents:collection', array('id' => $collection['id']));
+                return $this->toAction('admin~documents:collection', array('id' => $collection['id']));
             }
             $parts = $document['parts'];
         } else {
@@ -160,7 +160,7 @@ class documentsCtrl extends jController
             }
         }
 
-        return $this->redirect('admin~documents:index');
+        return $this->toAction('admin~documents:index');
     }
 
     /**
@@ -171,13 +171,13 @@ class documentsCtrl extends jController
     public function saveCollection()
     {
         if (!$this->checkToken()) {
-            return $this->redirect('admin~documents:index');
+            return $this->toAction('admin~documents:index');
         }
         $title = trim((string) $this->param('title', ''));
         if ($title === '') {
             jMessage::add(jLocale::get('admin~documents.error.title'), 'error');
 
-            return $this->redirect('admin~documents:index');
+            return $this->toAction('admin~documents:index');
         }
         $id = $this->store()->saveCollection(array(
             'id' => (string) $this->param('id', ''),
@@ -186,7 +186,7 @@ class documentsCtrl extends jController
             'description' => mb_substr((string) $this->param('description', ''), 0, 2000),
         ));
 
-        return $this->redirect('admin~documents:collection', array('id' => $id));
+        return $this->toAction('admin~documents:collection', array('id' => $id));
     }
 
     /**
@@ -201,7 +201,7 @@ class documentsCtrl extends jController
             jMessage::add(jLocale::get('admin~documents.deleted'), 'info');
         }
 
-        return $this->redirect('admin~documents:index');
+        return $this->toAction('admin~documents:index');
     }
 
     /**
@@ -213,18 +213,18 @@ class documentsCtrl extends jController
     {
         $collectionId = (string) $this->param('collection');
         if (!$this->checkToken()) {
-            return $this->redirect('admin~documents:collection', array('id' => $collectionId));
+            return $this->toAction('admin~documents:collection', array('id' => $collectionId));
         }
         $file = $_FILES['file'] ?? null;
         if (!is_array($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !is_uploaded_file($file['tmp_name'])) {
             jMessage::add(jLocale::get('admin~documents.error.file'), 'error');
 
-            return $this->redirect('admin~documents:collection', array('id' => $collectionId));
+            return $this->toAction('admin~documents:collection', array('id' => $collectionId));
         }
         if ($file['size'] > self::MAX_FILE_SIZE) {
             jMessage::add(jLocale::get('admin~documents.error.size'), 'error');
 
-            return $this->redirect('admin~documents:collection', array('id' => $collectionId));
+            return $this->toAction('admin~documents:collection', array('id' => $collectionId));
         }
 
         try {
@@ -242,7 +242,7 @@ class documentsCtrl extends jController
             jMessage::add(jLocale::get('admin~documents.error.read').' ('.$e->getMessage().')', 'error');
         }
 
-        return $this->redirect('admin~documents:collection', array('id' => $collectionId));
+        return $this->toAction('admin~documents:collection', array('id' => $collectionId));
     }
 
     /**
@@ -262,7 +262,7 @@ class documentsCtrl extends jController
             jMessage::add(jLocale::get('admin~documents.saved'), 'info');
         }
 
-        return $this->redirect('admin~documents:document', array('collection' => $collectionId, 'document' => $documentId));
+        return $this->toAction('admin~documents:document', array('collection' => $collectionId, 'document' => $documentId));
     }
 
     /**
@@ -278,7 +278,7 @@ class documentsCtrl extends jController
             jMessage::add(jLocale::get('admin~documents.deleted'), 'info');
         }
 
-        return $this->redirect('admin~documents:collection', array('id' => $collectionId));
+        return $this->toAction('admin~documents:collection', array('id' => $collectionId));
     }
 
     /**
@@ -298,7 +298,7 @@ class documentsCtrl extends jController
             ), $number);
             jMessage::add(jLocale::get('admin~documents.saved'), 'info');
         }
-        $rep = $this->redirect('admin~documents:document', array('collection' => $collectionId, 'document' => $documentId));
+        $rep = $this->toAction('admin~documents:document', array('collection' => $collectionId, 'document' => $documentId));
         $rep->anchor = 'part-'.preg_replace('/[^A-Za-z0-9-]/', '', $number);
 
         return $rep;
@@ -313,14 +313,14 @@ class documentsCtrl extends jController
     {
         $collectionId = (string) $this->param('collection');
         if (!$this->checkToken()) {
-            return $this->redirect('admin~documents:collection', array('id' => $collectionId));
+            return $this->toAction('admin~documents:collection', array('id' => $collectionId));
         }
         $map = explode('~', (string) $this->param('map', ''), 2);
         $layer = trim((string) $this->param('layer', ''));
         if (count($map) !== 2 || $map[0] === '' || $map[1] === '') {
             jMessage::add(jLocale::get('admin~documents.error.map'), 'error');
 
-            return $this->redirect('admin~documents:collection', array('id' => $collectionId));
+            return $this->toAction('admin~documents:collection', array('id' => $collectionId));
         }
 
         try {
@@ -339,7 +339,7 @@ class documentsCtrl extends jController
             jMessage::add($e->getMessage(), 'error');
         }
 
-        return $this->redirect('admin~documents:collection', array('id' => $collectionId));
+        return $this->toAction('admin~documents:collection', array('id' => $collectionId));
     }
 
     /**
@@ -355,7 +355,7 @@ class documentsCtrl extends jController
             jMessage::add(jLocale::get('admin~documents.deleted'), 'info');
         }
 
-        return $this->redirect('admin~documents:collection', array('id' => $collectionId));
+        return $this->toAction('admin~documents:collection', array('id' => $collectionId));
     }
 
     /**
@@ -394,7 +394,7 @@ class documentsCtrl extends jController
      *
      * @return jResponseRedirect
      */
-    protected function redirect($action, array $params = array())
+    protected function toAction($action, array $params = array())
     {
         /** @var jResponseRedirect $rep */
         $rep = $this->getResponse('redirect');
