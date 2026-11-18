@@ -251,6 +251,18 @@ class AssistantTest extends TestCase
         $this->assertCount(0, $result['results']);
         $this->assertEquals('No layer matches the request because it is too generic.', $result['answer']);
     }
+    public function testAnalysisBudget(): void
+    {
+        $this->assertEquals(array('features' => 12000, 'documents' => 30000), (new Assistant(array('provider' => 'gemini')))->analysisBudget(false));
+        $local = new Assistant(array('provider' => 'ollama'));
+        $this->assertEquals(8192, $local->contextLength());
+        $this->assertEquals(array('features' => 8000, 'documents' => 8000), $local->analysisBudget(true));
+        $small = new Assistant(array('provider' => 'ollama', 'contextLength' => '4096'));
+        $this->assertEquals(array('features' => 7788, 'documents' => 3894), $small->analysisBudget(false));
+        $this->assertEquals(3894, $small->analysisBudget(true)['features']);
+        $this->assertEquals(2048, (new Assistant(array('contextLength' => '100')))->contextLength());
+    }
+
     public function testAnalyseWithFeatures(): void
     {
         $assistant = new AssistantForTests(array('enabled' => 'on', 'provider' => 'ollama'));
