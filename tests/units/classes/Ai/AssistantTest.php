@@ -307,6 +307,20 @@ class AssistantTest extends TestCase
         $this->assertEquals('gemma3:4b', $assistant->requests[0]['model']);
     }
 
+    public function testModelList(): void
+    {
+        $models = Assistant::modelList(array('models' => array(
+            array('name' => 'qwen3:1.7b', 'size' => 1359000000, 'details' => array('parameter_size' => '2.0B')),
+            array('model' => 'gemma3:4b'),
+            array('size' => 1),
+        )));
+        $this->assertEquals(array(
+            array('name' => 'gemma3:4b', 'label' => 'gemma3:4b'),
+            array('name' => 'qwen3:1.7b', 'label' => 'qwen3:1.7b (2.0B, 1.4 GB)'),
+        ), $models);
+        $this->assertNull((new Assistant(array('provider' => 'claude')))->installedModels());
+    }
+
     public function testAnalysisBudget(): void
     {
         $this->assertEquals(array('features' => 12000, 'documents' => 30000), (new Assistant(array('provider' => 'gemini')))->analysisBudget(false));

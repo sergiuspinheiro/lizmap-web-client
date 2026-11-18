@@ -855,6 +855,55 @@ EOT;
     }
 
     /**
+     * The models installed in the local Ollama service.
+     *
+     * @param int $timeout timeout in seconds
+     *
+     * @return null|list<array{name: string, label: string}> the models, null if not Ollama or not reachable
+     */
+    public function installedModels($timeout = 3)
+    {
+        if ($this->config['provider'] !== 'ollama') {
+            return null;
+        }
+
+        try {
+            $response = (new \GuzzleHttp\Client(array('timeout' => $timeout)))->get($this->config['url'].'/api/tags');
+            $data = json_decode((string) $response->getBody(), true);
+        } catch (\Throwable $e) {
+            return null;
+        }
+
+        return self::modelList(is_array($data) ? $data : array());
+    }
+
+    /**
+     * The models of an answer of the Ollama API /api/tags.
+     *
+     * @param array $data the decoded answer
+     *
+     * @return list<array{name: string, label: string}> the models, sorted by name
+     */
+    public static function modelList(array $data)
+    {
+        $models = array();
+        foreach ((array) ($data['models'] ?? array()) as $model) {
+            $name = (string) ($model['name'] ?? ($model['model'] ?? ''));
+            if ($name === '') {
+                continue;
+            }
+            $details = array_filter(array(
+                (string) ($model['details']['parameter_size'] ?? ''),
+                isset($model['size']) && is_numeric($model['size']) ? round($model['size'] / 1e9, 1).' GB' : '',
+            ));
+            $models[$name] = array('name' => $name, 'label' => $name.($details ? ' ('.implode(', ', $details).')' : ''));
+        }
+        ksort($models, SORT_NATURAL);
+
+        return array_values($models);
+    }
+
+    /**
      * POST a JSON request, and decode the JSON answer.
      *
      * @param string                $url     the URL

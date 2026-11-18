@@ -46,6 +46,11 @@ class modulesCtrl extends jController
         $tpl = new jTpl();
         $tpl->assign('form', $form);
         $tpl->assign('hasApiKey', $config->hasApiKey());
+        // The models installed in Ollama, to choose one
+        $models = (new \Lizmap\Ai\Assistant($config->aiConfig()))->installedModels();
+        $tpl->assign('isOllama', $models !== null || ($config->aiConfig()['provider'] ?? '') === 'ollama');
+        $tpl->assign('models', $models ?? array());
+        $tpl->assign('modelsJson', json_encode($models ?? array(), JSON_UNESCAPED_UNICODE));
         $tpl->assign('canUpdate', jAcl2::check('lizmap.admin.services.update'));
         $rep->body->assign('MAIN', $tpl->fetch('admin~modules'));
         $rep->body->assign('selectedMenuItem', 'lizmap_modules');
