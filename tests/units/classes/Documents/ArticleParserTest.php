@@ -1,8 +1,8 @@
 <?php
 
-use Lizmap\Igt\ArticleParser;
-use Lizmap\Igt\PdfText;
-use Lizmap\Igt\Regulation;
+use Lizmap\Documents\ArticleParser;
+use Lizmap\Documents\PdfText;
+use Lizmap\Documents\Regulation;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\TestCase;
 

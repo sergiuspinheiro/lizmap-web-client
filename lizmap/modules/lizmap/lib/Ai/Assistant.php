@@ -338,10 +338,11 @@ EOT;
      * @param string     $question   optional user question about the layer
      * @param string     $language   the user interface language, e.g. pt_PT
      * @param null|array $sample     the features, from FeatureSample::toArray(), when they can be sent
+     * @param string     $documents  the reference documents linked to the layer (regulations, notes...)
      *
      * @return array{answer: string, feature: string, highlights: list<array>, suggestions: list<string>}
      */
-    public function analyse(array $layer, $statistics, $question, $language, $sample = null)
+    public function analyse(array $layer, $statistics, $question, $language, $sample = null, $documents = '')
     {
         $system = <<<'EOT'
 You help the users of a web map application understand a geographic data layer.
@@ -354,6 +355,9 @@ Answer the user question when there is one.
 You may receive a sample of the features, as a table (one feature by line, values separated by " | ",
 lon and lat are the position of the feature in WGS 84): use it to answer, quote the values found in it,
 and say when the answer may be in features that are not in the sample ("rows" less than "read").
+You may receive reference documents linked to the layer by the administrators (e.g. the articles of a regulation in force,
+such as a PDM, applying to some values of the features, or notes): use them to answer, quote the document and the article
+or section ("Artigo 67.º-B, n.º 1, alínea a)"), and never invent rules that are not in them.
 Without the feature you need, never guess where a feature is, nor its attributes, from the layer name or title.
 When the question is about a feature (e.g. "where is X?"), give in "feature" the name or value of this feature as written
 in the question, e.g. "Lapa Furada", and say that the button below the answer shows it on the map; else "feature" is empty.
@@ -411,6 +415,9 @@ EOT;
                 $sample['matched'],
                 $sample['table'],
             ));
+        }
+        if (trim((string) $documents) !== '') {
+            $content[] = array('type' => 'text', 'text' => "<documents>\n".$documents."\n</documents>");
         }
         if (trim((string) $question) !== '') {
             $content[] = array('type' => 'text', 'text' => "<question>\n".$question."\n</question>");
