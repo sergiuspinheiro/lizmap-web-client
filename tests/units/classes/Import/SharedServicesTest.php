@@ -36,8 +36,14 @@ class SharedServicesTest extends TestCase
         $this->assertEquals('Ortos', $service['title']);
         $this->assertEquals(array('ana', 'rui'), $service['users']);
 
-        $store->setTest($service['id'], array('ok' => true, 'message' => 'OK, 3 layer(s)'));
+        $store->setTest($service['id'], array('ok' => false, 'message' => 'Directory', 'services' => array(
+            array('url' => 'https://a.com/rest/services/X/MapServer', 'title' => 'X', 'kind' => 'MapServer'),
+            array('url' => 'javascript:alert(1)', 'title' => 'bad'),
+        )));
+        $this->assertCount(1, $store->get($service['id'])['test']['services']);
+        $store->setTest($service['id'], array('ok' => true, 'message' => 'OK, 3 layer(s)', 'layers' => array('a', '<b>b</b>')));
         $this->assertTrue($store->get($service['id'])['test']['ok']);
+        $this->assertEquals(array('a', 'b'), $store->get($service['id'])['test']['layers']);
 
         // Same address: the test is kept, groups are emptied for all
         list($edited) = $store->save(array('type' => 'wms', 'url' => 'https://example.com/wms?SERVICE=WMS', 'title' => 'Ortofotos', 'access' => 'all', 'groups' => array('tecnicos')), $service['id']);
@@ -96,12 +102,28 @@ class SharedServicesTest extends TestCase
     public function testCheckResponse(): void
     {
         $wms = '<WMS_Capabilities><Capability><Layer><Title>Root</Title><Layer queryable="1"><Name>a</Name></Layer><Layer><Name>b</Name></Layer></Layer></Capability></WMS_Capabilities>';
-        $this->assertEquals(array('ok' => true, 'message' => 'OK, 2 layer(s)'), SharedServices::checkResponse('wms', 200, 'text/xml', $wms));
+        $this->assertEquals(array('ok' => true, 'message' => 'OK, 2 layer(s)', 'layers' => array('a', 'b')), SharedServices::checkResponse('wms', 200, 'text/xml', $wms));
         $this->assertFalse(SharedServices::checkResponse('wms', 200, 'text/xml', '<ServiceExceptionReport/>')['ok']);
         $this->assertFalse(SharedServices::checkResponse('wms', 404, 'text/html', '')['ok']);
         $this->assertTrue(SharedServices::checkResponse('wfs', 200, 'text/xml', '<wfs:WFS_Capabilities><FeatureTypeList><FeatureType><Name>x</Name></FeatureType></FeatureTypeList></wfs:WFS_Capabilities>')['ok']);
         $this->assertTrue(SharedServices::checkResponse('ogcapi', 200, 'application/json', '{"collections":[{"id":"a"}]}')['ok']);
         $this->assertFalse(SharedServices::checkResponse('arcgis', 200, 'application/json', '{"error":{"message":"Token required"}}')['ok']);
+        $this->assertEquals(array('Sitios', 'Limites'), SharedServices::checkResponse('arcgis', 200, 'application/json', '{"layers":[{"id":0,"name":"Sitios"},{"id":1,"name":"Limites"}]}')['layers']);
+        // A directory of services: not a service, but its services can be chosen
+        $directory = SharedServices::checkResponse('arcgis', 200, 'application/json',
+            '{"currentVersion":11,"folders":["Base"],"services":[{"name":"PAMS_SitArq_20261101","type":"FeatureServer"},{"name":"Geo","type":"GeometryServer"}]}',
+            'https://services8.arcgis.com/ITVSIrZ4rxt6SbBo/ArcGIS/rest/services/');
+        $this->assertFalse($directory['ok']);
+        $this->assertEquals(array('Base'), $directory['folders']);
+        $this->assertEquals(array(array(
+            'url' => 'https://services8.arcgis.com/ITVSIrZ4rxt6SbBo/ArcGIS/rest/services/PAMS_SitArq_20261101/FeatureServer',
+            'title' => 'PAMS SitArq 20261101', 'kind' => 'FeatureServer',
+        )), $directory['services']);
+        // In a folder, the names start with the folder
+        $this->assertEquals('https://a.com/arcgis/rest/services/Base/Ortos/MapServer', SharedServices::arcgisServices(
+            array('services' => array(array('name' => 'Base/Ortos', 'type' => 'MapServer'))), 'https://a.com/arcgis/rest/services/Base?f=json')[0]['url']);
+        $this->assertEquals('https://a.com/arcgis/rest/services/Base?f=json', SharedServices::arcgisFolderUrl('https://a.com/arcgis/rest/services/', 'Base'));
+        $this->assertNull(SharedServices::arcgisFolderUrl('https://a.com/arcgis/rest/services/', '../x'));
         $this->assertTrue(SharedServices::checkResponse('xyz', 200, 'image/png', 'PNG')['ok']);
         $this->assertFalse(SharedServices::checkResponse('xyz', 200, 'text/html', '<html>')['ok']);
         $this->assertTrue(SharedServices::checkResponse('geojson', 200, 'application/json', '{"type":"FeatureCollection","features":[]}')['ok']);
