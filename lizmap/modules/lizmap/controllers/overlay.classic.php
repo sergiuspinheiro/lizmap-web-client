@@ -15,6 +15,7 @@
 
 use Lizmap\Ai\Assistant;
 use Lizmap\Ai\AssistantException;
+use Lizmap\Ai\AssistantJobs;
 use Lizmap\Ai\FeatureSample;
 use Lizmap\App\ModulesConfig;
 use Lizmap\Documents\DocumentContext;
@@ -143,33 +144,113 @@ class overlayCtrl extends jController
         }
 
         // The answer can take minutes: release the PHP session lock
+        $owner = session_id();
         session_write_close();
-        $start = microtime(true);
+        $language = jLocale::getCurrentLocale();
+        $run = static function () use ($assistant, $overlay, $layers, $question, $language, $documents) {
+            $start = microtime(true);
 
-        try {
-            $rep->data = $assistant->analyseArea(
-                array('area' => $overlay['area']['area'], 'buffer' => $overlay['buffer'], 'map' => $overlay['map']),
-                $layers,
-                $question,
-                jLocale::getCurrentLocale(),
-                $documents['text'],
-            );
-            $rep->data['documents'] = $documents['sources'];
-            jLog::log(sprintf(
-                'AI assistant overlay analysis: %d layers, %d characters of features and %d of documents, answer in %.1f s (%s)',
-                count($layers),
-                array_sum(array_map(static function ($layer) {
-                    return mb_strlen($layer['table']);
-                }, $layers)),
-                mb_strlen($documents['text']),
-                microtime(true) - $start,
-                $assistant->lastAnswerInfo(),
-            ), 'lizmapadmin');
-        } catch (AssistantException $e) {
-            jLog::log(sprintf('AI assistant overlay analysis failed after %.1f s: %s', microtime(true) - $start, $e->getMessage()), 'lizmapadmin');
-            $this->error($rep, $e->getCode() >= 400 ? $e->getCode() : 502, $e->getMessage());
-            $rep->data['reason'] = Assistant::errorReason($e->getMessage(), $e->getCode());
+            try {
+                $data = $assistant->analyseArea(
+                    array('area' => $overlay['area']['area'], 'buffer' => $overlay['buffer'], 'map' => $overlay['map']),
+                    $layers,
+                    $question,
+                    $language,
+                    $documents['text'],
+                );
+                $data['documents'] = $documents['sources'];
+                jLog::log(sprintf(
+                    'AI assistant overlay analysis: %d layers, %d characters of features and %d of documents, answer in %.1f s (%s)',
+                    count($layers),
+                    array_sum(array_map(static function ($layer) {
+                        return mb_strlen($layer['table']);
+                    }, $layers)),
+                    mb_strlen($documents['text']),
+                    microtime(true) - $start,
+                    $assistant->lastAnswerInfo(),
+                ), 'lizmapadmin');
+
+                return $data;
+            } catch (AssistantException $e) {
+                jLog::log(sprintf('AI assistant overlay analysis failed after %.1f s: %s', microtime(true) - $start, $e->getMessage()), 'lizmapadmin');
+
+                return array(
+                    'error' => $e->getMessage(),
+                    'code' => $e->getCode() >= 400 ? $e->getCode() : 502,
+                    'reason' => Assistant::errorReason($e->getMessage(), $e->getCode()),
+                );
+            }
+        };
+
+        // In the background when possible: a proxy or the web server would cut a long request
+        if ($this->param('async') && AssistantJobs::canRunInBackground() && $owner !== '') {
+            $jobs = new AssistantJobs(jApp::tempPath('aijobs/'));
+            $id = $jobs->create($owner);
+            register_shutdown_function(static function () use ($jobs, $id, $run) {
+                ignore_user_abort(true);
+                set_time_limit(330);
+                // Send the response with the job id, then compute the answer
+                fastcgi_finish_request();
+
+                try {
+                    $jobs->finish($id, $run());
+                } catch (\Throwable $e) {
+                    $jobs->finish($id, array('error' => $e->getMessage(), 'code' => 500, 'reason' => 'error'));
+                }
+            });
+            $rep->data = array('job' => $id);
+
+            return $rep;
         }
+
+        $data = $run();
+        if (isset($data['error'])) {
+            $this->error($rep, $data['code'], $data['error']);
+            $rep->data['reason'] = $data['reason'];
+        } else {
+            $rep->data = $data;
+        }
+
+        return $rep;
+    }
+
+    /**
+     * The state of an analysis computed in the background, and its answer when ready.
+     *
+     * Parameter: id (the job id given by assistant()).
+     *
+     * @return jResponseJson
+     */
+    public function job()
+    {
+        /** @var jResponseJson $rep */
+        $rep = $this->getResponse('json');
+        $owner = session_id();
+        session_write_close();
+        $job = $owner !== '' ? (new AssistantJobs(jApp::tempPath('aijobs/')))->read((string) $this->param('id'), $owner) : null;
+        if ($job === null) {
+            return $this->error($rep, 404, 'Unknown analysis');
+        }
+        if ($job['state'] === 'running') {
+            // Not answered after the time limit: the background process has stopped
+            if ($job['started'] < time() - 360) {
+                $this->error($rep, 504, 'The AI service took too long to answer (timeout)');
+                $rep->data['reason'] = 'timeout';
+
+                return $rep;
+            }
+            $rep->data = array('state' => 'running', 'elapsed' => time() - $job['started']);
+
+            return $rep;
+        }
+        $data = $job['data'];
+        if ($job['state'] === 'error') {
+            $this->error($rep, $data['code'] ?? 502, $data['error'] ?? 'Error');
+            $rep->data['reason'] = $data['reason'] ?? 'error';
+
+            return $rep;
+        }
+        $rep->data = array('state' => 'done') + $data;
 
         return $rep;
     }
