@@ -91,6 +91,8 @@ class modulesCtrl extends jController
             'allowAnonymous' => $form->getData('allowAnonymous') === 'on',
             'sendStatistics' => $form->getData('sendStatistics') === 'on',
             'maxFeatures' => $form->getData('maxFeatures'),
+            'sendFeatures' => $form->getData('sendFeatures') === 'on',
+            'maxRows' => $form->getData('maxRows'),
             'requestsPerHour' => $form->getData('requestsPerHour'),
             'quotaSize' => $form->getData('quotaSize'),
             'quotaLayers' => $form->getData('quotaLayers'),

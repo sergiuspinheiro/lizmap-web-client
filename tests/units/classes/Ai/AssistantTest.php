@@ -251,6 +251,24 @@ class AssistantTest extends TestCase
         $this->assertCount(0, $result['results']);
         $this->assertEquals('No layer matches the request because it is too generic.', $result['answer']);
     }
+    public function testAnalyseWithFeatures(): void
+    {
+        $assistant = new AssistantForTests(array('enabled' => 'on', 'provider' => 'ollama'));
+        $this->assertTrue($assistant->canSendFeatures());
+        $this->assertEquals(100, $assistant->maxRows());
+        $this->assertFalse((new Assistant(array('provider' => 'gemini')))->canSendFeatures());
+        $this->assertTrue((new Assistant(array('provider' => 'gemini', 'sendFeatures' => 'on')))->canSendFeatures());
+        $this->assertFalse((new Assistant(array('provider' => 'ollama', 'sendFeatures' => 'off')))->canSendFeatures());
+
+        $assistant->answer = array('answer' => 'Fica em -8.5, 39.5.', 'feature' => 'Lapa Furada', 'highlights' => array(), 'suggestions' => array());
+        $sample = array('table' => "nome | lon | lat\nLapa Furada | -8.5 | 39.5", 'rows' => 1, 'matched' => 1, 'read' => 6);
+        $assistant->analyse($this->layers()[1], null, 'onde fica a lapa furada', 'pt_PT', $sample);
+        $content = $assistant->requests[0]['content'];
+        $this->assertCount(3, $content);
+        $this->assertStringContainsString('<features read="6" rows="1" matching_question="1">', $content[1]['text']);
+        $this->assertStringContainsString('Lapa Furada | -8.5 | 39.5', $content[1]['text']);
+        $this->assertStringContainsString('onde fica', $content[2]['text']);
+    }
 }
 
 /**
