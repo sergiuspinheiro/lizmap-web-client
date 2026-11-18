@@ -182,25 +182,34 @@ class overlayCtrl extends jController
             }
         };
 
-        // In the background when possible: a proxy or the web server would cut a long request
-        if ($this->param('async') && AssistantJobs::canRunInBackground() && $owner !== '') {
+        // In the background: a proxy or the web server would cut a long request
+        if ($this->param('async') && $owner !== '') {
             $jobs = new AssistantJobs(jApp::tempPath('aijobs/'));
             $id = $jobs->create($owner);
-            register_shutdown_function(static function () use ($jobs, $id, $run) {
-                ignore_user_abort(true);
-                set_time_limit(330);
-                // Send the response with the job id, then compute the answer
-                fastcgi_finish_request();
-
+            $work = static function () use ($jobs, $id, $run) {
                 try {
                     $jobs->finish($id, $run());
                 } catch (\Throwable $e) {
                     $jobs->finish($id, array('error' => $e->getMessage(), 'code' => 500, 'reason' => 'error'));
                 }
-            });
-            $rep->data = array('job' => $id);
+            };
+            if (AssistantJobs::canRunInBackground()) {
+                // PHP-FPM: send the response with the job id, then compute the answer
+                register_shutdown_function(static function () use ($work) {
+                    ignore_user_abort(true);
+                    set_time_limit(330);
+                    fastcgi_finish_request();
+                    $work();
+                });
+                $rep->data = array('job' => $id);
 
-            return $rep;
+                return $rep;
+            }
+            // Apache mod_php: send the response and close the connection, then compute the answer
+            AssistantJobs::sendAndClose(json_encode(array('job' => $id)));
+            $work();
+
+            exit(0);
         }
 
         $data = $run();
