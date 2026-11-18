@@ -63,6 +63,49 @@ export function serviceBaseUrl(url) {
 }
 
 /**
+ * Readable name of a service, from its URL, when it has no title
+ * @param {string} url - the service URL
+ * @returns {string} the name: the ArcGIS service, the last part of the path, or the host
+ */
+export function serviceName(url) {
+    let u;
+    try {
+        u = new URL(url.trim());
+    } catch {
+        return url;
+    }
+    const parts = u.pathname.split('/').filter(Boolean).map(part => decodeURIComponent(part));
+    const arcgis = parts.findIndex(part => /^(FeatureServer|MapServer|ImageServer)$/i.test(part));
+    if (arcgis > 0) {
+        return parts[arcgis - 1].replace(/_/g, ' ');
+    }
+    const generic = ['wms', 'wmts', 'wfs', 'ows', 'ogc', 'services', 'service', 'rest', 'arcgis', 'collections', 'qgis', 'mapserv', 'cgi-bin', 'geoserver'];
+    const name = [...parts].reverse().find(part => !generic.includes(part.toLowerCase()) && !/^\{.*\}(\.\w+)?$/.test(part));
+    return name ? name.replace(/\.(geo)?json$/i, '').replace(/_/g, ' ') : u.hostname;
+}
+
+/**
+ * Map and feature services of an ArcGIS directory, like .../rest/services
+ * @param {object} data - the directory, read with f=json
+ * @param {string} base - the directory URL
+ * @returns {Array<{url: string, title: string, folder: boolean}>} the folders, then the services
+ */
+export function arcgisDirectory(data, base) {
+    const root = base.replace(/(\/rest\/services)(\/.*)?$/i, '$1').replace(/\/$/, '');
+    const folders = (Array.isArray(data.folders) ? data.folders : [])
+        .filter(name => typeof name === 'string' && name)
+        .map(name => ({ url: root + '/' + encodeURIComponent(name), title: name, folder: true }));
+    const services = (Array.isArray(data.services) ? data.services : [])
+        .filter(item => item && typeof item.name === 'string' && ['FeatureServer', 'MapServer'].includes(item.type))
+        .map(item => ({
+            url: root + '/' + item.name.split('/').map(encodeURIComponent).join('/') + '/' + item.type,
+            title: item.name.split('/').pop().replace(/_/g, ' ') + ' (' + item.type + ')',
+            folder: false,
+        }));
+    return [...folders, ...services];
+}
+
+/**
  *
  * @param url
  */
@@ -128,14 +171,14 @@ export async function readService(type, url) {
                 (layer.Layer || []).forEach(child => walk(child, layerStyles));
             };
             walk(caps?.Capability?.Layer, []);
-            return { title: caps?.Service?.Title || base, layers, capabilities: { styles } };
+            return { title: caps?.Service?.Title || serviceName(base), layers, capabilities: { styles } };
         }
         case 'wmts': {
             const caps = new WMTSCapabilities().read(
                 await fetchText(withParams(base, { SERVICE: 'WMTS', REQUEST: 'GetCapabilities' }))
             );
             const layers = (caps?.Contents?.Layer || []).map(l => ({ name: l.Identifier, title: l.Title || l.Identifier }));
-            return { title: caps?.ServiceIdentification?.Title || base, layers, capabilities: caps };
+            return { title: caps?.ServiceIdentification?.Title || serviceName(base), layers, capabilities: caps };
         }
         case 'wfs': {
             const xml = new DOMParser().parseFromString(
@@ -149,27 +192,35 @@ export async function readService(type, url) {
             }).filter(l => l.name);
             const title = xml.getElementsByTagNameNS('*', 'ServiceIdentification')[0]
                 ?.getElementsByTagNameNS('*', 'Title')[0]?.textContent?.trim();
-            return { title: title || base, layers, capabilities: null };
+            return { title: title || serviceName(base), layers, capabilities: null };
         }
         case 'ogcapi': {
             const root = base.replace(/\/collections\/?$/, '');
             const data = await fetchJson(withParams(root + '/collections', { f: 'json' }));
             const layers = (data.collections || []).map(c => ({ name: c.id, title: c.title || c.id }));
-            return { title: data.title || root, layers, capabilities: null };
+            return { title: data.title || serviceName(root), layers, capabilities: null };
         }
         case 'arcgis': {
             const data = await fetchJson(withParams(base, { f: 'json' }));
+            if (data.error) {
+                throw new Error(data.error.message || 'ArcGIS error');
+            }
+            // A directory of services: choose one of them
+            if (!Array.isArray(data.layers) && (Array.isArray(data.services) || Array.isArray(data.folders))) {
+                return { title: serviceName(base), layers: [], services: arcgisDirectory(data, base), capabilities: null };
+            }
+            const name = data.mapName || data.documentInfo?.Title || serviceName(base);
             const isFeatureServer = /\/FeatureServer\/?$/i.test(base);
             const layers = (data.layers || []).map(l => ({ name: String(l.id), title: l.name || String(l.id) }));
             if (!isFeatureServer) {
             // The whole map service drawn as one image
-                layers.unshift({ name: '', title: data.mapName || data.documentInfo?.Title || base });
+                layers.unshift({ name: '', title: name });
             }
-            return { title: data.mapName || data.serviceDescription || base, layers, capabilities: null };
+            return { title: name, layers, capabilities: null };
         }
         case 'xyz':
         case 'geojson':
-            return { title: base, layers: [{ name: '', title: hostname(url) }], capabilities: null };
+            return { title: serviceName(base), layers: [{ name: '', title: serviceName(url) || hostname(url) }], capabilities: null };
         default:
             throw new Error('Unknown service type ' + type);
     }
