@@ -396,7 +396,7 @@ export default class Digitizing extends HTMLElement {
                         <input
                             class="hide"
                             type="file"
-                            accept=".kml, .geojson, .json, .gpx, .zip, .fgb"
+                            accept=".kml, .geojson, .json, .gpx, .zip, .fgb, .dxf, .gpkg, .gml, .csv, .kmz, .sqlite, .geojsonl, .geojsons"
                             @change=${(event) => {
                                 if (event.target.files.length > 0){
                                     const file = event.target.files[0];

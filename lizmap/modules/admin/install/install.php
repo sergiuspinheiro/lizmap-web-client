@@ -40,6 +40,7 @@ class adminModuleInstaller extends jInstallerModule
             jAcl2DbManager::createRight('lizmap.tools.loginFilteredLayers.override', 'admin~jacl2.lizmap.tools.loginFilteredLayers.override', 'lizmap.grp');
             jAcl2DbManager::createRight('lizmap.tools.displayGetCapabilitiesLinks', 'admin~jacl2.lizmap.tools.displayGetCapabilitiesLinks', 'lizmap.grp');
             jAcl2DbManager::createRight('lizmap.tools.layer.export', 'admin~jacl2.lizmap.tools.layer.export', 'lizmap.grp');
+            jAcl2DbManager::createRight('lizmap.tools.import.save', 'admin~jacl2.lizmap.tools.import.save', 'lizmap.grp');
             jAcl2DbManager::createRight('lizmap.admin.permalink.manage', 'admin~jacl2.lizmap.admin.permalink.manage', 'lizmap.admin.grp');
 
             // Add permnalink table

@@ -10,6 +10,7 @@ import { mainLizmap, mainEventDispatcher } from '../modules/Globals.js';
 import { Utils } from '../modules/Utils.js';
 import { MapLayerLoadStatus } from '../modules/state/MapLayer.js';
 import { MEDIA_REGEX } from '../utils/Constants.js';
+import TreeArrangement from '../modules/TreeArrangement.js';
 
 import { html, render } from 'lit-html';
 
@@ -23,33 +24,80 @@ export default class Treeview extends HTMLElement {
         super();
         this._itemNameSelected;
         this._clickTimestamp;
+        // Item being dragged in arrange mode: {parent, name}
+        this._dragged = null;
+        // OpenLayers layers of the catalog layers whose settings are displayed
+        // OpenLayers layers of the catalog layers whose legend is expanded
+        this._catalogLegendOpen = new WeakSet();
     }
 
     connectedCallback() {
+        const params = globalThis.lizUrls?.params || {};
+        this._arrangement = new TreeArrangement(`lizmap-tree-arrangement-${params.repository}-${params.project}`);
+        this._arrangeButton = document.getElementById('layers-arrange');
+        this._arrangeHandler = () => {
+            this._arrangement.active = !this._arrangement.active;
+            this._arrangeButton?.classList.toggle('active', this._arrangement.active);
+            this._onChange();
+        };
+        this._arrangeButton?.addEventListener('click', this._arrangeHandler);
+        this._catalogHandler = () => this._onChange();
+        document.addEventListener('lizmapcatalogchanged', this._catalogHandler);
 
         this._onChange = () => {
             if (this._freeze) return;
             render(this._rootTemplate(mainLizmap.state.layerTree), this);
         };
 
-        this._olLayerTemplate = (olLayer) =>
+        this._olLayerTemplate = (olLayer, extGroup) =>
             html`
-        <li data-testid="ol-${olLayer.name}">
-            <div class="${olLayer.checked ? 'checked' : ''} ${olLayer.type}">
+        <li data-testid="ol-${olLayer.name}"
+            draggable="${this._arrangement.active ? 'true' : 'false'}"
+            @dragstart=${(e) => this._dragStart(e, olLayer, extGroup)}
+            @dragover=${(e) => this._dragOver(e, olLayer, extGroup)}
+            @drop=${(e) => this._drop(e, olLayer, extGroup)}
+            @dragend=${() => this._dragEnd()}>
+            ${this._catalogSymbols(olLayer).length
+                ? html`<div class="expandable ${this._catalogLegendOpen.has(this._olOf(olLayer)) ? 'expanded' : ''}"
+                    @click=${() => this._toggleCatalogLegend(olLayer)}></div>`
+                : ''}
+            <div class="${olLayer.checked ? 'checked' : ''} ${olLayer.type} ${this._catalogInfoShown(olLayer) ? 'selected' : ''}">
                 <div class="loading ${olLayer.loadStatus === MapLayerLoadStatus.Loading ? 'spinner' : ''}"></div>
                 <input type="checkbox" id="node-ol-${olLayer.name}" .checked=${olLayer.checked} @click=${() => olLayer.checked = !olLayer.checked} >
                 <div class="node ${olLayer.isFiltered ? 'filtered' : ''}">
                     <img class="legend" src="${olLayer.icon}">
                     <label for="node-ol-${olLayer.name}">${olLayer.wmsTitle}</label>
                     <div class="layer-actions">
+                        ${this._olOf(olLayer)?.get('lizmapCatalog')
+                            ? html`<i class="icon-info-sign" title="${lizDict['layer.metadata.title']}"
+                                @click=${() => this._showCatalogInfo(olLayer)}></i>`
+                            : ''}
                     </div>
                 </div>
             </div>
+            ${this._catalogSymbols(olLayer).length
+                ? html`
+                    <ul class="symbols">
+                        ${this._catalogSymbols(olLayer).map(symbol => html`
+                            <li class="symbol">
+                                <label class="symbol-title">
+                                    ${symbol.toggle
+                                        ? html`<input type="checkbox" .checked=${symbol.checked} @click=${() => symbol.toggle()}>`
+                                        : ''}
+                                    <img class="legend" src="${symbol.icon}">${symbol.title}</label>
+                            </li>`)}
+                    </ul>`
+                : ''}
         </li>`
 
-        this._extGroupTemplate = (extGroup) =>
+        this._extGroupTemplate = (extGroup, parent) =>
             html`
-        <li data-testid="ext-${extGroup.name}">
+        <li data-testid="ext-${extGroup.name}"
+            draggable="${this._arrangement.active ? 'true' : 'false'}"
+            @dragstart=${(e) => this._dragStart(e, extGroup, parent)}
+            @dragover=${(e) => this._dragOver(e, extGroup, parent)}
+            @drop=${(e) => this._drop(e, extGroup, parent)}
+            @dragend=${() => this._dragEnd()}>
             <div class="expandable ${extGroup.expanded ? 'expanded' : ''}" @click=${() => extGroup.expanded = !extGroup.expanded}></div>
             <div class="${extGroup.checked ? 'checked' : ''} ${extGroup.type} group">
                 <div class="node">
@@ -59,8 +107,8 @@ export default class Treeview extends HTMLElement {
                 </div>
             </div>
             <ul>
-                ${extGroup.children.map(item => html`
-                    ${this._olLayerTemplate(item)}
+                ${this._arrangement.sortChildren(this._parentKey(extGroup), extGroup.children).map(item => html`
+                    ${this._olLayerTemplate(item, extGroup)}
                 `)}
             </ul>
         </li>`
@@ -104,7 +152,12 @@ export default class Treeview extends HTMLElement {
 
         this._layerTemplate = (layer, parent) =>
             html`
-        <li data-testid="${layer.name}" class="${this._isVisible(layer) ? '' : 'not-visible'}">
+        <li data-testid="${layer.name}" class="${this._isVisible(layer) ? '' : 'not-visible'}"
+            draggable="${this._arrangement.active ? 'true' : 'false'}"
+            @dragstart=${(e) => this._dragStart(e, layer, parent)}
+            @dragover=${(e) => this._dragOver(e, layer, parent)}
+            @drop=${(e) => this._drop(e, layer, parent)}
+            @dragend=${() => this._dragEnd()}>
             ${layer.symbologyChildrenCount && layer.layerConfig.legendImageOption !== "disabled"
                 ? html`<div class="expandable ${layer.expanded ? 'expanded' : ''}" @click=${() => layer.expanded = !layer.expanded}></div>`
                 : ''
@@ -147,7 +200,12 @@ export default class Treeview extends HTMLElement {
 
         this._groupTemplate = (group, parent) =>
             html`
-        <li data-testid="${group.name}" class="${this._isVisible(group) ? '' : 'not-visible'}">
+        <li data-testid="${group.name}" class="${this._isVisible(group) ? '' : 'not-visible'}"
+            draggable="${this._arrangement.active ? 'true' : 'false'}"
+            @dragstart=${(e) => this._dragStart(e, group, parent)}
+            @dragover=${(e) => this._dragOver(e, group, parent)}
+            @drop=${(e) => this._drop(e, group, parent)}
+            @dragend=${() => this._dragEnd()}>
             <div class="expandable ${group.expanded ? 'expanded' : ''}" @click=${() => group.expanded = !group.expanded}></div>
             <div class="${group.checked ? 'checked' : ''} ${group.type} ${group.name === this._itemNameSelected ? 'selected' : ''}">
                 ${mainLizmap.initialConfig.options.hideGroupCheckbox
@@ -181,7 +239,7 @@ export default class Treeview extends HTMLElement {
                 </div>
             </div>
             <ul>
-                ${group.children.map(item => html`
+                ${this._arrangement.sortChildren(group.name, group.children).map(item => html`
                     ${item.type === 'group' ? html`${this._groupTemplate(item, group)}` : ''}
                     ${item.type === 'layer' ? html`${this._layerTemplate(item, group)}` : ''}
                 `)}
@@ -190,15 +248,19 @@ export default class Treeview extends HTMLElement {
 
         this._rootTemplate = layerTreeRoot =>
             html`
-        <ul>
-            ${layerTreeRoot.children.map(item => html`
+        ${this._arrangement.active ? this._arrangeBarTemplate(layerTreeRoot) : ''}
+        <ul class="${this._arrangement.active ? 'arranging' : ''}">
+            ${this._arrangement.sortChildren('', layerTreeRoot.children).map(item => html`
                 ${item.type === 'group' ? html`${this._groupTemplate(item, layerTreeRoot)}` : ''}
                 ${item.type === 'layer' ? html`${this._layerTemplate(item, layerTreeRoot)}` : ''}
-                ${item.type === 'ext-group' && item.childrenCount ? html`${this._extGroupTemplate(item)}` : ''}
+                ${item.type === 'ext-group' && item.childrenCount ? html`${this._extGroupTemplate(item, layerTreeRoot)}` : ''}
             `)}
         </ul>`;
 
         render(this._rootTemplate(mainLizmap.state.layerTree), this);
+        if (this._arrangement.isCustomized) {
+            this._arrangement.applyDrawingOrder(mainLizmap.state.layerTree, mainLizmap.map);
+        }
 
         mainLizmap.state.layerTree.addListener(
             this._onChange,
@@ -211,6 +273,14 @@ export default class Treeview extends HTMLElement {
             ]
         );
 
+        // Layers added from the data catalog follow the user order
+        // (after the tree items of the new layers are created)
+        mainLizmap.state.layerTree.addListener(() => queueMicrotask(() => {
+            if (this._arrangement.isCustomized) {
+                this._arrangement.applyDrawingOrder(mainLizmap.state.layerTree, mainLizmap.map);
+            }
+        }), ['ol-layer.added', 'ext-group.added']);
+
         mainEventDispatcher.addListener(
             this._onChange, ['resolution.changed']
         );
@@ -220,6 +290,8 @@ export default class Treeview extends HTMLElement {
     }
 
     disconnectedCallback() {
+        this._arrangeButton?.removeEventListener('click', this._arrangeHandler);
+        document.removeEventListener('lizmapcatalogchanged', this._catalogHandler);
         mainLizmap.state.layerTree.removeListener(
             this._onChange,
             [
@@ -241,6 +313,152 @@ export default class Treeview extends HTMLElement {
         mainEventDispatcher.removeListener(
             this._onChange, ['resolution.changed']
         );
+    }
+
+    /**
+     * The user arrangement of the tree
+     * @type {TreeArrangement}
+     */
+    get arrangement() {
+        return this._arrangement;
+    }
+
+    /**
+     * Render the tree again, for instance after loading a saved map view
+     */
+    refresh() {
+        this._onChange();
+    }
+
+    /**
+     * Key of a parent group in the arrangement: the root has no name
+     * @param {object} parent - the parent group state
+     * @returns {string} the key
+     */
+    _parentKey(parent) {
+        if (parent.type === 'ext-group') {
+            return TreeArrangement.externalKey(parent.name);
+        }
+        return parent === mainLizmap.state.layerTree ? '' : parent.name;
+    }
+
+    /**
+     * OpenLayers layer of an external layer tree item
+     * @param {object} item - the layer tree item or the map layer state
+     * @returns {object|undefined} the OpenLayers layer
+     */
+    _olOf(item) {
+        return item.mapItemState?.olLayer ?? item.olLayer;
+    }
+
+    /**
+     * Legend symbols of a catalog layer, read by the catalog
+     * @param {object} item - the layer tree item
+     * @returns {Array<{title: string, icon: string}>} the symbols
+     */
+    _catalogSymbols(item) {
+        return this._olOf(item)?.get('lizmapCatalogSymbols') || [];
+    }
+
+    _toggleCatalogLegend(item) {
+        const olLayer = this._olOf(item);
+        if (this._catalogLegendOpen.has(olLayer)) {
+            this._catalogLegendOpen.delete(olLayer);
+        } else {
+            this._catalogLegendOpen.add(olLayer);
+        }
+        this._onChange();
+    }
+
+    /**
+     * Show the information of a layer added by the catalog in the sub-dock
+     * @param {object} olLayerState - the layer state
+     */
+    _showCatalogInfo(olLayerState) {
+        const catalog = this._olOf(olLayerState)?.get('lizmapCatalog');
+        if (catalog) {
+            document.querySelector('lizmap-catalog')?.showLayerInfo(catalog.key, catalog.name);
+        }
+    }
+
+    /**
+     * Is the information of a layer added by the catalog displayed
+     * @param {object} olLayerState - the layer state
+     * @returns {boolean} true if displayed
+     */
+    _catalogInfoShown(olLayerState) {
+        const catalog = this._olOf(olLayerState)?.get('lizmapCatalog');
+        return Boolean(catalog && document.querySelector('lizmap-catalog')?.isInfoShown(catalog.key, catalog.name));
+    }
+
+    _dragStart(e, item, parent) {
+        if (!this._arrangement.active || this._dragged) {
+            return;
+        }
+        // Nested items: only the innermost one is dragged
+        e.stopPropagation();
+        this._dragged = { parent, name: item.name };
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', item.name);
+        e.currentTarget.classList.add('dragging');
+    }
+
+    _dragOver(e, item, parent) {
+        if (!this._dragged || this._dragged.parent !== parent) {
+            return;
+        }
+        // Items can only be moved inside their group
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = 'move';
+        const li = e.currentTarget;
+        const rect = li.getBoundingClientRect();
+        const after = e.clientY > rect.top + rect.height / 2;
+        this.querySelectorAll('.drop-before, .drop-after').forEach(el => el.classList.remove('drop-before', 'drop-after'));
+        if (item.name !== this._dragged.name) {
+            li.classList.add(after ? 'drop-after' : 'drop-before');
+        }
+    }
+
+    _drop(e, item, parent) {
+        if (!this._dragged || this._dragged.parent !== parent) {
+            return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        const rect = e.currentTarget.getBoundingClientRect();
+        const after = e.clientY > rect.top + rect.height / 2;
+        const parentKey = this._parentKey(parent);
+        const siblings = this._arrangement.sortChildren(parentKey, parent.children).map(child => child.name);
+        if (this._arrangement.move(parentKey, siblings, this._dragged.name, item.name, after)) {
+            this._arrangement.applyDrawingOrder(mainLizmap.state.layerTree, mainLizmap.map);
+        }
+        this._dragEnd();
+    }
+
+    _dragEnd() {
+        this._dragged = null;
+        this.querySelectorAll('.dragging, .drop-before, .drop-after')
+            .forEach(el => el.classList.remove('dragging', 'drop-before', 'drop-after'));
+        this._onChange();
+    }
+
+    _arrangeBarTemplate(layerTreeRoot) {
+        return html`
+        <div class="tree-arrange-bar">
+            <span>${lizDict['tree.arrange.help']}</span>
+            ${this._arrangement.isCustomized
+                ? html`<button type="button" class="btn btn-sm tree-arrange-reset" @click=${() => {
+                    this._arrangement.reset(layerTreeRoot, mainLizmap.map);
+                    this._onChange();
+                }}>${lizDict['tree.arrange.reset']}</button>`
+                : ''}
+            <lizmap-mapviews></lizmap-mapviews>
+        </div>`;
+    }
+
+    get itemNameSelected() {
+        return this._itemNameSelected;
     }
 
     set itemNameSelected(itemName) {

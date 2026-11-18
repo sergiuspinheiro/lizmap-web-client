@@ -296,6 +296,7 @@ test.describe('Connected via Basic auth',
                 "lizmap.repositories.view": "View projects in the repository",
                 "lizmap.tools.displayGetCapabilitiesLinks": "Display projects WMS links",
                 "lizmap.tools.edition.use": "Use the Edition tool",
+                "lizmap.tools.import.save": "Allow saving files imported in the data catalog in the user profile",
                 "lizmap.tools.layer.export": "Allow export of vector layers",
                 "lizmap.tools.loginFilteredLayers.override": "See all the data of the filtered layers (attribute or spatial filters)",
             });

@@ -37,6 +37,10 @@ export default class Popup {
         // Allow toggling of active state
         this.active = true;
 
+        // Functions giving the layers of other projects to query on click,
+        // for instance the layers added from the data catalog
+        this._featureInfoProviders = [];
+
         // OL2
         OpenLayers.Control.Click = OpenLayers.Class(OpenLayers.Control, {
             defaultHandlerOptions: {
@@ -95,6 +99,16 @@ export default class Popup {
         return this._overlay;
     }
 
+    /**
+     * Add a function giving layers of other projects to query on click.
+     * The function returns a list of {repository, project, layers, styles}
+     * where layers and styles are lists of WMS names, from the top.
+     * @param {Function} provider - the provider function
+     */
+    addFeatureInfoProvider(provider) {
+        this._featureInfoProviders.push(provider);
+    }
+
     handleClickOnMap(evt) {
         const pointTolerance = this._pointTolerance;
         const lineTolerance = this._lineTolerance;
@@ -126,7 +140,12 @@ export default class Popup {
             return layerCfg.popup || editionLayerCapabilities?.modifyAttribute || editionLayerCapabilities?.modifyGeometry || editionLayerCapabilities?.deleteFeature;
         });
 
-        if(!candidateLayers.length){
+        // Layers of other projects
+        const otherRequests = this._featureInfoProviders
+            .flatMap(provider => provider() || [])
+            .filter(request => request.layers?.length);
+
+        if(!candidateLayers.length && !otherRequests.length){
             return;
         }
 
@@ -196,8 +215,36 @@ export default class Popup {
 
         document.getElementById('newOlMap').style.cursor = 'wait';
 
-        wms.getFeatureInfo(wmsParams).then(response => {
-            lizMap.displayGetFeatureInfo(Utils.sanitizeGFIContent(response), { x: xCoord, y: yCoord }, evt?.coordinate);
+        const requests = [];
+        if (candidateLayers.length) {
+            requests.push(wms.getFeatureInfo(wmsParams));
+        }
+        for (const request of otherRequests) {
+            const otherParams = {
+                ...wmsParams,
+                repository: request.repository,
+                project: request.project,
+                QUERY_LAYERS: request.layers.join(','),
+                LAYERS: request.layers.join(','),
+                STYLE: (request.styles || []).join(','),
+            };
+            // Filters and legends of the current project don't apply
+            delete otherParams.FILTERTOKEN;
+            delete otherParams.LEGEND_ON;
+            delete otherParams.LEGEND_OFF;
+            requests.push(wms.getFeatureInfo(otherParams).then(html => {
+                // Feature tools (edition, selection, zoom...) need the layer
+                // configuration of the current project: remove them
+                const doc = new DOMParser().parseFromString(html, 'text/html');
+                doc.querySelectorAll('lizmap-feature-toolbar').forEach(el => el.remove());
+                return doc.body.innerHTML;
+            }).catch(error => {
+                console.warn(error);
+                return '';
+            }));
+        }
+        Promise.all(requests).then(responses => {
+            lizMap.displayGetFeatureInfo(Utils.sanitizeGFIContent(responses.join('')), { x: xCoord, y: yCoord }, evt?.coordinate);
         }).finally(() => {
             document.getElementById('newOlMap').style.cursor = 'auto';
         });

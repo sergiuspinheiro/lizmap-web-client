@@ -863,6 +863,80 @@ lizmap-panoramax .panoramax-viewer {
   background-color: #333;
 }
 
+/* Layer comparator (swipe) */
+lizmap-layercompare {
+    display: block;
+}
+
+lizmap-layercompare label {
+    display: block;
+    margin-top: 6px;
+}
+
+lizmap-layercompare .layercompare-toggle {
+    margin-top: 8px;
+}
+
+lizmap-layercompare .layercompare-external {
+    margin-top: 10px;
+}
+
+lizmap-layercompare .layercompare-external .input-group {
+    margin-bottom: 4px;
+}
+
+.lizmap-layercompare-divider {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    margin-left: -2px;
+    background: white;
+    box-shadow: 0 0 4px rgb(0 0 0 / 60%);
+    cursor: ew-resize;
+    touch-action: none;
+    z-index: 10;
+}
+
+.lizmap-layercompare-handle {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 28px;
+    height: 28px;
+    margin: -14px 0 0 -14px;
+    border-radius: 50%;
+    background: white;
+    box-shadow: 0 0 4px rgb(0 0 0 / 60%);
+    line-height: 28px;
+    text-align: center;
+    color: #333;
+}
+
+#mapmenu .nav-list > li.layercompare .icon {
+  background-image: none;
+  background-color: white;
+  mask-image: url("../svg/layercompare.svg");
+  mask-size: 18px 18px;
+  mask-position: center center;
+  mask-repeat: no-repeat;
+}
+
+#mini-dock .layercompare h3 .icon {
+  background-image: none;
+  background-color: #000;
+  mask-image: url("../svg/layercompare.svg");
+  mask-size: 18px 18px;
+  mask-position: center center;
+  mask-repeat: no-repeat;
+}
+
+#mapmenu .nav-list > li.layercompare.active .icon,
+#mapmenu .nav-list > li.layercompare a:hover .icon {
+  background-image: none;
+  background-color: #333;
+}
+
 /* DXF export */
 #mapmenu .nav-list > li.dxfexport .icon {
   background-position: -1039px 0;
@@ -4482,4 +4556,498 @@ These lines will be removed in the future, when the minimum target version will 
 
 #permalink-history i {
     cursor:pointer;
+}
+
+.btn-geobookmark-add {
+  display: block;
+  margin-top: 0.5em;
+  margin-left: auto;
+}
+
+/* Geographic data catalog */
+#mapmenu .nav-list > li.catalog .icon {
+  background-image: none;
+  background-color: white;
+  mask-image: url("../svg/catalog.svg");
+  mask-size: 18px 18px;
+  mask-position: center center;
+  mask-repeat: no-repeat;
+}
+
+#mapmenu .nav-list > li.catalog.active .icon,
+#mapmenu .nav-list > li.catalog a:hover .icon {
+  background-image: none;
+  background-color: #333;
+}
+
+lizmap-catalog {
+  display: block;
+  padding: 6px;
+}
+
+lizmap-catalog .catalog-help,
+lizmap-ai-assistant .catalog-help {
+  margin: 6px 0;
+  font-size: 0.9em;
+  opacity: 0.8;
+}
+
+lizmap-catalog .catalog-repository {
+  margin-bottom: 8px;
+}
+
+lizmap-catalog .catalog-repository h4 {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 10px 0 4px;
+  padding-bottom: 2px;
+  font-size: 11px;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--bs-secondary-color, #6c757d);
+  border-bottom: 1px solid var(--bs-border-color, #dee2e6);
+}
+
+lizmap-catalog .catalog-project summary {
+  cursor: pointer;
+  padding: 3px 4px;
+  font-weight: 600;
+  border-radius: var(--bs-border-radius-sm, 0.25rem);
+}
+
+lizmap-catalog .catalog-project summary:hover {
+  background-color: var(--bs-tertiary-bg, #f8f9fa);
+}
+
+lizmap-catalog .catalog-project[open] > summary {
+  background-color: var(--bs-secondary-bg, #e9ecef);
+}
+
+lizmap-catalog .catalog-project > .catalog-layers {
+  margin: 2px 0 6px 10px;
+  padding-left: 8px;
+  border-left: 2px solid var(--bs-border-color, #dee2e6);
+}
+
+lizmap-catalog .catalog-project > p {
+  margin: 2px 0 4px 18px;
+}
+
+lizmap-catalog .catalog-layers,
+lizmap-ai-assistant .catalog-layers {
+  list-style: none;
+  margin: 0 0 6px 12px;
+  padding: 0;
+}
+
+lizmap-catalog .catalog-layer,
+lizmap-ai-assistant .catalog-layer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+}
+
+lizmap-catalog .catalog-layer-drag {
+  cursor: grab;
+}
+
+lizmap-catalog .catalog-layer-title,
+lizmap-ai-assistant .catalog-layer-title {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+lizmap-catalog .catalog-layer.added .catalog-layer-title,
+lizmap-ai-assistant .catalog-layer.added .catalog-layer-title {
+  font-weight: bold;
+}
+
+lizmap-catalog .catalog-layer-preview,
+lizmap-ai-assistant .catalog-layer-preview {
+  flex-basis: 100%;
+  padding: 6px;
+  border-left: 3px solid rgb(255 255 255 / 60%);
+  cursor: default;
+}
+
+lizmap-catalog .catalog-thumbnail,
+lizmap-ai-assistant .catalog-thumbnail {
+  display: block;
+  max-width: 100%;
+  margin-bottom: 6px;
+  background: #fff;
+  border: 1px solid #ccc;
+}
+
+lizmap-catalog .catalog-layer-preview dl,
+lizmap-ai-assistant .catalog-layer-preview dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 8px;
+  margin: 0 0 6px;
+}
+
+lizmap-catalog .catalog-layer-preview dd,
+lizmap-ai-assistant .catalog-layer-preview dd {
+  margin: 0;
+}
+
+/* Layer tree arrangement */
+lizmap-treeview .tree-arrange-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 4px;
+  font-size: 0.9em;
+  border-top: 1px solid rgb(255 255 255 / 60%);
+  border-bottom: 1px solid rgb(255 255 255 / 60%);
+}
+
+lizmap-treeview ul.arranging li[draggable="true"] > div {
+  cursor: grab;
+}
+
+lizmap-treeview li.dragging {
+  opacity: 0.5;
+}
+
+lizmap-treeview li.drop-before {
+  box-shadow: 0 -2px 0 #F0F0F0;
+}
+
+lizmap-treeview li.drop-after {
+  box-shadow: 0 2px 0 #F0F0F0;
+}
+
+lizmap-mapviews {
+  display: block;
+  flex-basis: 100%;
+}
+
+lizmap-mapviews .mapviews-load,
+lizmap-mapviews .mapviews-save {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+lizmap-mapviews select,
+lizmap-mapviews input {
+  flex: 1;
+  min-width: 0;
+}
+
+.catalog-layer-settings {
+  flex-basis: 100%;
+  padding: 4px 0 4px 12px;
+  cursor: default;
+}
+
+.catalog-layer-settings label {
+  display: block;
+}
+
+.catalog-legend {
+  display: block;
+  max-width: 100%;
+  background: #fff;
+}
+
+/* Left dock resizer */
+#dock-resizer {
+  display: none;
+  flex: 0 0 5px;
+  z-index: 1041;
+  cursor: ew-resize;
+  touch-action: none;
+  background-color: rgb(0 0 0 / 70%);
+  border-right: 1px solid #F0F0F0;
+}
+
+#dock-resizer:hover,
+#dock-resizer.resizing {
+  background-color: #F0F0F0;
+}
+
+#dock:has(#dock-content>div:not(.hide)) + #dock-resizer {
+  display: block;
+}
+
+#content.mobile #dock-resizer {
+  /* stylelint-disable-next-line declaration-no-important */
+  display: none !important;
+}
+
+/* Catalog sections: compact Bootstrap accordion, like the dock forms */
+lizmap-catalog .catalog-sections {
+  margin-top: 6px;
+
+  --bs-accordion-btn-padding-x: 0.6rem;
+  --bs-accordion-btn-padding-y: 0.4rem;
+  --bs-accordion-body-padding-x: 0.5rem;
+  --bs-accordion-body-padding-y: 0.4rem;
+}
+
+lizmap-catalog .catalog-sections .accordion-button {
+  font-size: 12px;
+  font-weight: bold;
+}
+
+lizmap-catalog .catalog-sections .accordion-button i {
+  margin-right: 4px;
+}
+
+lizmap-catalog .catalog-sections .accordion-body {
+  font-size: 12px;
+}
+
+lizmap-catalog .catalog-sections .catalog-help {
+  margin-top: 0;
+}
+
+lizmap-catalog .catalog-import-drop {
+  margin: 0 0 4px;
+  padding: 6px;
+  border: 1px dashed var(--bs-border-color, #dee2e6);
+  border-radius: 4px;
+}
+
+lizmap-catalog .catalog-import-drop.over {
+  background-color: var(--bs-tertiary-bg, #f8f9fa);
+  border-color: var(--bs-primary, #0d6efd);
+}
+
+lizmap-catalog .catalog-import-profile h5 {
+  margin: 8px 0 2px;
+  font-size: 1em;
+  font-weight: bold;
+}
+
+lizmap-catalog .catalog-import-drop .catalog-help {
+  margin: 0 0 4px;
+}
+
+#sub-dock .catalog-import-style {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+#sub-dock .catalog-import-style label {
+  display: block;
+}
+
+#sub-dock .catalog-import-style .form-control-color {
+  width: 2.5rem;
+  height: 1.6rem;
+  padding: 2px;
+}
+
+#sub-dock .catalog-import-classes-actions {
+  display: flex;
+  gap: 4px;
+}
+
+#sub-dock .catalog-import-classes {
+  max-height: 240px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+#sub-dock .catalog-import-classes li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 0;
+}
+
+#sub-dock .catalog-import-classes .form-check-input {
+  margin: 0;
+}
+
+lizmap-catalog .catalog-import-crs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+  padding: 8px;
+}
+
+lizmap-catalog .catalog-import-crs p {
+  margin: 0;
+}
+
+lizmap-catalog .catalog-import-crs-actions {
+  display: flex;
+  gap: 6px;
+}
+
+lizmap-catalog .catalog-external-form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 0;
+}
+
+/* AI assistant dock */
+#mapmenu .nav-list > li.assistant .icon {
+  background-image: none;
+  background-color: white;
+  mask-image: url("../svg/assistant.svg");
+  mask-size: 18px 18px;
+  mask-position: center center;
+  mask-repeat: no-repeat;
+}
+
+#mapmenu .nav-list > li.assistant.active .icon,
+#mapmenu .nav-list > li.assistant a:hover .icon {
+  background-image: none;
+  background-color: #333;
+}
+
+lizmap-ai-assistant {
+  display: block;
+  padding: 6px;
+}
+
+/* Catalog AI assistant */
+lizmap-catalog .catalog-ai,
+lizmap-ai-assistant .catalog-ai {
+  margin: 6px 0;
+  padding: 4px 0;
+  border-top: 1px solid rgb(255 255 255 / 60%);
+}
+
+lizmap-catalog .catalog-ai summary,
+lizmap-ai-assistant .catalog-ai summary {
+  cursor: pointer;
+  font-weight: bold;
+}
+
+lizmap-ai-assistant .catalog-ai-title {
+  margin: 0 0 4px;
+  font-weight: bold;
+}
+
+lizmap-catalog .catalog-ai-form,
+lizmap-ai-assistant .catalog-ai-form {
+  display: flex;
+  gap: 4px;
+  align-items: flex-start;
+  margin: 4px 0;
+}
+
+lizmap-catalog .catalog-ai-form textarea,
+lizmap-catalog .catalog-ai-form input,
+lizmap-ai-assistant .catalog-ai-form textarea,
+lizmap-ai-assistant .catalog-ai-form input {
+  flex: 1;
+}
+
+lizmap-catalog .catalog-ai-answer,
+lizmap-ai-assistant .catalog-ai-answer {
+  margin: 6px 0;
+}
+
+lizmap-catalog .catalog-ai-answer h5,
+lizmap-ai-assistant .catalog-ai-answer h5 {
+  margin: 6px 0 2px;
+}
+
+lizmap-catalog .catalog-ai-answer ul,
+lizmap-ai-assistant .catalog-ai-answer ul {
+  margin: 0 0 4px 16px;
+  padding: 0;
+}
+
+lizmap-catalog .catalog-ai-locate,
+lizmap-ai-assistant .catalog-ai-locate {
+  margin-left: 4px;
+  padding: 0 4px;
+  font-size: 0.85em;
+}
+
+lizmap-catalog .catalog-ai-results,
+lizmap-ai-assistant .catalog-ai-results {
+  margin-left: 0;
+}
+
+lizmap-catalog .catalog-ai-result,
+lizmap-ai-assistant .catalog-ai-result {
+  cursor: default;
+}
+
+lizmap-catalog .catalog-ai-map,
+lizmap-ai-assistant .catalog-ai-map {
+  display: block;
+  opacity: 0.8;
+}
+
+lizmap-catalog .catalog-ai-reason,
+lizmap-catalog .catalog-ai-source,
+lizmap-ai-assistant .catalog-ai-reason,
+lizmap-ai-assistant .catalog-ai-source {
+  flex-basis: 100%;
+  margin: 0 0 4px;
+  font-size: 0.9em;
+  opacity: 0.8;
+}
+
+lizmap-catalog .catalog-ai-error details,
+lizmap-ai-assistant .catalog-ai-error details {
+  font-size: 0.85em;
+  opacity: 0.8;
+}
+
+lizmap-catalog .catalog-ai-error code,
+lizmap-ai-assistant .catalog-ai-error code {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+lizmap-catalog .catalog-ai-analysis,
+lizmap-ai-assistant .catalog-ai-analysis {
+  margin-top: 6px;
+}
+
+/* Catalog attribute table (bottom dock) */
+#mapmenu .nav-list > li.catalogtable .icon {
+  background-position: -525px 0;
+}
+
+#mapmenu .nav-list > li.catalogtable.active .icon,
+#mapmenu .nav-list > li.catalogtable a:hover .icon {
+  background-position: -500px 0;
+}
+
+lizmap-catalog-table {
+  display: block;
+  height: 100%;
+}
+
+lizmap-catalog-table .catalog-table-title {
+  margin: 0 8px;
+  font-weight: bold;
+}
+
+lizmap-catalog-table .catalog-table-filter {
+  width: 200px;
+  margin-right: 4px;
+}
+
+lizmap-catalog-table .attribute-layer-action-bar > a.btn {
+  margin-right: 4px;
+}
+
+lizmap-catalog-table .catalog-table-empty {
+  padding: 4px 8px;
 }
