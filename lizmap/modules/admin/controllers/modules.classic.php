@@ -86,6 +86,7 @@ class modulesCtrl extends jController
             'modules' => array(
                 'catalog' => $form->getData('catalog') === 'on',
                 'layerCompare' => $form->getData('layerCompare') === 'on',
+                'overlay' => $form->getData('overlay') === 'on',
                 'aiAssistant' => $form->getData('aiAssistant') === 'on',
             ),
             'provider' => $form->getData('provider'),
