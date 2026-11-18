@@ -29,7 +29,7 @@ class ModulesConfig
     public const MODULES = array('catalog', 'layerCompare', 'aiAssistant');
 
     /** Settings of the AI assistant editable in the administration */
-    public const AI_SETTINGS = array('provider', 'model', 'url', 'allowAnonymous', 'sendStatistics', 'sendFeatures', 'maxFeatures', 'maxRows', 'contextLength', 'requestsPerHour');
+    public const AI_SETTINGS = array('provider', 'model', 'searchModel', 'url', 'allowAnonymous', 'sendStatistics', 'sendFeatures', 'maxFeatures', 'maxRows', 'contextLength', 'requestsPerHour');
 
     /** Default number of requests to the AI assistant by user and hour */
     public const DEFAULT_REQUESTS_PER_HOUR = 60;
@@ -176,6 +176,7 @@ class ModulesConfig
             'provider' => array_key_exists((string) ($ai['provider'] ?? ''), \Lizmap\Ai\Assistant::PROVIDERS)
                 ? $ai['provider'] : \Lizmap\Ai\Assistant::DEFAULT_PROVIDER,
             'model' => (string) ($ai['model'] ?? ''),
+            'searchModel' => (string) ($ai['searchModel'] ?? ''),
             'url' => (string) ($ai['url'] ?? ($ai['ollamaUrl'] ?? '')),
             'allowAnonymous' => $bool($ai['allowAnonymous'] ?? null, false),
             'sendStatistics' => $bool($ai['sendStatistics'] ?? null, true),
@@ -219,6 +220,10 @@ class ModulesConfig
         if (mb_strlen($model) > 100 || preg_match('/[\r\n"]/', $model)) {
             $errors[] = 'model';
         }
+        $searchModel = trim((string) ($data['searchModel'] ?? ''));
+        if (mb_strlen($searchModel) > 100 || preg_match('/[\r\n"]/', $searchModel)) {
+            $errors[] = 'searchModel';
+        }
         $apiKey = trim((string) ($data['apiKey'] ?? ''));
         if (preg_match('/[\s"]/', $apiKey) || strlen($apiKey) > 500) {
             $errors[] = 'apiKey';
@@ -247,6 +252,7 @@ class ModulesConfig
         $ai = array(
             'provider' => $provider,
             'model' => $model,
+            'searchModel' => $searchModel,
             'url' => $url,
             'allowAnonymous' => !empty($data['allowAnonymous']) ? 'on' : 'off',
             'sendStatistics' => !empty($data['sendStatistics']) ? 'on' : 'off',

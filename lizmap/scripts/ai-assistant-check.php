@@ -39,7 +39,8 @@ if (is_file($modulesFile)) {
 }
 $assistant = new Lizmap\Ai\Assistant($config);
 echo 'Provider: '.$assistant->provider().', enabled: '.($assistant->isEnabled() ? 'yes' : 'no')."\n";
-echo 'URL: '.($config['url'] ?? ($config['ollamaUrl'] ?? '(default)')).', model: '.($config['model'] ?? '(default)')."\n";
+echo 'URL: '.($config['url'] ?? ($config['ollamaUrl'] ?? '(default)')).', model: '.($config['model'] ?? '(default)')
+    .(($config['searchModel'] ?? '') !== '' ? ', search model: '.$config['searchModel'] : '')."\n";
 if (class_exists('Composer\InstalledVersions') && Composer\InstalledVersions::isInstalled('anthropic-ai/sdk')) {
     echo 'Anthropic SDK: '.Composer\InstalledVersions::getPrettyVersion('anthropic-ai/sdk')."\n";
 }

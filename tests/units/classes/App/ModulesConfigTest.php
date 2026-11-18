@@ -60,6 +60,7 @@ class ModulesConfigTest extends TestCase
             'modules' => array('catalog' => true, 'layerCompare' => false, 'aiAssistant' => true),
             'provider' => 'claude',
             'model' => '',
+            'searchModel' => 'claude-haiku-5-5',
             'url' => '',
             'apiKey' => 'sk-test-123',
             'requestsPerHour' => '30',
@@ -71,6 +72,7 @@ class ModulesConfigTest extends TestCase
         $this->assertTrue($config->hasApiKey());
         $this->assertEquals(30, $config->requestsPerHour());
         $this->assertEquals('claude', $config->aiConfig()['provider']);
+        $this->assertEquals('claude-haiku-5-5', $config->formValues()['searchModel']);
         $this->assertEquals('sk-test-123', $config->aiConfig()['apiKey']);
         $this->assertEquals('50', $config->importConfig()['quotaSize']);
         $this->assertArrayNotHasKey('apiKey', $config->formValues());

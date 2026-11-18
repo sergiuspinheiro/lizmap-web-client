@@ -19,7 +19,7 @@
   <h2>{@admin~modules.section.ai@}</h2>
   <p>{@admin~modules.section.ai.help@}</p>
   <table class="table services-table">
-    {formcontrols array('provider', 'model', 'url')}
+    {formcontrols array('provider', 'model', 'searchModel', 'url')}
       <tr><th>{ctrl_label}</th><td>{ctrl_control}</td></tr>
     {/formcontrols}
     <tr>

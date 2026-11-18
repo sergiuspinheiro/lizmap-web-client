@@ -15,7 +15,7 @@ class AssistantForTests extends Assistant
 
     protected function ask($system, array $content, array $schema, $effort)
     {
-        $this->requests[] = array('system' => $system, 'content' => $content, 'schema' => $schema, 'effort' => $effort);
+        $this->requests[] = array('system' => $system, 'content' => $content, 'schema' => $schema, 'effort' => $effort, 'model' => $this->config['model']);
 
         return $this->answer;
     }
@@ -288,6 +288,23 @@ class AssistantTest extends TestCase
         $this->assertStringContainsString("<catalog>\n1 | Pinhal |", $catalog);
         $this->assertTrue(mb_strlen($catalog) <= Assistant::MAX_LOCAL_CATALOG_LENGTH + 30);
         $this->assertTrue(substr_count($catalog, "\n") >= 4);
+    }
+
+    public function testSearchModel(): void
+    {
+        $assistant = new AssistantForTests(array('enabled' => 'on', 'provider' => 'ollama', 'searchModel' => 'qwen3:1.7b'));
+        $assistant->answer = array('answer' => '', 'results' => array(), 'highlights' => array(), 'suggestions' => array());
+        $assistant->search('ortofoto', $this->layers());
+        $this->assertEquals('qwen3:1.7b', $assistant->requests[0]['model']);
+        $this->assertStringContainsString('model qwen3:1.7b', $assistant->lastAnswerInfo());
+        // The analysis keeps the main model
+        $assistant->analyse($this->layers()[0], null, '', 'pt_PT');
+        $this->assertEquals('gemma3:4b', $assistant->requests[1]['model']);
+        // Without search model: the main model
+        $assistant = new AssistantForTests(array('enabled' => 'on', 'provider' => 'ollama'));
+        $assistant->answer = array('answer' => '', 'results' => array());
+        $assistant->search('ortofoto', $this->layers());
+        $this->assertEquals('gemma3:4b', $assistant->requests[0]['model']);
     }
 
     public function testAnalysisBudget(): void
