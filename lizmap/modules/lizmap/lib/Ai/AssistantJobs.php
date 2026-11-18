@@ -42,6 +42,37 @@ class AssistantJobs
     }
 
     /**
+     * Send a JSON response and close the connection, the script going on
+     * (without PHP-FPM, e.g. Apache mod_php).
+     *
+     * @param string $json the response body
+     */
+    public static function sendAndClose($json)
+    {
+        ignore_user_abort(true);
+        set_time_limit(330);
+        // A compressed response would be sent only at the end of the script
+        if (function_exists('apache_setenv')) {
+            @apache_setenv('no-gzip', '1');
+        }
+        @ini_set('zlib.output_compression', '0');
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+        if (!headers_sent()) {
+            header('Content-Type: application/json; charset=utf-8');
+            header('Content-Length: '.strlen($json));
+            header('Connection: close');
+            header('Cache-Control: no-store');
+        }
+        echo $json;
+        flush();
+        if (function_exists('litespeed_finish_request')) {
+            litespeed_finish_request();
+        }
+    }
+
+    /**
      * Create a job.
      *
      * @param string $owner the owner of the job, e.g. the session id: only the owner reads it
