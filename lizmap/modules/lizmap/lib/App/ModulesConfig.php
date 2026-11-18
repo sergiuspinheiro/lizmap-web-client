@@ -26,7 +26,7 @@ class ModulesConfig
     public const FILE = 'lizmapModules.ini.php';
 
     /** The optional modules */
-    public const MODULES = array('catalog', 'layerCompare', 'aiAssistant');
+    public const MODULES = array('catalog', 'layerCompare', 'overlay', 'aiAssistant');
 
     /** Settings of the AI assistant editable in the administration */
     public const AI_SETTINGS = array('provider', 'model', 'searchModel', 'url', 'allowAnonymous', 'sendStatistics', 'sendFeatures', 'maxFeatures', 'maxRows', 'contextLength', 'requestsPerHour');
@@ -172,6 +172,7 @@ class ModulesConfig
         return array(
             'catalog' => $this->isEnabled('catalog') ? 'on' : 'off',
             'layerCompare' => $this->isEnabled('layerCompare') ? 'on' : 'off',
+            'overlay' => $this->isEnabled('overlay') ? 'on' : 'off',
             'aiAssistant' => $this->isEnabled('aiAssistant') ? 'on' : 'off',
             'provider' => array_key_exists((string) ($ai['provider'] ?? ''), \Lizmap\Ai\Assistant::PROVIDERS)
                 ? $ai['provider'] : \Lizmap\Ai\Assistant::DEFAULT_PROVIDER,

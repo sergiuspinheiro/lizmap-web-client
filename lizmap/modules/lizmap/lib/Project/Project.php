@@ -2714,6 +2714,20 @@ class Project
     {
         $dockable = array();
 
+        // Overlay analysis: the features of the layers intersecting an area drawn by the user
+        $modules = new \Lizmap\App\ModulesConfig();
+        if ($modules->isEnabled('overlay') && $this->getWfsLayerIds()) {
+            $assistant = new \Lizmap\Ai\Assistant($modules->aiConfig());
+            $tpl = new \jTpl();
+            $tpl->assign('withAssistant', $assistant->isAllowed($this->appContext->UserIsConnected()) && $assistant->canSendFeatures());
+            $dockable[] = new \lizmapMapDockItem(
+                'overlay',
+                $this->appContext->getLocale('view~map.overlay.navbar.title'),
+                $tpl->fetch('view~map_overlay'),
+                12
+            );
+        }
+
         if ($this->getOption('popupLocation') === 'right-dock') {
             $dockable[] = new \lizmapMapDockItem(
                 'popupcontent',

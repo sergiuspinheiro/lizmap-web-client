@@ -10,6 +10,10 @@
         <label locale="admin~modules.layerCompare.label"/>
         <help locale="admin~modules.layerCompare.help"/>
     </checkbox>
+    <checkbox ref="overlay" valueoncheck="on" valueonuncheck="off">
+        <label locale="admin~modules.overlay.label"/>
+        <help locale="admin~modules.overlay.help"/>
+    </checkbox>
     <checkbox ref="aiAssistant" valueoncheck="on" valueonuncheck="off">
         <label locale="admin~modules.aiAssistant.label"/>
         <help locale="admin~modules.aiAssistant.help"/>
