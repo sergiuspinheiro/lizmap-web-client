@@ -60,6 +60,10 @@
         <label locale="admin~modules.maxRows.label"/>
         <help locale="admin~modules.maxRows.help"/>
     </input>
+    <input ref="contextLength" type="integer" minvalue="2048" maxvalue="131072">
+        <label locale="admin~modules.contextLength.label"/>
+        <help locale="admin~modules.contextLength.help"/>
+    </input>
     <input ref="requestsPerHour" type="integer" minvalue="1" maxvalue="10000">
         <label locale="admin~modules.requestsPerHour.label"/>
         <help locale="admin~modules.requestsPerHour.help"/>
