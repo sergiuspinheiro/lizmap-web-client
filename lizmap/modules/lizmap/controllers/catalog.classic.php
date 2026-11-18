@@ -730,45 +730,9 @@ class catalogCtrl extends jController
         $code = $e->getCode() >= 400 ? $e->getCode() : 502;
         $this->error($rep, $code, $e->getMessage());
         // A reason the user interface can explain in simple words
-        $rep->data['reason'] = self::errorReason($e->getMessage(), $e->getCode());
+        $rep->data['reason'] = Assistant::errorReason($e->getMessage(), $e->getCode());
 
         return $rep;
-    }
-
-    /**
-     * The reason of an assistant error: credit, busy, key, unreachable,
-     * timeout, model, refused, config or error.
-     *
-     * @param string $message the error message
-     * @param int    $code    the error code
-     *
-     * @return string
-     */
-    public static function errorReason($message, $code)
-    {
-        $text = strtolower($message);
-        $rules = array(
-            'credit' => array('credit balance', 'quota', 'billing', 'insufficient'),
-            'key' => array('invalid api key', 'api key not valid', 'permission'),
-            'busy' => array('overloaded', 'high demand', 'unavailable', 'too many requests'),
-            'timeout' => array('timed out', 'curl error 28', 'timeout'),
-            'unreachable' => array('cannot be reached', 'could not resolve', 'connection refused'),
-            'model' => array('no longer available', 'model not found', 'is not found', 'not supported for'),
-            'refused' => array('declined'),
-            'config' => array('sdk is not installed', 'not enabled'),
-        );
-        foreach ($rules as $reason => $words) {
-            foreach ($words as $word) {
-                if (str_contains($text, $word)) {
-                    return $reason;
-                }
-            }
-        }
-        if ($code == 429 || $code == 503) {
-            return 'busy';
-        }
-
-        return 'error';
     }
 
     /**
