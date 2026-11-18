@@ -98,7 +98,7 @@
 
 {if $canUpdate}
 <h3>{@admin~documents.link.new@}</h3>
-<form method="post" action="{jurl 'admin~documents:addLink'}" class="mb-4" id="documents-link-form" data-layers-url="{$layersUrl}">
+<form method="post" action="{jurl 'admin~documents:addLink'}" class="mb-4" id="documents-link-form" data-layers-url="{$layersUrl}" data-values-url="{$valuesUrl}" data-values-label="{@admin~documents.link.values.count@}">
   <input type="hidden" name="token" value="{$token}">
   <input type="hidden" name="collection" value="{$collection['id']}">
   <table class="table services-table">
@@ -108,18 +108,31 @@
         {foreach $maps as $map}<option value="{$map['id']|eschtml}">{$map['title']|eschtml}</option>{/foreach}
       </select></td></tr>
     <tr><th><label for="link-layer">{@admin~documents.link.layer@}</label></th>
-      <td><input id="link-layer" name="layer" class="form-control" list="link-layers" maxlength="200">
+      <td><input id="link-layer" name="layer" class="form-control" list="link-layers" maxlength="200" autocomplete="off">
       <datalist id="link-layers"></datalist>
       <div class="form-text">{@admin~documents.link.layer.help@}</div></td></tr>
     <tr><th><label for="link-field">{@admin~documents.link.field@}</label></th>
-      <td><input id="link-field" name="field" class="form-control" maxlength="200">
-      <div class="form-text">{@admin~documents.link.field.help@}</div></td></tr>
+      <td><input id="link-field" name="field" class="form-control" list="link-fields" maxlength="200" autocomplete="off">
+      <datalist id="link-fields"></datalist>
+      <div class="form-text">{@admin~documents.link.field.help@} <span id="link-values-status"></span></div></td></tr>
     <tr><th><label for="link-value">{@admin~documents.link.value@}</label></th>
-      <td><input id="link-value" name="value" class="form-control" maxlength="500">
+      <td><input id="link-value" name="value" class="form-control" list="link-values" maxlength="500" autocomplete="off">
+      <datalist id="link-values"></datalist>
       <div class="form-text">{@admin~documents.link.value.help@}</div></td></tr>
-    <tr><th><label for="link-parts">{@admin~documents.link.parts@}</label></th>
-      <td><input id="link-parts" name="parts" class="form-control" maxlength="2000" placeholder="67-A, 67-B">
-      <div class="form-text">{@admin~documents.link.parts.help@}</div></td></tr>
+    <tr><th><label for="link-parts-filter">{@admin~documents.link.parts@}</label></th>
+      <td>
+      {if count($parts)}
+      <input id="link-parts-filter" type="search" class="form-control mb-1" placeholder="{@admin~documents.link.parts.search@}" autocomplete="off">
+      <div id="link-parts" class="border rounded p-2" style="max-height: 16rem; overflow-y: auto;">
+        {foreach $parts as $part}<div class="form-check" data-text="{$part['label']|eschtml}">
+          <input class="form-check-input" type="checkbox" name="parts[]" value="{$part['number']|eschtml}" id="link-part-{$part['number']|eschtml}">
+          <label class="form-check-label" for="link-part-{$part['number']|eschtml}">{$part['label']|eschtml}</label>
+        </div>{/foreach}
+      </div>
+      <div class="form-text"><span id="link-parts-count">0</span> {@admin~documents.link.parts.selected@} {@admin~documents.link.parts.help@}</div>
+      {/if}
+      <input id="link-other-parts" name="otherParts" class="form-control mt-1" maxlength="2000" placeholder="{@admin~documents.link.parts.other@}">
+      </td></tr>
     <tr><th><label for="link-note">{@admin~documents.link.note@}</label></th>
       <td><textarea id="link-note" name="note" class="form-control" rows="2" maxlength="2000"></textarea>
       <div class="form-text">{@admin~documents.link.note.help@}</div></td></tr>
@@ -131,31 +144,122 @@
 (function () {
     const form = document.getElementById('documents-link-form');
     const select = document.getElementById('link-map');
-    const list = document.getElementById('link-layers');
+    const layerInput = document.getElementById('link-layer');
+    const fieldInput = document.getElementById('link-field');
+    const layerList = document.getElementById('link-layers');
+    const fieldList = document.getElementById('link-fields');
+    const valueList = document.getElementById('link-values');
+    const status = document.getElementById('link-values-status');
+    let fields = [];
+    let layers = [];
+
+    const withParams = (url, params) => url + (url.includes('?') ? '&' : '?') + new URLSearchParams(params);
+    const fill = (list, items) => {
+        list.replaceChildren(...items.map(([value, label]) => {
+            const option = document.createElement('option');
+            option.value = value;
+            if (label && label !== value) {
+                option.label = label;
+            }
+            return option;
+        }));
+    };
+    const showValues = () => {
+        const field = fields.find(item => item.name === fieldInput.value);
+        if (field) {
+            fill(valueList, field.values.map(value => [value]));
+        } else {
+            // Any field: every value, once
+            const values = new Set();
+            fields.forEach(item => item.values.forEach(value => values.add(value)));
+            fill(valueList, [...values].slice(0, 2000).map(value => [value]));
+        }
+    };
+
     select.addEventListener('change', async () => {
-        list.replaceChildren();
-        const [repository, project] = select.value.split('~');
-        if (!project) {
+        requested = null;
+        layers = [];
+        fields = [];
+        fill(layerList, []);
+        fill(fieldList, []);
+        fill(valueList, []);
+        if (!select.value) {
             return;
         }
         try {
-            const url = form.dataset.layersUrl + (form.dataset.layersUrl.includes('?') ? '&' : '?')
-                + new URLSearchParams({ repository, project });
-            const response = await fetch(url);
-            if (!response.ok) {
-                return;
-            }
-            const data = await response.json();
-            for (const layer of data.layers || []) {
-                const option = document.createElement('option');
-                option.value = layer.name;
-                option.label = layer.title;
-                list.append(option);
+            const response = await fetch(withParams(form.dataset.layersUrl, { map: select.value }));
+            if (response.ok) {
+                layers = (await response.json()).layers || [];
+                fill(layerList, layers.map(layer => [layer.name, layer.title]));
             }
         } catch (error) {
             console.error(error);
         }
     });
+
+    let requested = null;
+    const loadFields = async () => {
+        if (layerInput.value === requested) {
+            return;
+        }
+        fields = [];
+        fill(fieldList, []);
+        fill(valueList, []);
+        status.textContent = '';
+        const layer = layerInput.value;
+        requested = layer;
+        if (!layer || !layers.some(item => item.name === layer)) {
+            return;
+        }
+        status.textContent = '…';
+        try {
+            const response = await fetch(withParams(form.dataset.valuesUrl, { map: select.value, layer }));
+            if (requested !== layer) {
+                return;
+            }
+            status.textContent = '';
+            if (!response.ok) {
+                return;
+            }
+            fields = (await response.json()).fields || [];
+            fill(fieldList, fields.map(field => [field.name, field.values.length + (field.truncated ? '+ ' : ' ') + form.dataset.valuesLabel]));
+            showValues();
+        } catch (error) {
+            console.error(error);
+            status.textContent = '';
+        }
+    };
+    layerInput.addEventListener('change', loadFields);
+    layerInput.addEventListener('input', () => {
+        if (layers.some(item => item.name === layerInput.value)) {
+            loadFields();
+        }
+    });
+    fieldInput.addEventListener('change', showValues);
+    fieldInput.addEventListener('input', showValues);
+
+    const filter = document.getElementById('link-parts-filter');
+    const parts = document.getElementById('link-parts');
+    if (filter && parts) {
+        const normalize = text => text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+        filter.addEventListener('input', () => {
+            const words = normalize(filter.value).split(/\s+/).filter(Boolean);
+            for (const item of parts.children) {
+                const text = normalize(item.dataset.text || '');
+                // Checked parts stay visible
+                item.hidden = !item.querySelector('input').checked && !words.every(word => text.includes(word));
+            }
+        });
+        filter.addEventListener('keydown', event => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+            }
+        });
+        const count = document.getElementById('link-parts-count');
+        parts.addEventListener('change', () => {
+            count.textContent = parts.querySelectorAll('input:checked').length;
+        });
+    }
 })();
 {/literal}
 </script>
