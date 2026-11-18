@@ -10,6 +10,7 @@
     <url pathinfo="/features"    controller="features"/>
     <url pathinfo="/geobookmark" controller="geobookmark"/>
     <url pathinfo="/osm"         controller="osm"/>
+    <url pathinfo="/overlay"     controller="overlay"/>
     <url pathinfo="/permalink"   controller="permalink"/>
     <url pathinfo="/project"     controller="project"/>
     <url pathinfo="/repository"  controller="repository"/>
