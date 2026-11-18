@@ -63,6 +63,11 @@ class catalog_servicesCtrl extends jController
             'access' => 'all', 'groups' => array(), 'users' => array(),
         );
         $edit['usersText'] = implode(', ', $edit['users']);
+        $userOptions = array();
+        foreach ($edit['users'] as $login) {
+            $user = jAuth::getUser($login);
+            $userOptions[] = array('login' => $login, 'label' => $user ? $this->userLabel($user) : $login);
+        }
         $typeOptions = array();
         foreach ($types as $type => $label) {
             $typeOptions[] = array('id' => $type, 'label' => $label, 'selected' => $edit['type'] === $type);
@@ -79,6 +84,7 @@ class catalog_servicesCtrl extends jController
         $tpl->assign('edit', $edit);
         $tpl->assign('typeOptions', $typeOptions);
         $tpl->assign('groupOptions', $groupOptions);
+        $tpl->assign('userOptions', $userOptions);
         $tpl->assign('groupSize', max(2, min(8, count($groupOptions))));
         $tpl->assign('token', $this->token());
         $tpl->assign('canUpdate', jAcl2::check('lizmap.admin.services.update'));
@@ -107,7 +113,7 @@ class catalog_servicesCtrl extends jController
             'description' => (string) $this->param('description', ''),
             'access' => (string) $this->param('access', 'all'),
             'groups' => array_values(array_intersect((array) $this->param('groups', array()), array_keys($this->groups()))),
-            'users' => (string) $this->param('users', ''),
+            'users' => $this->existingUsers((array) $this->param('users', array())),
         );
         $store = new SharedServices();
         list($service, $errors) = $store->save($data, $id !== '' ? $id : null);
@@ -115,8 +121,7 @@ class catalog_servicesCtrl extends jController
             foreach ($errors as $field) {
                 jMessage::add(jLocale::get('admin~catalog_services.error.'.$field), 'error');
             }
-            $_SESSION['lizmapSharedServiceForm'] = array('id' => $id) + $data
-                + array('users' => preg_split('/[\s,;]+/', $data['users'], -1, PREG_SPLIT_NO_EMPTY));
+            $_SESSION['lizmapSharedServiceForm'] = array('id' => $id) + $data;
 
             return $this->toIndex();
         }
@@ -124,6 +129,34 @@ class catalog_servicesCtrl extends jController
         jMessage::add(jLocale::get('admin~catalog_services.saved'));
 
         return $this->toIndex();
+    }
+
+    /**
+     * Users whose login or name contains the searched text, to add them to a service.
+     *
+     * @return jResponseJson
+     */
+    public function users()
+    {
+        /** @var jResponseJson $rep */
+        $rep = $this->getResponse('json');
+        $search = trim(str_replace(array('%', '_'), '', (string) $this->param('q', '')));
+        $users = array();
+        if (mb_strlen($search) >= 1) {
+            try {
+                foreach (jAuth::getUserList('%'.$search.'%') as $user) {
+                    $users[] = array('login' => (string) $user->login, 'label' => $this->userLabel($user));
+                    if (count($users) >= 20) {
+                        break;
+                    }
+                }
+            } catch (\Throwable $e) {
+                jLog::log('Shared external services, users: '.$e->getMessage(), 'lizmapadmin');
+            }
+        }
+        $rep->data = $users;
+
+        return $rep;
     }
 
     /**
@@ -180,6 +213,39 @@ class catalog_servicesCtrl extends jController
             jLocale::get('admin~catalog_services.test.'.($result['ok'] ? 'ok' : 'error'), array($service['title'], $result['message'])),
             $result['ok'] ? 'info' : 'warning'
         );
+    }
+
+    /**
+     * @param object $user a user of jAuth
+     *
+     * @return string the login, with the name or email when the user has one
+     */
+    protected function userLabel($user)
+    {
+        $name = trim(($user->firstname ?? '').' '.($user->lastname ?? ''));
+        if ($name === '') {
+            $name = (string) ($user->email ?? '');
+        }
+
+        return $name !== '' ? $user->login.' ('.$name.')' : (string) $user->login;
+    }
+
+    /**
+     * @param array $logins the logins sent by the form
+     *
+     * @return string[] the logins of existing users
+     */
+    protected function existingUsers(array $logins)
+    {
+        $users = array();
+        foreach (array_slice($logins, 0, SharedServices::MAX_MEMBERS) as $login) {
+            $login = trim((string) $login);
+            if ($login !== '' && !in_array($login, $users, true) && jAuth::getUser($login)) {
+                $users[] = $login;
+            }
+        }
+
+        return $users;
     }
 
     /**
