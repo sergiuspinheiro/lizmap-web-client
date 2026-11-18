@@ -264,10 +264,30 @@ class AssistantTest extends TestCase
         $this->assertEquals(array(0, 0, 1), array_values($scores));
 
         $assistant = new AssistantForTests(array('enabled' => 'on', 'provider' => 'ollama'));
-        $assistant->answer = array('answer' => '', 'results' => array(array('id' => '3', 'reason' => 'Regulamento')));
+        $assistant->answer = array('answer' => '', 'results' => array(array('id' => '1', 'reason' => 'Regulamento')));
         $result = $assistant->search('Onde posso construir?', $layers);
         $this->assertEquals('ordenamento', $result['results'][0]['name']);
-        $this->assertStringContainsString('3 | Ordenamento | PDM | polygon |  | docs: Condicionantes à construção', $assistant->requests[0]['content'][0]['text']);
+        // The layer sharing words with the question first
+        $this->assertStringContainsString('1 | Ordenamento | PDM | polygon |  | docs: Condicionantes à construção', $assistant->requests[0]['content'][0]['text']);
+    }
+
+    public function testLocalSearchCatalogLength(): void
+    {
+        $layers = array();
+        for ($i = 0; $i < 30; ++$i) {
+            $layers[] = Assistant::layerIndexEntry('r', 'R', 'p', 'Map', array('name' => 'l'.$i, 'title' => 'Layer '.$i, 'abstract' => str_repeat('Some words. ', 20)))
+                + array('documents' => 'PDM: '.str_repeat('Artigo sobre outra coisa, ', 20));
+        }
+        $layers[] = Assistant::layerIndexEntry('r', 'R', 'p', 'Map', array('name' => 'pinhal', 'title' => 'Pinhal'));
+        $assistant = new AssistantForTests(array('enabled' => 'on', 'provider' => 'ollama'));
+        $assistant->answer = array('answer' => '', 'results' => array(array('id' => '1', 'reason' => 'Pinhal')));
+        $result = $assistant->search('Posso construir no pinhal?', $layers);
+        $this->assertEquals('pinhal', $result['results'][0]['name']);
+        $catalog = $assistant->requests[0]['content'][0]['text'];
+        // The closest layer first, and a short catalog
+        $this->assertStringContainsString("<catalog>\n1 | Pinhal |", $catalog);
+        $this->assertTrue(mb_strlen($catalog) <= Assistant::MAX_LOCAL_CATALOG_LENGTH + 30);
+        $this->assertTrue(substr_count($catalog, "\n") >= 4);
     }
 
     public function testAnalysisBudget(): void
