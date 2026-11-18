@@ -2591,6 +2591,8 @@ export default class Catalog extends HTMLElement {
                         : data.statistics
                             ? lizDict['catalog.ai.statistics'].replace('%s', data.statistics.features)
                             : lizDict['catalog.ai.nostatistics']}</p>
+                    ${data.documents?.length ? html`<p class="catalog-ai-source">${lizDict['catalog.ai.documents']}
+                        ${data.documents.map(doc => doc.collection + ' — ' + (/^\d/.test(doc.label) ? 'Art. ' : '') + doc.label).join('; ')}</p>` : ''}
                 </div>` : ''}
         </div>`;
     }

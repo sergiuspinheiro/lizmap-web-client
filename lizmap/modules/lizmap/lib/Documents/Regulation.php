@@ -16,7 +16,7 @@
  * @license Mozilla Public License : http://www.mozilla.org/MPL/
  */
 
-namespace Lizmap\Igt;
+namespace Lizmap\Documents;
 
 class Regulation
 {

@@ -132,7 +132,7 @@ class FeatureSample
     /**
      * The sample, as a table: one line by feature, values separated by " | ".
      *
-     * @return array{columns: list<string>, table: string, rows: int, matched: int, read: int}
+     * @return array{columns: list<string>, table: string, rows: int, records: list<array<string, string>>, matched: int, read: int}
      */
     public function toArray()
     {
@@ -140,6 +140,7 @@ class FeatureSample
         $lines = array(implode(' | ', $columns));
         $length = mb_strlen($lines[0]);
         $rows = 0;
+        $records = array();
         foreach (array_merge($this->matched, $this->others) as $row) {
             if ($rows >= $this->maxRows) {
                 break;
@@ -153,6 +154,7 @@ class FeatureSample
                 break;
             }
             $lines[] = $line;
+            $records[] = $row;
             $length += mb_strlen($line) + 1;
             ++$rows;
         }
@@ -161,6 +163,7 @@ class FeatureSample
             'columns' => $columns,
             'table' => $rows > 0 ? implode("\n", $lines) : '',
             'rows' => $rows,
+            'records' => $records,
             'matched' => $this->matchedCount,
             'read' => $this->read,
         );
