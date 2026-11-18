@@ -84,10 +84,101 @@
       </select>
       <div class="form-text">{@admin~catalog_services.groups.help@}</div></td></tr>
     <tr><th><label for="service-users">{@admin~catalog_services.users@}</label></th>
-      <td><input id="service-users" name="users" class="form-control" value="{$edit['usersText']|eschtml}">
+      <td><div id="service-users-selected" class="mb-2">
+        {foreach $userOptions as $option}<span class="badge text-bg-secondary me-1 service-user">{$option['label']|eschtml}
+          <input type="hidden" name="users[]" value="{$option['login']|eschtml}">
+          <button type="button" class="btn-close btn-close-white ms-1" aria-label="{@admin~catalog_services.users.remove@}"></button></span>{/foreach}
+      </div>
+      <input id="service-users" type="search" class="form-control" autocomplete="off" list="service-users-list"
+        placeholder="{@admin~catalog_services.users.search@}" data-url="{jurl 'admin~catalog_services:users'}">
+      <datalist id="service-users-list"></datalist>
       <div class="form-text">{@admin~catalog_services.users.help@}</div></td></tr>
   </table>
   <button type="submit" class="btn btn-primary">{@admin~catalog_services.save@}</button>
   {if $edit['id']}<a class="btn" href="{jurl 'admin~catalog_services:index'}">{@admin~catalog_services.cancel@}</a>{/if}
 </form>
 {/if}
+
+<script>
+(() => {
+    const input = document.getElementById('service-users');
+    const list = document.getElementById('service-users-list');
+    const selected = document.getElementById('service-users-selected');
+    if (!input) {
+        return;
+    }
+    let found = [];
+    let timer = null;
+    const logins = () => Array.from(selected.querySelectorAll('input[name="users[]"]')).map(item => item.value);
+    const add = (user) => {
+        if (logins().includes(user.login)) {
+            return;
+        }
+        const chip = document.createElement('span');
+        chip.className = 'badge text-bg-secondary me-1 service-user';
+        chip.textContent = user.label + ' ';
+        const hidden = document.createElement('input');
+        hidden.type = 'hidden';
+        hidden.name = 'users[]';
+        hidden.value = user.login;
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'btn-close btn-close-white ms-1';
+        chip.append(hidden, remove);
+        selected.append(chip);
+        // Choosing users means "only the groups and users below"
+        const restricted = document.getElementById('access-restricted');
+        if (restricted) {
+            restricted.checked = true;
+        }
+    };
+    selected.addEventListener('click', (e) => {
+        if (e.target.classList.contains('btn-close')) {
+            e.target.closest('.service-user').remove();
+        }
+    });
+    const pick = () => {
+        const value = input.value.trim();
+        const user = found.find(item => item.label === value || item.login === value);
+        if (user) {
+            add(user);
+            input.value = '';
+            list.replaceChildren();
+        }
+        return !!user;
+    };
+    input.addEventListener('input', () => {
+        if (pick()) {
+            return;
+        }
+        clearTimeout(timer);
+        const q = input.value.trim();
+        if (!q) {
+            list.replaceChildren();
+            return;
+        }
+        timer = setTimeout(async () => {
+            try {
+                const url = new URL(input.dataset.url, window.location.href);
+                url.searchParams.set('q', q);
+                const response = await fetch(url, { credentials: 'same-origin' });
+                found = response.ok ? await response.json() : [];
+            } catch {
+                found = [];
+            }
+            list.replaceChildren(...found.filter(user => !logins().includes(user.login)).map(user => {
+                const option = document.createElement('option');
+                option.value = user.label;
+                return option;
+            }));
+        }, 250);
+    });
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            // Do not submit the form while searching a user
+            e.preventDefault();
+            pick();
+        }
+    });
+})();
+</script>
