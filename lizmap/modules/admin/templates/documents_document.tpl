@@ -23,13 +23,13 @@
 </form>
 {/if}
 
-{foreach $parts as $part}
+{if count($parts)}{foreach $parts as $part}
 <div class="card mb-3" id="part-{$part['number']|eschtml}">
   <div class="card-header">
     <strong>{$part['heading']|eschtml}</strong>
     {if $part['title']} — {$part['title']|eschtml}{/if}
     {if $part['chapter'] || $part['section']}<br><small class="text-muted">{$part['chapter']|eschtml}{if $part['section']} / {$part['section']|eschtml}{/if}</small>{/if}
-    {if !$document && isset($part['document'])}<br><small>{$part['document']['title']|eschtml} ({$part['document']['date']}){if $part['revoked']} — <strong>{@admin~documents.revoked@}</strong>{/if}{if $part['previous']} — {@admin~documents.previous@} {$part['previous']['document']['title']|eschtml}{/if}</small>{/if}
+    {if !$document && array_key_exists('document', $part)}<br><small>{$part['document']['title']|eschtml} ({$part['document']['date']}){if $part['revoked']} — <strong>{@admin~documents.revoked@}</strong>{/if}{if $part['previous']} — {@admin~documents.previous@} {$part['previous']['document']['title']|eschtml}{/if}</small>{/if}
   </div>
   <div class="card-body">
   {if $document && $canUpdate}
@@ -47,6 +47,6 @@
   {/if}
   </div>
 </div>
-{foreachelse}
+{/foreach}{else}
 <p>{@admin~documents.parts.none@}</p>
-{/foreach}
+{/if}
