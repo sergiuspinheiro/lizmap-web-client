@@ -70,6 +70,14 @@ class configListener extends jEventListener
                 112,
                 'lizmap'
             );
+            // Reference documents linked to the data, for the AI assistant
+            $bloc->childItems[] = new masterAdminMenuItem(
+                'lizmap_documents',
+                jLocale::get('admin~documents.menu'),
+                jUrl::get('admin~documents:index'),
+                113,
+                'lizmap'
+            );
         }
         if (jAcl2::check('lizmap.admin.services.view')) {
             // configure profil for lizmap search

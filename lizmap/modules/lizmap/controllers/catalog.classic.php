@@ -18,6 +18,8 @@ use Lizmap\Ai\AssistantException;
 use Lizmap\Ai\FeatureLocator;
 use Lizmap\Ai\FeatureSample;
 use Lizmap\Ai\LayerStatistics;
+use Lizmap\Documents\DocumentContext;
+use Lizmap\Documents\DocumentStore;
 use Lizmap\App\ModulesConfig;
 use Lizmap\Request\WFSRequest;
 
@@ -281,13 +283,37 @@ class catalogCtrl extends jController
             $layer,
         );
 
+        // Reference documents linked to the layer (regulations, notes...)
+        $documentStore = new DocumentStore(jApp::varPath('documents/'));
+        $hasDocuments = count($documentStore->linksOf($repository, $projectKey, $layer['name'])) > 0;
+
         $statistics = null;
         $sample = null;
         if ($assistant->canSendFeatures()) {
-            // The features themselves (e.g. to a local model): read once for both
-            list($statistics, $sample) = $this->layerFeatures($project, $layer, $assistant, $question);
+            // The features themselves (e.g. to a local model): read once for both,
+            // less of them when documents are sent too
+            list($statistics, $sample) = $this->layerFeatures($project, $layer, $assistant, $question, $hasDocuments ? 8000 : 12000);
         } elseif ($assistant->canAnalyse() && $layer['attributeTable']) {
             $statistics = $this->layerStatistics($project, $layer, $assistant->maxFeatures());
+        }
+
+        $documents = array('text' => '', 'sources' => array());
+        if ($hasDocuments) {
+            // The values of the features, to find the documents linked to some values only
+            $rows = $sample['records'] ?? array();
+            foreach ($statistics['fields'] ?? array() as $field) {
+                foreach ($field['top'] ?? array() as $top) {
+                    $rows[] = array($field['name'] => $top['value']);
+                }
+            }
+            $documents = (new DocumentContext($documentStore))->forLayer(
+                $repository,
+                $projectKey,
+                $layer['name'],
+                $question,
+                $rows,
+                $assistant->provider() === 'ollama' ? 8000 : 30000,
+            );
         }
 
         // The answer can take minutes: release the PHP session lock, so that
@@ -295,7 +321,8 @@ class catalogCtrl extends jController
         session_write_close();
 
         try {
-            $rep->data = $assistant->analyse($entry, $statistics, $question, jLocale::getCurrentLocale(), $sample);
+            $rep->data = $assistant->analyse($entry, $statistics, $question, jLocale::getCurrentLocale(), $sample, $documents['text']);
+            $rep->data['documents'] = $documents['sources'];
             $rep->data['statistics'] = $statistics;
             $rep->data['features'] = $sample ? array('rows' => $sample['rows'], 'read' => $sample['read']) : null;
             // The feature asked about: found on the map, so that the user can zoom to it
@@ -479,10 +506,11 @@ class catalogCtrl extends jController
      * @param array                   $layer     the layer, from projectLayers()
      * @param Assistant               $assistant the assistant
      * @param string                  $question  the user question, its features come first
+     * @param int                     $maxLength maximum length of the sample table
      *
      * @return array{0: null|array, 1: null|array} the statistics and the sample, null if the layer cannot be read
      */
-    protected function layerFeatures($project, $layer, $assistant, $question)
+    protected function layerFeatures($project, $layer, $assistant, $question, $maxLength = 12000)
     {
         $maxFeatures = $assistant->maxFeatures();
         $params = array(
@@ -508,7 +536,7 @@ class catalogCtrl extends jController
             $stream = Psr7StreamWrapper::getResource($result->getBodyAsStream());
             $features = JsonMachineItems::fromStream($stream, array('pointer' => '/features'));
             $statistics = new LayerStatistics();
-            $sample = new FeatureSample($question, $assistant->maxRows());
+            $sample = new FeatureSample($question, $assistant->maxRows(), $maxLength);
             foreach ($features as $feature) {
                 if ($sample->count() >= $maxFeatures) {
                     break;
