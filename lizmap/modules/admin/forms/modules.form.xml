@@ -30,6 +30,10 @@
         <label locale="admin~modules.model.label"/>
         <help locale="admin~modules.model.help"/>
     </input>
+    <input ref="searchModel" type="string" maxlength="100">
+        <label locale="admin~modules.searchModel.label"/>
+        <help locale="admin~modules.searchModel.help"/>
+    </input>
     <input ref="url" type="string" maxlength="300">
         <label locale="admin~modules.url.label"/>
         <help locale="admin~modules.url.help"/>
