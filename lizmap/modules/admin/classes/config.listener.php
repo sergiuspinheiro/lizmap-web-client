@@ -78,6 +78,14 @@ class configListener extends jEventListener
                 113,
                 'lizmap'
             );
+            // External services offered to the users in the data catalog
+            $bloc->childItems[] = new masterAdminMenuItem(
+                'lizmap_catalog_services',
+                jLocale::get('admin~catalog_services.menu'),
+                jUrl::get('admin~catalog_services:index'),
+                114,
+                'lizmap'
+            );
         }
         if (jAcl2::check('lizmap.admin.services.view')) {
             // configure profil for lizmap search
