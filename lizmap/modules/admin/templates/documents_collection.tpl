@@ -81,8 +81,9 @@
       <td>{if $link['value']}{if $link['field']}{$link['field']|eschtml} = {/if}{$link['value']|eschtml}{else}<em>{@admin~documents.link.all@}</em>{/if}</td>
       <td>{if $link['partsText']}{$link['partsText']|eschtml}{else}<em>{@admin~documents.link.allparts@}</em>{/if}</td>
       <td>{$link['note']|eschtml}</td>
-      {if $canUpdate}<td>
-        <form method="post" action="{jurl 'admin~documents:deleteLink'}" onsubmit="return confirm('{@admin~documents.confirm@}');">
+      {if $canUpdate}<td class="text-nowrap">
+        <button type="button" class="btn btn-sm btn-outline-secondary documents-link-edit" data-link="{$link['json']|eschtml}">{@admin~documents.link.edit@}</button>
+        <form method="post" action="{jurl 'admin~documents:deleteLink'}" class="d-inline" onsubmit="return confirm('{@admin~documents.confirm@}');">
           <input type="hidden" name="token" value="{$token}">
           <input type="hidden" name="collection" value="{$collection['id']}">
           <input type="hidden" name="link" value="{$link['id']}">
@@ -97,10 +98,11 @@
 </table>
 
 {if $canUpdate}
-<h3>{@admin~documents.link.new@}</h3>
+<h3 id="link-form-title" data-new="{@admin~documents.link.new@}" data-edit="{@admin~documents.link.editing@}">{@admin~documents.link.new@}</h3>
 <form method="post" action="{jurl 'admin~documents:addLink'}" class="mb-4" id="documents-link-form" data-layers-url="{$layersUrl}" data-values-url="{$valuesUrl}" data-values-label="{@admin~documents.link.values.count@}">
   <input type="hidden" name="token" value="{$token}">
   <input type="hidden" name="collection" value="{$collection['id']}">
+  <input type="hidden" name="link" id="link-id" value="">
   <table class="table services-table">
     <tr><th><label for="link-map">{@admin~documents.link.map@}</label></th>
       <td><select id="link-map" name="map" class="form-select" required>
@@ -137,7 +139,8 @@
       <td><textarea id="link-note" name="note" class="form-control" rows="2" maxlength="2000"></textarea>
       <div class="form-text">{@admin~documents.link.note.help@}</div></td></tr>
   </table>
-  <button type="submit" class="btn btn-primary">{@admin~documents.link.add@}</button>
+  <button type="submit" class="btn btn-primary" id="link-submit" data-new="{@admin~documents.link.add@}" data-edit="{@admin~documents.link.save@}">{@admin~documents.link.add@}</button>
+  <button type="button" class="btn btn-outline-secondary" id="link-cancel" hidden>{@admin~documents.link.cancel@}</button>
 </form>
 <script>
 {literal}
@@ -176,7 +179,7 @@
         }
     };
 
-    select.addEventListener('change', async () => {
+    const loadLayers = async () => {
         requested = null;
         layers = [];
         fields = [];
@@ -195,7 +198,8 @@
         } catch (error) {
             console.error(error);
         }
-    });
+    };
+    select.addEventListener('change', loadLayers);
 
     let requested = null;
     const loadFields = async () => {
@@ -255,9 +259,72 @@
                 event.preventDefault();
             }
         });
-        const count = document.getElementById('link-parts-count');
-        parts.addEventListener('change', () => {
+    }
+    const count = document.getElementById('link-parts-count');
+    const updateCount = () => {
+        if (count && parts) {
             count.textContent = parts.querySelectorAll('input:checked').length;
+        }
+    };
+    if (parts) {
+        parts.addEventListener('change', updateCount);
+    }
+
+    // Correct a link: its values in the form
+    const linkId = document.getElementById('link-id');
+    const title = document.getElementById('link-form-title');
+    const submit = document.getElementById('link-submit');
+    const cancel = document.getElementById('link-cancel');
+    const setMode = editing => {
+        title.textContent = editing ? title.dataset.edit : title.dataset.new;
+        submit.textContent = editing ? submit.dataset.edit : submit.dataset.new;
+        cancel.hidden = !editing;
+    };
+    const clear = () => {
+        form.reset();
+        linkId.value = '';
+        layers = [];
+        fields = [];
+        requested = null;
+        fill(layerList, []);
+        fill(fieldList, []);
+        fill(valueList, []);
+        if (filter) {
+            filter.dispatchEvent(new Event('input'));
+        }
+        updateCount();
+        setMode(false);
+    };
+    cancel.addEventListener('click', clear);
+    for (const button of document.querySelectorAll('.documents-link-edit')) {
+        button.addEventListener('click', async () => {
+            const link = JSON.parse(button.dataset.link);
+            clear();
+            linkId.value = link.id;
+            setMode(true);
+            form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            select.value = link.map;
+            document.getElementById('link-note').value = link.note || '';
+            const others = [];
+            for (const number of link.parts || []) {
+                const box = parts ? [...parts.querySelectorAll('input')].find(input => input.value === number) : null;
+                if (box) {
+                    box.checked = true;
+                } else {
+                    others.push(number);
+                }
+            }
+            document.getElementById('link-other-parts').value = others.join(', ');
+            updateCount();
+            layerInput.value = link.layer || '';
+            fieldInput.value = link.field || '';
+            document.getElementById('link-value').value = link.value || '';
+            await loadLayers();
+            // The lists of the layer, keeping the values of the link
+            await loadFields();
+            fieldInput.value = link.field || '';
+            document.getElementById('link-value').value = link.value || '';
+            showValues();
         });
     }
 })();

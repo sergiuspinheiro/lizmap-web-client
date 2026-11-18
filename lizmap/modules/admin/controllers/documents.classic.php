@@ -80,6 +80,15 @@ class documentsCtrl extends jController
         foreach ($store->links() as $link) {
             if ($link['collection'] === $collection['id']) {
                 $link['partsText'] = implode(', ', $link['parts']);
+                $link['json'] = json_encode(array(
+                    'id' => $link['id'],
+                    'map' => $link['repository'].'~'.$link['project'],
+                    'layer' => $link['layer'],
+                    'field' => $link['field'],
+                    'value' => $link['value'],
+                    'parts' => $link['parts'],
+                    'note' => $link['note'],
+                ), JSON_UNESCAPED_UNICODE);
                 $links[] = $link;
             }
         }
@@ -344,6 +353,7 @@ class documentsCtrl extends jController
 
         try {
             $this->store()->addLink(array(
+                'id' => (string) $this->param('link', ''),
                 'collection' => $collectionId,
                 'repository' => $map[0],
                 'project' => $map[1],

@@ -327,7 +327,9 @@ class DocumentStore
      * Add a link between a layer (all its features, or the features having a value)
      * and a collection (all its parts, or some of them).
      *
-     * @param array $data collection, repository, project, layer, field, value, parts (list or comma separated), note
+     * With the id of an existing link of the collection, the link is replaced.
+     *
+     * @param array $data collection, repository, project, layer, field, value, parts (list or comma separated), note, and optionally id
      *
      * @return array the link
      */
@@ -345,8 +347,20 @@ class DocumentStore
         if ($collection['type'] === self::TYPE_REGULATION) {
             $parts = array_map(array(ArticleParser::class, 'normalizeNumber'), $parts);
         }
+        $id = trim((string) ($data['id'] ?? ''));
+        $position = null;
+        if ($id !== '') {
+            foreach ($index['links'] as $i => $existing) {
+                if ($existing['id'] === $id && $existing['collection'] === $collection['id']) {
+                    $position = $i;
+                }
+            }
+            if ($position === null) {
+                throw new \RuntimeException('Unknown link');
+            }
+        }
         $link = array(
-            'id' => bin2hex(random_bytes(6)),
+            'id' => $id !== '' ? $id : bin2hex(random_bytes(6)),
             'collection' => $collection['id'],
             'repository' => trim((string) ($data['repository'] ?? '')),
             'project' => trim((string) ($data['project'] ?? '')),
@@ -356,7 +370,11 @@ class DocumentStore
             'parts' => array_values(array_unique(array_map('strval', $parts))),
             'note' => trim((string) ($data['note'] ?? '')),
         );
-        $index['links'][] = $link;
+        if ($position === null) {
+            $index['links'][] = $link;
+        } else {
+            $index['links'][$position] = $link;
+        }
         $this->writeIndex($index);
 
         return $link;
