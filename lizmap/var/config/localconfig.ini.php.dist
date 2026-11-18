@@ -68,6 +68,8 @@
 ;; the API URL: for ollama (default http://localhost:11434, http://host.docker.internal:11434 from Docker)
 ;; and openai-compatible (e.g. http://localhost:1234/v1)
 ;url=
+;; optional smaller and faster model for the search of layers, e.g. qwen3:1.7b with ollama (empty: model)
+;searchModel=
 ;; let anonymous users use the assistant (each request has a cost)
 ;allowAnonymous=off
 ;; send aggregated statistics of the attributes for the layer analysis (off: metadata only)

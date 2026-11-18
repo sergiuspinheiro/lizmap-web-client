@@ -85,6 +85,7 @@ class modulesCtrl extends jController
             ),
             'provider' => $form->getData('provider'),
             'model' => $form->getData('model'),
+            'searchModel' => $form->getData('searchModel'),
             'url' => $form->getData('url'),
             'apiKey' => $form->getData('apiKey'),
             'removeApiKey' => (bool) $form->getData('removeApiKey'),
