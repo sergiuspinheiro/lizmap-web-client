@@ -13,8 +13,12 @@
  * @license Mozilla Public License : http://www.mozilla.org/MPL/
  */
 
+use GuzzleHttp\Psr7\StreamWrapper as Psr7StreamWrapper;
+use JsonMachine\Items as JsonMachineItems;
 use Lizmap\Documents\DocumentStore;
+use Lizmap\Documents\LayerValues;
 use Lizmap\Documents\PdfText;
+use Lizmap\Request\WFSRequest;
 
 class documentsCtrl extends jController
 {
@@ -29,6 +33,9 @@ class documentsCtrl extends jController
         'addLink' => array('jacl2.right' => 'lizmap.admin.services.update'),
         'deleteLink' => array('jacl2.right' => 'lizmap.admin.services.update'),
     );
+
+    /** Maximum number of features read to list the values of a layer */
+    protected const MAX_VALUE_FEATURES = 5000;
 
     /** Maximum size of an uploaded file, in bytes */
     protected const MAX_FILE_SIZE = 50 * 1024 * 1024;
@@ -83,12 +90,24 @@ class documentsCtrl extends jController
             unset($document['parts']);
         }
         unset($document);
+        $parts = array();
+        foreach ($store->parts($collection['id']) as $part) {
+            if (!empty($part['revoked'])) {
+                continue;
+            }
+            $parts[] = array(
+                'number' => (string) $part['number'],
+                'label' => trim(($part['label'] ?? $part['number']).(($part['title'] ?? '') !== '' ? ' — '.$part['title'] : '')),
+            );
+        }
 
         return $this->page('admin~documents_collection', array(
             'collection' => $collection,
             'links' => $links,
+            'parts' => $parts,
             'maps' => $this->maps(),
-            'layersUrl' => jUrl::get('lizmap~catalog:layers'),
+            'layersUrl' => jUrl::get('admin~documents:layers'),
+            'valuesUrl' => jUrl::get('admin~documents:layerValues'),
         ));
     }
 
@@ -331,7 +350,7 @@ class documentsCtrl extends jController
                 'layer' => mb_substr($layer, 0, 200),
                 'field' => mb_substr((string) $this->param('field', ''), 0, 200),
                 'value' => mb_substr((string) $this->param('value', ''), 0, 500),
-                'parts' => mb_substr((string) $this->param('parts', ''), 0, 2000),
+                'parts' => $this->partsParam(),
                 'note' => mb_substr((string) $this->param('note', ''), 0, 2000),
             ));
             jMessage::add(jLocale::get('admin~documents.saved'), 'info');
@@ -356,6 +375,148 @@ class documentsCtrl extends jController
         }
 
         return $this->toAction('admin~documents:collection', array('id' => $collectionId));
+    }
+
+    /**
+     * The layers of a map, for the link form.
+     *
+     * @return jResponseJson
+     */
+    public function layers()
+    {
+        /** @var jResponseJson $rep */
+        $rep = $this->getResponse('json');
+        $project = $this->requestedProject();
+        if (!$project) {
+            $rep->setHttpStatus(404, 'Not Found');
+            $rep->data = array('error' => 'Unknown project');
+
+            return $rep;
+        }
+        $layers = array();
+        foreach ($this->projectLayers($project) as $layer) {
+            $layers[] = array('name' => $layer['name'], 'title' => $layer['title']);
+        }
+        $rep->data = array('layers' => $layers);
+
+        return $rep;
+    }
+
+    /**
+     * The fields of a layer and their distinct values, for the link form.
+     *
+     * @return jResponseJson
+     */
+    public function layerValues()
+    {
+        /** @var jResponseJson $rep */
+        $rep = $this->getResponse('json');
+        $project = $this->requestedProject();
+        $layer = null;
+        if ($project) {
+            foreach ($this->projectLayers($project) as $item) {
+                if ($item['name'] === $this->param('layer')) {
+                    $layer = $item;
+                }
+            }
+        }
+        if (!$layer) {
+            $rep->setHttpStatus(404, 'Not Found');
+            $rep->data = array('error' => 'Unknown layer');
+
+            return $rep;
+        }
+        $params = array(
+            'SERVICE' => 'WFS',
+            'VERSION' => '1.0.0',
+            'REQUEST' => 'GetFeature',
+            'TYPENAME' => $layer['typeName'],
+            'OUTPUTFORMAT' => 'GeoJSON',
+            'GEOMETRYNAME' => 'none',
+            'MAXFEATURES' => (string) self::MAX_VALUE_FEATURES,
+        );
+
+        try {
+            $request = new WFSRequest($project, $params, lizmap::getServices());
+            $result = $request->process();
+            if ($result->getCode() >= 400 || !str_contains(strtolower($result->getMime()), 'json')) {
+                throw new \RuntimeException('The features of the layer cannot be read');
+            }
+            $stream = Psr7StreamWrapper::getResource($result->getBodyAsStream());
+            $values = new LayerValues();
+            $values->addFeatures(JsonMachineItems::fromStream($stream, array('pointer' => '/features')), self::MAX_VALUE_FEATURES);
+            $rep->data = $values->toArray() + array('maxFeatures' => self::MAX_VALUE_FEATURES);
+        } catch (\Throwable $e) {
+            jLog::logEx($e, 'error');
+            $rep->setHttpStatus(502, 'Bad Gateway');
+            $rep->data = array('error' => 'The features of the layer cannot be read');
+        }
+
+        return $rep;
+    }
+
+    /**
+     * The parts of the link form: checked in the list, or typed.
+     *
+     * @return list<string> the part numbers
+     */
+    protected function partsParam()
+    {
+        $parts = $this->param('parts', array());
+        $parts = is_array($parts) ? array_map('strval', $parts) : array();
+        $typed = mb_substr((string) $this->param('otherParts', ''), 0, 2000);
+        $parts = array_merge($parts, preg_split('/[,;\s]+/u', $typed, -1, PREG_SPLIT_NO_EMPTY));
+
+        return array_slice(array_values(array_unique($parts)), 0, 500);
+    }
+
+    /**
+     * The project given by the parameter map (repository~project), if it exists.
+     *
+     * @return null|\Lizmap\Project\Project the project
+     */
+    protected function requestedProject()
+    {
+        $map = explode('~', (string) $this->param('map', ''), 2);
+        if (count($map) !== 2 || $map[0] === '' || $map[1] === '') {
+            return null;
+        }
+
+        try {
+            return lizmap::getProject($map[0].'~'.$map[1]) ?: null;
+        } catch (\Exception $e) {
+            return null;
+        }
+    }
+
+    /**
+     * The layers of a project having features.
+     *
+     * @param \Lizmap\Project\Project $project the project
+     *
+     * @return list<array{name: string, title: string, typeName: string}> the layers
+     */
+    protected function projectLayers($project)
+    {
+        $layers = array();
+        foreach ($project->getUpdatedConfig()->layers as $layer) {
+            $isGroupAsLayer = property_exists($layer, 'groupAsLayer')
+                && filter_var($layer->groupAsLayer, FILTER_VALIDATE_BOOLEAN);
+            if (($layer->type ?? '') != 'layer' && !$isGroupAsLayer) {
+                continue;
+            }
+            if (in_array(strtolower($layer->name), array('overview', 'hidden'))) {
+                continue;
+            }
+            $wmsName = (property_exists($layer, 'shortname') && $layer->shortname) ? $layer->shortname : $layer->name;
+            $layers[] = array(
+                'name' => $layer->name,
+                'title' => $layer->title ?? $layer->name,
+                'typeName' => str_replace(' ', '_', $wmsName),
+            );
+        }
+
+        return $layers;
     }
 
     /**
