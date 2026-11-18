@@ -73,6 +73,8 @@ export default class Catalog extends HTMLElement {
         this._profile = null;
         // External services saved in the user profile, once read
         this._myServices = null;
+        // External services shared by the administrator, read with the catalog
+        this._sharedServices = [];
         // Open sections of the catalog
         this._sections = new Set(['maps']);
         // AI assistant: status from the server, search and analyses
@@ -177,9 +179,11 @@ export default class Catalog extends HTMLElement {
             }
             const data = await response.json();
             this._repositories = data.repositories;
+            this._sharedServices = Array.isArray(data.services) ? data.services : [];
         } catch (error) {
             console.error(error);
             this._repositories = [];
+            this._sharedServices = [];
             this._error = true;
         }
         this._render();
@@ -488,6 +492,27 @@ export default class Catalog extends HTMLElement {
         return this.readExternalService();
     }
 
+    _sharedServicesTemplate() {
+        if (!this._sharedServices?.length) {
+            return '';
+        }
+        return html`
+            <div class="catalog-import-profile catalog-shared-services">
+                <h5>${lizDict['catalog.external.shared.title']}</h5>
+                <ul class="catalog-layers">
+                    ${this._sharedServices.map(shared => html`
+                        <li class="catalog-layer">
+                            <span class="catalog-layer-title" title="${shared.description || shared.url}">${shared.title}
+                                <small>(${lizDict['catalog.external.type.' + shared.type] || shared.type})</small></span>
+                            <span class="catalog-layer-actions">
+                                <button type="button" class="btn btn-sm" title="${lizDict['catalog.external.load']}"
+                                    @click=${() => this.openSavedService(shared)}><i class="icon-folder-open"></i></button>
+                            </span>
+                        </li>`)}
+                </ul>
+            </div>`;
+    }
+
     _myServicesTemplate() {
         if (!this._profileUrls?.services || !this._myServices) {
             return '';
@@ -745,6 +770,7 @@ export default class Catalog extends HTMLElement {
                         </li>`;
                     })}
                 </ul>` : ''}
+            ${this._sharedServicesTemplate()}
             ${this._myServicesTemplate()}
         </div>`;
     }
@@ -2742,6 +2768,10 @@ export default class Catalog extends HTMLElement {
             }
             if (id === 'external' && this._myServices === null) {
                 this.loadMyServices();
+            }
+            // The services shared by the administrator come with the catalog
+            if (id === 'external' && this._repositories === null) {
+                this.load();
             }
         }
         this._renderCatalog();
