@@ -27,6 +27,9 @@ class SharedServices
     /** Maximum number of services */
     public const MAX_SERVICES = 200;
 
+    /** Maximum number of layers or services kept from a test */
+    public const MAX_TEST_ITEMS = 200;
+
     /** Maximum number of groups or users of a service */
     public const MAX_MEMBERS = 500;
 
@@ -305,10 +308,27 @@ class SharedServices
             return null;
         }
 
+        $layers = array();
+        foreach (array_slice(is_array($test['layers'] ?? null) ? $test['layers'] : array(), 0, self::MAX_TEST_ITEMS) as $layer) {
+            if (is_scalar($layer) && trim((string) $layer) !== '') {
+                $layers[] = mb_substr(strip_tags((string) $layer), 0, 200);
+            }
+        }
+        $services = array();
+        foreach (array_slice(is_array($test['services'] ?? null) ? $test['services'] : array(), 0, self::MAX_TEST_ITEMS) as $item) {
+            $service = is_array($item) ? UserImports::normalizeService('arcgis', $item['url'] ?? '', $item['title'] ?? '') : null;
+            if ($service) {
+                $services[] = array('url' => $service['url'], 'title' => $service['title'],
+                    'kind' => in_array($item['kind'] ?? '', array('FeatureServer', 'MapServer'), true) ? $item['kind'] : '');
+            }
+        }
+
         return array(
             'ok' => (bool) $test['ok'],
             'message' => mb_substr(strip_tags((string) ($test['message'] ?? '')), 0, 300),
             'date' => preg_match('/^\d{4}-\d\d-\d\d \d\d:\d\d$/', (string) ($test['date'] ?? '')) ? $test['date'] : '',
+            'layers' => $layers,
+            'services' => $services,
         );
     }
 
@@ -350,10 +370,12 @@ class SharedServices
      * @param int    $code        the HTTP code
      * @param string $contentType the content type
      * @param string $body        the response
+     * @param string $url         the service address, to give the services of an ArcGIS directory
      *
-     * @return array{ok: bool, message: string} the result, with the number of layers when it is ok
+     * @return array{ok: bool, message: string, layers?: string[], services?: list<array>, folders?: string[]} the result,
+     *                                                                                                       with the layers, or the services and folders of an ArcGIS directory
      */
-    public static function checkResponse($type, $code, $contentType, $body): array
+    public static function checkResponse($type, $code, $contentType, $body, $url = ''): array
     {
         if ($code < 200 || $code >= 300) {
             return array('ok' => false, 'message' => 'HTTP '.$code);
@@ -367,12 +389,20 @@ class SharedServices
                     || !preg_match('/<(\w+:)?(WMS_Capabilities|WMT_MS_Capabilities|WFS_Capabilities|Capabilities)\b/', $body)) {
                     return array('ok' => false, 'message' => 'No capabilities');
                 }
-                $tag = array('wms' => 'Layer', 'wmts' => 'Layer', 'wfs' => 'FeatureType')[$type];
-                $count = $type === 'wms'
-                    ? preg_match_all('#<Layer\b[^>]*>\s*<Name>#', $body)
-                    : preg_match_all('#<(\w+:)?'.$tag.'>#', $body);
+                $patterns = array(
+                    'wms' => '#<Layer\b[^>]*>\s*<Name>([^<]+)</Name>(?:\s*<Title>([^<]*)</Title>)?#',
+                    'wmts' => '#<Layer>.*?<ows:Title>([^<]*)</ows:Title>.*?<ows:Identifier>([^<]+)</ows:Identifier>#s',
+                    'wfs' => '#<(?:\w+:)?FeatureType\b[^>]*>\s*<(?:\w+:)?Name>([^<]+)</(?:\w+:)?Name>(?:\s*<(?:\w+:)?Title>([^<]*)<)?#',
+                );
+                preg_match_all($patterns[$type], $body, $matches, PREG_SET_ORDER);
+                $names = array();
+                foreach ($matches as $match) {
+                    $name = $type === 'wmts' ? $match[2] : $match[1];
+                    $title = $type === 'wmts' ? $match[1] : ($match[2] ?? '');
+                    $names[] = html_entity_decode(trim($title) !== '' && trim($title) !== trim($name) ? trim($title).' ('.trim($name).')' : trim($name), ENT_QUOTES | ENT_XML1);
+                }
 
-                return self::layers($count);
+                return self::layers($names);
 
             case 'ogcapi':
                 $data = json_decode($body, true);
@@ -380,7 +410,9 @@ class SharedServices
                     return array('ok' => false, 'message' => 'No collections');
                 }
 
-                return self::layers(count($data['collections']));
+                return self::layers(array_map(static function ($item) {
+                    return is_array($item) ? (string) ($item['title'] ?? ($item['id'] ?? '')) : '';
+                }, $data['collections']));
 
             case 'arcgis':
                 $data = json_decode($body, true);
@@ -388,7 +420,25 @@ class SharedServices
                     return array('ok' => false, 'message' => is_array($data) ? (string) ($data['error']['message'] ?? 'Error') : 'No JSON');
                 }
 
-                return self::layers(is_array($data['layers'] ?? null) ? count($data['layers']) : 1);
+                if (is_array($data['layers'] ?? null) && count($data['layers'])) {
+                    return self::layers(array_map(static function ($item) {
+                        return is_array($item) ? (string) ($item['name'] ?? ($item['id'] ?? '')) : '';
+                    }, $data['layers']));
+                }
+                // A directory of services, like .../ArcGIS/rest/services
+                if (is_array($data['services'] ?? null) || is_array($data['folders'] ?? null)) {
+                    $services = self::arcgisServices($data, $url);
+                    $folders = array_values(array_filter(array_map('strval', is_array($data['folders'] ?? null) ? $data['folders'] : array())));
+
+                    return array(
+                        'ok' => false,
+                        'message' => 'Directory: '.count($services).' service(s)'.($folders ? ', '.count($folders).' folder(s)' : ''),
+                        'services' => $services,
+                        'folders' => $folders,
+                    );
+                }
+
+                return array('ok' => false, 'message' => 'No layer');
 
             case 'xyz':
                 return stripos($contentType, 'image/') === 0
@@ -401,22 +451,72 @@ class SharedServices
                     return array('ok' => false, 'message' => 'No GeoJSON');
                 }
 
-                return self::layers(1);
+                return self::layers(array(is_array($data['features'] ?? null) ? count($data['features']).' feature(s)' : 'GeoJSON'));
         }
 
         return array('ok' => false, 'message' => 'Unknown type');
     }
 
     /**
-     * @param int $count the number of layers
+     * @param string[] $names the layers
      *
-     * @return array{ok: bool, message: string} the result
+     * @return array{ok: bool, message: string, layers: string[]} the result
      */
-    protected static function layers($count): array
+    protected static function layers(array $names): array
     {
-        return $count > 0
-            ? array('ok' => true, 'message' => 'OK, '.$count.' layer(s)')
-            : array('ok' => false, 'message' => 'No layer');
+        $names = array_values(array_filter(array_map('trim', array_map('strval', $names)), 'strlen'));
+
+        return $names
+            ? array('ok' => true, 'message' => 'OK, '.count($names).' layer(s)', 'layers' => array_slice($names, 0, self::MAX_TEST_ITEMS))
+            : array('ok' => false, 'message' => 'No layer', 'layers' => array());
+    }
+
+    /**
+     * Map and feature services of an ArcGIS directory.
+     *
+     * @param array  $data the directory, read with f=json
+     * @param string $url  the address of the directory, or of one of its folders
+     *
+     * @return list<array{url: string, title: string, kind: string}> the services
+     */
+    public static function arcgisServices(array $data, $url): array
+    {
+        // The names of the services of a folder start with the folder: build them from the root
+        $root = preg_replace('#(/rest/services)(/.*)?$#i', '$1', self::baseUrl($url));
+        $root = rtrim(explode('?', $root, 2)[0], '/');
+        $services = array();
+        foreach (is_array($data['services'] ?? null) ? $data['services'] : array() as $item) {
+            if (!is_array($item) || !in_array($item['type'] ?? '', array('FeatureServer', 'MapServer'), true)
+                || !preg_match('#^[\w./ -]{1,200}$#u', (string) ($item['name'] ?? ''))) {
+                continue;
+            }
+            $name = (string) $item['name'];
+            $services[] = array(
+                'url' => $root.'/'.str_replace('%2F', '/', rawurlencode($name)).'/'.$item['type'],
+                'title' => str_replace('_', ' ', basename($name)),
+                'kind' => $item['type'],
+            );
+        }
+
+        return $services;
+    }
+
+    /**
+     * Address of a folder of an ArcGIS directory.
+     *
+     * @param string $url    the address of the directory
+     * @param string $folder the folder
+     *
+     * @return null|string the address, null if the folder name is not valid
+     */
+    public static function arcgisFolderUrl($url, $folder): ?string
+    {
+        if (!preg_match('#^[\w. -]{1,200}$#u', $folder)) {
+            return null;
+        }
+        $root = preg_replace('#(/rest/services)(/.*)?$#i', '$1', self::baseUrl($url));
+
+        return self::withParams(rtrim(explode('?', $root, 2)[0], '/').'/'.rawurlencode($folder), array('f' => 'json'));
     }
 
     /**

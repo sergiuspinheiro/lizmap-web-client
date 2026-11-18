@@ -30,6 +30,17 @@
       <td>{if $service['test']}
         <span class="badge text-bg-{if $service['test']['ok']}success{else}danger{/if}">{if $service['test']['ok']}OK{else}{@admin~catalog_services.test.failed@}{/if}</span>
         <br><small>{$service['test']['message']|eschtml} {$service['test']['date']} UTC</small>
+        {if $service['layerCount']}
+        <details><summary><small>{@admin~catalog_services.test.layers@} ({$service['layerCount']})</small></summary>
+          <ul class="small mb-0">{foreach $service['test']['layers'] as $layer}<li>{$layer|eschtml}</li>{/foreach}</ul>
+        </details>
+        {/if}
+        {if $service['serviceCount']}
+        <details open><summary><small>{@admin~catalog_services.test.services@} ({$service['serviceCount']})</small></summary>
+          <ul class="small mb-0">{foreach $service['test']['services'] as $index => $item}<li>{$item['title']|eschtml} <small>({$item['kind']})</small>
+            {if $canUpdate}<a href="{jurl 'admin~catalog_services:index', array('from' => $service['id'], 'pick' => $index)}#service-form">{@admin~catalog_services.test.services.add@}</a>{/if}</li>{/foreach}</ul>
+        </details>
+        {/if}
       {else}<span class="badge text-bg-secondary">{@admin~catalog_services.test.none@}</span>{/if}</td>
       {if $canUpdate}
       <td class="text-nowrap">
