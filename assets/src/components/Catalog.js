@@ -722,6 +722,12 @@ export default class Catalog extends HTMLElement {
                     }
                     services.set(key, service);
                 }
+                const service = services.get(key);
+                if (service.services?.length || (item.layer && service.layers.length
+                    && !service.layers.some(l => l.name === item.layer))
+                    || (!item.layer && !service.layers.some(l => l.name === ''))) {
+                    continue;
+                }
                 this.addExternalLayer(item.type, item.url, item.layer || '', item.title || item.layer, services.get(key), {
                     style: typeof item.style === 'string' ? item.style : '',
                     vectorStyle: item.vectorStyle,
@@ -2355,6 +2361,7 @@ export default class Catalog extends HTMLElement {
         let exportGeoJson = null;
         let abstract = '';
         let table = null;
+        let remove = null;
         if (key === 'import|') {
             state = this._import.group?.children.find(item => item.name === name);
             if (!state) {
@@ -2393,6 +2400,7 @@ export default class Catalog extends HTMLElement {
             }
             details.push([lizDict['catalog.info.features'], String(source.getFeatures().length)]);
             zoom = () => this._zoomToImported(state);
+            remove = () => this.removeImportedLayer(name);
             styles = this._importStyleTemplate(state);
             exportGeoJson = () => Utils.downloadFileFromString(
                 new GeoJSON().writeFeatures(source.getFeatures(), { featureProjection: mainLizmap.projection }),
@@ -2405,6 +2413,7 @@ export default class Catalog extends HTMLElement {
                 return null;
             }
             origin = lizDict['catalog.info.origin.external'].replace('%s', entry.type.toUpperCase());
+            remove = () => this.removeExternalLayer(entry.type, entry.url, name === 'layer' ? '' : name);
             details = [
                 [lizDict['catalog.info.service'], entry.title || ''],
                 [lizDict['catalog.info.url'], entry.url],
@@ -2445,6 +2454,7 @@ export default class Catalog extends HTMLElement {
                 return null;
             }
             origin = lizDict['catalog.info.origin.catalog'];
+            remove = () => this.removeLayer(project, layer);
             details = [[lizDict['catalog.info.map'], html`<a href="${project.mapUrl}" target="_blank"
                 rel="noopener">${project.title}</a>`]];
             if (this.hasExtent(layer)) {
@@ -2508,6 +2518,12 @@ export default class Catalog extends HTMLElement {
                     ${abstract ? html`
                         <dt>${lizDict['layer.metadata.layer.abstract']}</dt>
                         <dd>${abstract}</dd>` : ''}
+                    ${remove ? html`
+                        <dt>${lizDict['catalog.layer.remove']}</dt>
+                        <dd><button type="button" class="btn btn-sm btn-danger catalog-info-remove"
+                            title="${lizDict['catalog.layer.remove']}"
+                            @click=${() => { this.hideLayerInfo(); remove(); }}>
+                            <i class="icon-trash icon-white"></i></button></dd>` : ''}
                 </dl>
             </div>
         </div>
