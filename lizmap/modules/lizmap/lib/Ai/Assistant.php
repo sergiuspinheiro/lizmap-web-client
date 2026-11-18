@@ -114,6 +114,8 @@ class Assistant
             'enabled' => $bool($config['enabled'] ?? null, false),
             'apiKey' => $apiKey,
             'model' => trim((string) ($config['model'] ?? '')) ?: (self::DEFAULT_MODELS[$provider] ?? ''),
+            // Optional smaller and faster model for the search
+            'searchModel' => trim((string) ($config['searchModel'] ?? '')),
             'allowAnonymous' => $bool($config['allowAnonymous'] ?? null, false),
             'sendStatistics' => $bool($config['sendStatistics'] ?? null, true),
             'maxFeatures' => max(1, (int) ($config['maxFeatures'] ?? 1000)),
@@ -346,16 +348,28 @@ EOT;
             'additionalProperties' => false,
         );
 
-        $data = $this->ask(
-            $system,
-            array(
-                // The catalog is the same for the requests of a user: cached prefix
-                array('type' => 'text', 'text' => "<catalog>\n".$catalog."\n</catalog>", 'cacheControl' => array('type' => 'ephemeral')),
-                array('type' => 'text', 'text' => ($language !== '' ? 'language: '.$language."\n" : '')."<request>\n".$question."\n</request>"),
-            ),
-            $schema,
-            'low',
-        );
+        $model = $this->config['model'];
+        if ($this->config['searchModel'] !== '') {
+            $this->config['model'] = $this->config['searchModel'];
+        }
+
+        try {
+            $data = $this->ask(
+                $system,
+                array(
+                    // The catalog is the same for the requests of a user: cached prefix
+                    array('type' => 'text', 'text' => "<catalog>\n".$catalog."\n</catalog>", 'cacheControl' => array('type' => 'ephemeral')),
+                    array('type' => 'text', 'text' => ($language !== '' ? 'language: '.$language."\n" : '')."<request>\n".$question."\n</request>"),
+                ),
+                $schema,
+                'low',
+            );
+            if ($this->config['provider'] !== 'claude') {
+                $this->lastAnswerInfo = 'model '.$this->config['model'];
+            }
+        } finally {
+            $this->config['model'] = $model;
+        }
 
         $results = $this->filterResults($data['results'] ?? array(), $byId);
         $this->lastAnswerInfo .= sprintf(
