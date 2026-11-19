@@ -4892,6 +4892,8 @@ lizmap-mapviews input {
 
 #right-dock-header .right-dock-title-icon {
   flex: 0 0 auto;
+  /* The icons of the menu are white: black in the title */
+  filter: brightness(0);
 }
 
 #right-dock-header .right-dock-title-text {
