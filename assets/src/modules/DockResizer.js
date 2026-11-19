@@ -275,8 +275,13 @@ export function initDockResizer(doc = document) {
                         // An icon drawn by the CSS of the menu
                         const iconStyle = window.getComputedStyle(icon);
                         copy = doc.createElement('span');
-                        for (const prop of ['backgroundImage', 'backgroundPosition', 'backgroundSize', 'backgroundRepeat', 'width', 'height']) {
-                            copy.style[prop] = iconStyle[prop];
+                        // Background or mask (an SVG drawn with the background color)
+                        for (const prop of ['backgroundImage', 'backgroundPosition', 'backgroundSize', 'backgroundRepeat',
+                            'backgroundColor', 'maskImage', 'maskSize', 'maskPosition', 'maskRepeat',
+                            'webkitMaskImage', 'webkitMaskSize', 'webkitMaskPosition', 'webkitMaskRepeat', 'width', 'height']) {
+                            if (iconStyle[prop]) {
+                                copy.style[prop] = iconStyle[prop];
+                            }
                         }
                         copy.style.display = 'inline-block';
                     }
