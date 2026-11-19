@@ -54,6 +54,33 @@ class ExternalServiceProxy
      */
     public function refusal($url)
     {
+        return $this->check($url)[0];
+    }
+
+    /**
+     * Check an URL and give the IP addresses checked for its host.
+     *
+     * @param string $url the URL
+     *
+     * @return array{0: null|string, 1: list<string>} the reason why the URL can not be read (null if it can)
+     *                                                and the public IP addresses of its host
+     */
+    protected function check($url)
+    {
+        $refusal = $this->checkUrl($url, $ips);
+
+        return array($refusal, $refusal === null ? $ips : array());
+    }
+
+    /**
+     * @param string       $url the URL
+     * @param list<string> $ips the IP addresses of the host, set by the check
+     *
+     * @return null|string the reason why the URL can not be read, null if it can
+     */
+    protected function checkUrl($url, &$ips)
+    {
+        $ips = array();
         $parts = parse_url($url);
         if (!is_array($parts) || !isset($parts['scheme'], $parts['host'])) {
             return 'Invalid URL';
@@ -150,16 +177,25 @@ class ExternalServiceProxy
     public function read($url)
     {
         for ($i = 0; $i <= self::MAX_REDIRECTS; ++$i) {
-            $refusal = $this->refusal($url);
+            list($refusal, $ips) = $this->check($url);
             if ($refusal !== null) {
                 throw new \InvalidArgumentException($refusal);
             }
-            list($body, $contentType, $code, $headers) = Proxy::getRemoteData($url, array(
+            $this->checkedIps = $ips;
+            $options = array(
                 'method' => 'GET',
                 'allow_redirects' => false,
-            ));
+            );
+            $pin = $this->pin($url);
+            if ($pin !== null) {
+                // Connect to the address checked, not to a new answer of the DNS
+                $options['curl'] = array(CURLOPT_RESOLVE => array($pin));
+            }
+            $response = Proxy::getRemoteDataAsStream($url, $options);
+            $code = $response->getCode();
             if (in_array($code, array(301, 302, 303, 307, 308), true)) {
-                $location = self::header($headers, 'Location');
+                $location = self::header($response->getHeaders(), 'Location');
+                $response->getBodyAsStream()->close();
                 if ($location === '') {
                     break;
                 }
@@ -167,14 +203,65 @@ class ExternalServiceProxy
 
                 continue;
             }
-            if (strlen($body) > self::MAX_SIZE) {
-                throw new \InvalidArgumentException('The answer of the service is too big');
-            }
 
-            return array($code, $contentType, $body);
+            return array($code, $response->getMime(), self::readLimited($response->getBodyAsStream()));
         }
 
         throw new \InvalidArgumentException('Too many redirections');
+    }
+
+    /**
+     * @var list<string> IP addresses checked for the URL being read
+     */
+    protected $checkedIps = array();
+
+    /**
+     * The CURLOPT_RESOLVE entry connecting to the first IP address checked.
+     *
+     * @param string $url the URL
+     *
+     * @return null|string the entry, null for an IP address in the URL
+     */
+    protected function pin($url)
+    {
+        $parts = parse_url($url);
+        $host = trim($parts['host'] ?? '', '[]');
+        if ($host === '' || filter_var($host, FILTER_VALIDATE_IP) !== false || !count($this->checkedIps)) {
+            return null;
+        }
+        $port = $parts['port'] ?? (strtolower($parts['scheme']) === 'https' ? 443 : 80);
+        $ip = $this->checkedIps[0];
+        if (str_contains($ip, ':')) {
+            $ip = '['.$ip.']';
+        }
+
+        return $host.':'.$port.':'.$ip;
+    }
+
+    /**
+     * Read a stream, without going over the maximum size.
+     *
+     * @param \Psr\Http\Message\StreamInterface $stream the stream
+     * @param int                               $max    the maximum size, in bytes
+     *
+     * @return string the content
+     *
+     * @throws \InvalidArgumentException when the content is too big
+     */
+    public static function readLimited($stream, $max = self::MAX_SIZE)
+    {
+        $body = '';
+        while (!$stream->eof()) {
+            $body .= $stream->read(65536);
+            if (strlen($body) > $max) {
+                $stream->close();
+
+                throw new \InvalidArgumentException('The answer of the service is too big');
+            }
+        }
+        $stream->close();
+
+        return $body;
     }
 
     /**
