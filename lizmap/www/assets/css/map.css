@@ -4886,42 +4886,72 @@ lizmap-mapviews input {
   display: none !important;
 }
 
-/* Button swapping the places of the sub-dock and of the right dock */
+/* Button swapping the places of the sub-dock and of the right dock:
+   same size and colors as the close buttons of the docks */
 .dock-swap-btn {
-  padding: 2px 4px;
-  line-height: 1;
-  color: #FBFBFB;
-  background-color: transparent;
-  border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: #000;
 }
 
-.dock-swap-btn.active,
-.dock-swap-btn:hover,
-.dock-swap-btn:focus-visible {
-  color: #FBFBFB;
-  background-color: rgb(255 255 255 / 20%);
+.dock-swap-btn:hover {
+  color: #FFF;
 }
 
 #sub-dock {
   position: relative;
 }
 
-/* The swap button has its own line, above the title of the sub-dock */
-#sub-dock > .dock-swap-btn {
-  display: block;
-  margin: 0 0 4px auto;
+/* In the title of the sub-dock, on the right */
+#sub-dock h3:has(> .dock-swap-btn) {
+  display: flex;
+  align-items: center;
 }
 
-/* The right dock keeps a strip for its buttons above its content */
-#right-dock {
-  padding-top: 40px;
+#sub-dock h3:has(> .dock-swap-btn) > :not(.dock-swap-btn) {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
-#right-dock > .dock-swap-btn {
-  position: absolute;
-  top: 9px;
-  right: 42px;
-  z-index: 10;
+#sub-dock h3 > .dock-swap-btn {
+  order: 1;
+  margin-left: 4px;
+}
+
+/* Title bar of the right dock: title of the panel, swap and close buttons */
+#right-dock-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 42px;
+  padding-right: 5px;
+}
+
+#right-dock-header .right-dock-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#right-dock-header #right-dock-close {
+  position: static;
+  flex: 0 0 auto;
+}
+
+#right-dock-content {
+  height: calc(100% - 42px);
+}
+
+/* The dataviz panel title is in the title bar of the right dock */
+#right-dock #dataviz-dock-title {
+  display: none;
 }
 
 /* Swapped docks: the right dock is next to the left dock, over the map,

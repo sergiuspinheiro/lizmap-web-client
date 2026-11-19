@@ -44,6 +44,7 @@
 
     <div id="right-dock">
       <div id="right-dock-resizer" title="{@view~map.dock.resize.title@}" data-swap-title="{@view~map.dock.swap.title@}"></div>
+      <div id="right-dock-header"><div class="right-dock-title"></div></div>
       {zone 'view~map_rightdock', array('repository'=>$repository,'project'=>$project,'dockable'=>$rightdockable)}
     </div>
   </div>
