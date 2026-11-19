@@ -2091,7 +2091,8 @@ lizmap-dxfexport .dxfexport-actions {
   display: none;
   height: 100%;
   margin-left: auto;
-  width:30%;
+  width: var(--lizmap-right-dock-width, 30%);
+  max-width: calc(100% - 100px);
   background: #4A4A4A;
   position: relative;
 }
@@ -2113,8 +2114,9 @@ lizmap-dxfexport .dxfexport-actions {
 
 #mapmenu:has(.nav-right-dock.active) ~ #map-content{
   /* 30/100 is linked to #right-dock{width: 30%;}
-  TODO : avoid use of calc() and hard value */
-  margin-right: calc((100% - 30px)*30/100);
+  TODO : avoid use of calc() and hard value
+  --lizmap-right-dock-width is set when the user resizes the right dock */
+  margin-right: var(--lizmap-right-dock-width, calc((100% - 30px)*30/100));
 }
 
 #content.mobile #mapmenu:has(.nav-right-dock.active) ~ #map-content{
@@ -4782,6 +4784,113 @@ lizmap-mapviews input {
 #content.mobile #dock-resizer {
   /* stylelint-disable-next-line declaration-no-important */
   display: none !important;
+}
+
+/* Sub-dock resizer: next to the sub-dock, its height follows the sub-dock */
+#sub-dock-resizer {
+  display: none;
+  flex: 0 0 5px;
+  align-self: flex-start;
+  z-index: 1041;
+  cursor: ew-resize;
+  touch-action: none;
+  background-color: rgb(0 0 0 / 70%);
+  border-right: 1px solid #F0F0F0;
+}
+
+#sub-dock-resizer.visible {
+  display: block;
+}
+
+#sub-dock-resizer:hover,
+#sub-dock-resizer.resizing,
+#right-dock-resizer:hover,
+#right-dock-resizer.resizing {
+  background-color: #F0F0F0;
+}
+
+/* Right dock resizer: on the border of the right dock facing the map */
+#right-dock-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 5px;
+  z-index: 10;
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+#content.mobile #sub-dock-resizer,
+#content.mobile #right-dock-resizer,
+#content.mobile .dock-swap-btn {
+  /* stylelint-disable-next-line declaration-no-important */
+  display: none !important;
+}
+
+/* Button swapping the places of the sub-dock and of the right dock */
+.dock-swap-btn {
+  padding: 2px 4px;
+  line-height: 1;
+  color: #FBFBFB;
+  background-color: transparent;
+  border: none;
+}
+
+.dock-swap-btn.active,
+.dock-swap-btn:hover,
+.dock-swap-btn:focus-visible {
+  color: #FBFBFB;
+  background-color: rgb(255 255 255 / 20%);
+}
+
+#sub-dock {
+  position: relative;
+}
+
+#sub-dock > .dock-swap-btn {
+  float: right;
+  margin: 2px 0 0 4px;
+}
+
+#right-dock > .dock-swap-btn {
+  position: absolute;
+  top: 9px;
+  right: 40px;
+  z-index: 10;
+}
+
+/* Swapped docks: the right dock is next to the left dock, over the map,
+   and the sub-dock is on the right of the map */
+#content.docks-swapped:not(.mobile) #right-dock {
+  order: 3;
+  margin-left: 0;
+  z-index: 1039;
+}
+
+#content.docks-swapped:not(.mobile) #right-dock-resizer {
+  left: auto;
+  right: 0;
+}
+
+#content.docks-swapped:not(.mobile) #bottom-dock {
+  order: 5;
+}
+
+#content.docks-swapped:not(.mobile) #sub-dock-resizer {
+  order: 6;
+  margin-left: auto;
+  border-right: none;
+  border-left: 1px solid #F0F0F0;
+}
+
+#content.docks-swapped:not(.mobile) #sub-dock {
+  order: 7;
+  z-index: 1020;
+}
+
+#content.docks-swapped:not(.mobile) #mapmenu:has(.nav-right-dock.active) ~ #map-content {
+  margin-right: 0;
 }
 
 /* Catalog sections: compact Bootstrap accordion, like the dock forms */
