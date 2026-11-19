@@ -8,10 +8,14 @@
 const MIN_WIDTH = 200;
 const SWAP_KEY = 'lizmap-docks-swapped';
 
+// Functions updating the layout before the map size is computed
+const layoutSyncs = [];
+
 /**
  * Let the map and the components use the new size of a panel
  */
 function notifyResize() {
+    layoutSyncs.forEach(sync => sync());
     window.dispatchEvent(new Event('resize'));
 }
 
@@ -185,11 +189,26 @@ export function initDockResizer(doc = document) {
     // so its handle is next to it and follows its height
     if (subDock && subDockHandle) {
         makeResizable(subDock, subDockHandle, 'lizmap-sub-dock-width', styleWidth(subDock));
+        let wasVisible = false;
         const syncHandle = () => {
             const visible = subDock.offsetParent !== null && subDock.offsetHeight > 0;
             subDockHandle.classList.toggle('visible', visible);
             subDockHandle.style.height = visible ? subDock.offsetHeight + 'px' : '';
+            // When the sub-dock is in the place of the right dock, the map leaves it room
+            if (content) {
+                content.classList.toggle('sub-dock-visible', visible);
+                if (visible) {
+                    content.style.setProperty('--lizmap-sub-dock-current-width', subDock.offsetWidth + 'px');
+                }
+            }
+            if (visible !== wasVisible) {
+                wasVisible = visible;
+                if (content?.classList.contains('docks-swapped')) {
+                    window.dispatchEvent(new Event('resize'));
+                }
+            }
         };
+        layoutSyncs.push(syncHandle);
         new ResizeObserver(syncHandle).observe(subDock);
         // Add the swap button to every new content
         const addSwapButton = () => {

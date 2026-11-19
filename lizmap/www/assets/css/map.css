@@ -4848,20 +4848,27 @@ lizmap-mapviews input {
   position: relative;
 }
 
+/* The swap button has its own line, above the title of the sub-dock */
 #sub-dock > .dock-swap-btn {
-  float: right;
-  margin: 2px 0 0 4px;
+  display: block;
+  margin: 0 0 4px auto;
+}
+
+/* The right dock keeps a strip for its buttons above its content */
+#right-dock {
+  padding-top: 40px;
 }
 
 #right-dock > .dock-swap-btn {
   position: absolute;
   top: 9px;
-  right: 40px;
+  right: 42px;
   z-index: 10;
 }
 
 /* Swapped docks: the right dock is next to the left dock, over the map,
-   and the sub-dock is on the right of the map */
+   and the sub-dock takes the place of the right dock: full height,
+   on the right of the map which leaves it room */
 #content.docks-swapped:not(.mobile) #right-dock {
   order: 3;
   margin-left: 0;
@@ -4886,11 +4893,20 @@ lizmap-mapviews input {
 
 #content.docks-swapped:not(.mobile) #sub-dock {
   order: 7;
-  z-index: 1020;
+  align-self: stretch;
+  height: 100%;
+  width: 30%;
+  max-width: calc(100% - 100px);
+  background: #4A4A4A;
+  border-left: none;
 }
 
-#content.docks-swapped:not(.mobile) #mapmenu:has(.nav-right-dock.active) ~ #map-content {
+#content.docks-swapped:not(.mobile, .sub-dock-visible) #mapmenu:has(.nav-right-dock.active) ~ #map-content {
   margin-right: 0;
+}
+
+#content.docks-swapped.sub-dock-visible:not(.mobile) #docks-wrapper ~ #map-content {
+  margin-right: var(--lizmap-sub-dock-current-width, calc((100% - 30px)*30/100));
 }
 
 /* Catalog sections: compact Bootstrap accordion, like the dock forms */
