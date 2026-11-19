@@ -244,14 +244,51 @@ export function initDockResizer(doc = document) {
             }
             const title = header.querySelector('.right-dock-title');
             const mapmenu = doc.getElementById('mapmenu');
+            // Same look as the title of the left dock ("Layers"), whatever the theme
+            const leftTitle = doc.querySelector('#dock .dock-title');
+            if (leftTitle && title) {
+                const style = window.getComputedStyle(leftTitle);
+                for (const prop of ['color', 'fontFamily', 'fontSize', 'fontWeight', 'letterSpacing', 'textTransform']) {
+                    title.style[prop] = style[prop];
+                }
+                header.style.backgroundColor = style.backgroundColor;
+                header.style.borderBottom = style.borderBottom;
+                title.style.borderBottom = 'none';
+            }
+            let current = null;
             const updateTitle = () => {
                 const link = mapmenu?.querySelector('.nav-right-dock.active > a');
-                const text = link?.dataset.bsTitle || link?.getAttribute('data-bs-original-title')
-                    || link?.getAttribute('title') || link?.textContent?.trim() || '';
-                if (title && title.textContent !== text) {
-                    title.textContent = text;
-                    title.title = text;
+                if (!title || link === current) {
+                    return;
                 }
+                current = link;
+                const text = link?.dataset.bsTitle || link?.getAttribute('data-bs-original-title')
+                    || link?.getAttribute('title') || link?.querySelector('.menu-title')?.textContent?.trim() || '';
+                title.replaceChildren();
+                // The icon of the menu
+                const icon = link ? Array.from(link.children).find(child => !child.classList.contains('menu-title')) : null;
+                if (icon) {
+                    let copy;
+                    if (icon.childElementCount || ['I', 'IMG', 'SVG', 'svg'].includes(icon.tagName)) {
+                        copy = icon.cloneNode(true);
+                    } else {
+                        // An icon drawn by the CSS of the menu
+                        const iconStyle = window.getComputedStyle(icon);
+                        copy = doc.createElement('span');
+                        for (const prop of ['backgroundImage', 'backgroundPosition', 'backgroundSize', 'backgroundRepeat', 'width', 'height']) {
+                            copy.style[prop] = iconStyle[prop];
+                        }
+                        copy.style.display = 'inline-block';
+                    }
+                    copy.classList.add('right-dock-title-icon');
+                    copy.removeAttribute('id');
+                    title.append(copy);
+                }
+                const span = doc.createElement('span');
+                span.className = 'right-dock-title-text';
+                span.textContent = text;
+                title.append(span);
+                title.title = text;
             };
             if (mapmenu) {
                 new MutationObserver(updateTitle).observe(mapmenu, {
