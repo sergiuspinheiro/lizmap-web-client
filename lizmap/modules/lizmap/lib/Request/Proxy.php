@@ -446,6 +446,13 @@ class Proxy
             $requestOptions['stream'] = true;
         }
 
+        // Allow callers to disable HTTP redirect following. Used to mitigate SSRF on
+        // user-influenced external URLs (a permitted host could otherwise redirect to
+        // an internal one). Defaults to Guzzle's behaviour when not set.
+        if (array_key_exists('allow_redirects', $options)) {
+            $requestOptions['allow_redirects'] = $options['allow_redirects'];
+        }
+
         // Set proxy request options
         $services = self::getServices();
         if ($services->requestProxyEnabled && $services->requestProxyHost != '') {
