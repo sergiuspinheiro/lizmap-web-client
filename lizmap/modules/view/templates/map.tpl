@@ -36,12 +36,14 @@
 
     <div id="sub-dock">
     </div>
+    <div id="sub-dock-resizer" title="{@view~map.dock.resize.title@}" data-swap-title="{@view~map.dock.swap.title@}"></div>
 
     <div id="bottom-dock">
       {zone 'view~map_bottomdock', array('repository'=>$repository,'project'=>$project,'dockable'=>$bottomdockable)}
     </div>
 
     <div id="right-dock">
+      <div id="right-dock-resizer" title="{@view~map.dock.resize.title@}" data-swap-title="{@view~map.dock.swap.title@}"></div>
       {zone 'view~map_rightdock', array('repository'=>$repository,'project'=>$project,'dockable'=>$rightdockable)}
     </div>
   </div>
