@@ -313,6 +313,10 @@ class lizMapCtrl extends jController
                 'delete' => jUrl::get('lizmap~mapview:delete'),
             );
         }
+        // External services read through Lizmap when they do not allow requests from this site (CORS)
+        if ((new \Lizmap\App\ModulesConfig())->isEnabled('catalog')) {
+            $lizUrls['externalProxy'] = jUrl::get('lizmap~catalog:external');
+        }
         // Files imported in the data catalog and saved in the user profile
         if (jAuth::isConnected() && (new \Lizmap\App\ModulesConfig())->isEnabled('catalog')) {
             \Lizmap\Import\UserImports::ensureInstalled();
