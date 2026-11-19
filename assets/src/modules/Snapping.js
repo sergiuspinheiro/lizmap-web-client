@@ -9,9 +9,17 @@ import { mainEventDispatcher } from '../modules/Globals.js';
 import Edition from './Edition.js';
 import { MapLayerLoadStatus, MapRootState } from './state/MapLayer.js';
 import { TreeRootState } from './state/LayerTree.js';
-import WFS from './WFS.js';
+import {
+    SnapModes, snapCandidateLayers, fetchSnapFeatures, computeSnapPoints,
+    readSnapSettings, saveSnapSettings,
+} from './SnapTargets.js';
 
 /**
+ * Snapping of the edition tool.
+ *
+ * The layers come from the project configuration (snap_layers of the edition layer, checked
+ * at start) and from all the layers with a geometry published in WFS: the user chooses which
+ * ones to snap to, and the modes: vertices, segments, segment midpoints and intersections.
  * @class
  * @name Snapping
  */
@@ -23,13 +31,15 @@ export default class Snapping {
      * @param {MapRootState}  rootMapGroup - Root map group
      * @param {TreeRootState} layerTree    - Root tree layer group
      * @param {object}        lizmap3      - The old lizmap object
+     * @param {object[]}      featureTypes - WFS feature types
      */
-    constructor(edition, rootMapGroup, layerTree, lizmap3) {
+    constructor(edition, rootMapGroup, layerTree, lizmap3, featureTypes = []) {
 
         this._edition = edition;
         this._rootMapGroup = rootMapGroup;
         this._layerTree = layerTree;
         this._lizmap3 = lizmap3;
+        this._featureTypes = featureTypes;
 
         this._active = false;
         this._snapLayersRefreshable = false;
@@ -40,11 +50,16 @@ export default class Snapping {
         this._snapEnabled = {};
         this._snapToggled = {};
         this._snapLayers = [];
+        this._modes = {vertices: true, segments: true, midpoints: false, intersections: false};
+        this._tolerance = 10;
+        this._settingsKey = undefined;
         this._snapOnStart = false;
         this._pendingMapReadyListener = null;
         this._wfsErrorNotified = false;
+        this._fetchedFeatures = [];
+        this._requestId = 0;
 
-        // Create layer to store snap features
+        // Layer to store snap features (vertices and segments)
         const snapLayer = new OpenLayers.Layer.Vector('snaplayer', {
             visibility: false,
             styleMap: new OpenLayers.StyleMap({
@@ -56,14 +71,32 @@ export default class Snapping {
                 strokeOpacity: 0.8
             })
         });
-
         this._lizmap3.map.addLayer(snapLayer);
         this._snapLayer = snapLayer;
+
+        // Layer to store the computed points: segment midpoints and intersections
+        const snapPointsLayer = new OpenLayers.Layer.Vector('snappointslayer', {
+            visibility: false,
+            styleMap: new OpenLayers.StyleMap({
+                pointRadius: 2,
+                fill: true,
+                fillColor: '#e000e0',
+                fillOpacity: 0.6,
+                stroke: false,
+            })
+        });
+        this._lizmap3.map.addLayer(snapPointsLayer);
+        this._snapPointsLayer = snapPointsLayer;
 
         const snapControl = new OpenLayers.Control.Snapping({
             layer: this._edition.editLayer,
             targets: [{
                 layer: snapLayer
+            }, {
+                layer: snapPointsLayer,
+                node: true,
+                vertex: false,
+                edge: false,
             }]
         });
         this._lizmap3.map.addControls([snapControl]);
@@ -76,107 +109,26 @@ export default class Snapping {
         }
 
         this._setSnapLayersVisibility = () => {
-            if(this._active){
-                this._snapLayers.forEach((layer)=>{
-                    this._snapEnabled[layer] = this.getLayerTreeVisibility(layer);
-                })
+            if (this._config === undefined) {
+                return;
+            }
+            this._snapLayers.forEach((layer)=>{
+                this._snapEnabled[layer] = this.getLayerTreeVisibility(layer);
+            })
 
-                this._sortSnapLayers();
-                const config = structuredClone(this._config);
-                config.snap_layers = this._snapLayers;
-                config.snap_enabled = this._snapEnabled;
-
-                this.config = config;
+            this._sortSnapLayers();
+            this._updateConfig();
+            if (this._active) {
                 this.snapLayersRefreshable = true;
-
-                // dispatch an event, it might be useful to know when the list of visible layer for snap changed
-                mainEventDispatcher.dispatch('snapping.layer.visibility.changed');
             }
-        }
 
-        this._sortSnapLayers = () => {
-            let snapLayers = [...this._snapLayers];
-            let visibleLayers = [];
-            for (let id in this._snapEnabled) {
-                if(this._snapEnabled[id]){
-                    let visibileLayer = snapLayers.splice(snapLayers.indexOf(id),1)
-                    visibleLayers = visibleLayers.concat(visibileLayer)
-                }
-            }
-            visibleLayers.sort();
-            snapLayers.sort();
-            this._snapLayers = visibleLayers.concat(snapLayers);
+            // dispatch an event, it might be useful to know when the list of visible layer for snap changed
+            mainEventDispatcher.dispatch('snapping.layer.visibility.changed');
         }
 
         // Activate snap when a layer is edited
         mainEventDispatcher.addListener(
-            () => {
-                // Get snapping configuration for edited layer
-                for (const editionLayer in this._lizmap3.config.editionLayers) {
-                    if (this._lizmap3.config.editionLayers.hasOwnProperty(editionLayer)) {
-                        if (this._lizmap3.config.editionLayers[editionLayer].layerId === this._edition.layerId){
-                            const editionLayerConfig = this._lizmap3.config.editionLayers[editionLayer];
-                            if (editionLayerConfig.hasOwnProperty('snap_layers') && editionLayerConfig.snap_layers.length > 0){
-
-                                this._snapLayers = [...editionLayerConfig.snap_layers];
-                                this._snapLayers.forEach((layer)=>{
-                                    this._snapEnabled[layer] = this.getLayerTreeVisibility(layer);
-                                })
-                                this._snapLayers.forEach((layer)=>{
-                                    // on init enable snap by default on visible layers
-                                    this._snapToggled[layer] = this.getLayerTreeVisibility(layer);
-                                })
-
-                                // sorting of layers by name and put disabled layers on bottom of the list
-                                this._sortSnapLayers();
-
-                                this.config = {
-                                    'snap_layers': this._snapLayers,
-                                    'snap_enabled': this._snapEnabled,
-                                    'snap_on_layers':this._snapToggled,
-                                    'snap_vertices': (editionLayerConfig.hasOwnProperty('snap_vertices') && editionLayerConfig.snap_vertices === 'True') ? true : false,
-                                    'snap_segments': (editionLayerConfig.hasOwnProperty('snap_segments') && editionLayerConfig.snap_segments === 'True') ? true : false,
-                                    'snap_intersections': (editionLayerConfig.hasOwnProperty('snap_intersections') && editionLayerConfig.snap_intersections === 'True') ? true : false,
-                                    'snap_vertices_tolerance': editionLayerConfig.hasOwnProperty('snap_vertices_tolerance') ? editionLayerConfig.snap_vertices_tolerance : 10,
-                                    'snap_segments_tolerance': editionLayerConfig.hasOwnProperty('snap_segments_tolerance') ? editionLayerConfig.snap_segments_tolerance : 10,
-                                    'snap_intersections_tolerance': editionLayerConfig.hasOwnProperty('snap_intersections_tolerance') ? editionLayerConfig.snap_intersections_tolerance : 10
-                                };
-
-                                this._snapOnStart = editionLayerConfig.hasOwnProperty('snap_on_start')
-                                    && editionLayerConfig.snap_on_start === 'True';
-                            }
-                        }
-                    }
-                }
-
-                if (this._config !== undefined){
-                    // Configure snapping
-                    const snapControl = this._lizmap3.controls.snapControl;
-
-                    // Set edition layer as main layer
-                    snapControl.setLayer(this._edition.editLayer);
-
-                    snapControl.targets[0].node = this._config.snap_vertices;
-                    snapControl.targets[0].vertex = this._config.snap_intersections;
-                    snapControl.targets[0].edge = this._config.snap_segments;
-                    snapControl.targets[0].nodeTolerance = this._config.snap_vertices_tolerance;
-                    snapControl.targets[0].vertexTolerance = this._config.snap_intersections_tolerance;
-                    snapControl.targets[0].edgeTolerance = this._config.snap_segments_tolerance;
-
-                    // Listen to moveend event and to layers visibility changes to able data refreshing
-                    this._lizmap3.map.events.register('moveend', this, this._setSnapLayersRefreshable);
-                    this._rootMapGroup.addListener(
-                        this._setSnapLayersVisibility,
-                        ['layer.visibility.changed','group.visibility.changed']
-                    );
-
-                    // Auto-activate snapping if configured (snap_on_start).
-                    // Legacy configs without the key do not auto-activate.
-                    if (this._snapOnStart) {
-                        this._activateWhenMapReady();
-                    }
-                }
-            },
+            () => this._onFormDisplayed(),
             'edition.formDisplayed'
         );
 
@@ -192,6 +144,8 @@ export default class Snapping {
                 }
                 this.active = false;
                 this._snapLayer.destroyFeatures();
+                this._snapPointsLayer.destroyFeatures();
+                this._fetchedFeatures = [];
                 this.config = undefined;
 
                 // Remove listener to moveend event to layers visibility event
@@ -206,37 +160,207 @@ export default class Snapping {
     }
 
     /**
+     * Sort the layers: the visible ones first, then by title
+     * @private
+     */
+    _sortSnapLayers() {
+        const byTitle = (a, b) => this.getLayerTitle(a).localeCompare(this.getLayerTitle(b));
+        const visible = this._snapLayers.filter(id => this._snapEnabled[id]).sort(byTitle);
+        const hidden = this._snapLayers.filter(id => !this._snapEnabled[id]).sort(byTitle);
+        this._snapLayers = visible.concat(hidden);
+    }
+
+    /**
+     * Build the snapping configuration when the edition form is displayed
+     * @private
+     */
+    _onFormDisplayed() {
+        let editionLayerConfig = null;
+        for (const editionLayer in this._lizmap3.config.editionLayers) {
+            if (this._lizmap3.config.editionLayers[editionLayer].layerId === this._edition.layerId) {
+                editionLayerConfig = this._lizmap3.config.editionLayers[editionLayer];
+            }
+        }
+        if (!editionLayerConfig) {
+            return;
+        }
+
+        // No snapping for layers without geometry
+        const editedLayerConfig = this._lizmap3.getLayerConfigById(this._edition.layerId);
+        const editedGeometryType = editedLayerConfig?.[1]?.geometryType;
+        if (['none', 'unknown'].includes(editedGeometryType)) {
+            return;
+        }
+
+        const configuredLayers = Array.isArray(editionLayerConfig.snap_layers) ? editionLayerConfig.snap_layers : [];
+        const hasConfig = configuredLayers.length > 0;
+
+        // All the layers the user can snap to
+        const layers = [...configuredLayers];
+        for (const layer of snapCandidateLayers(this._lizmap3, this._featureTypes)) {
+            if (!layers.includes(layer.id)) {
+                layers.push(layer.id);
+            }
+        }
+        if (layers.length === 0) {
+            return;
+        }
+        this._snapLayers = layers;
+        this._snapEnabled = {};
+        this._snapToggled = {};
+
+        // Settings saved by the user for this edition layer, else project configuration
+        this._settingsKey = 'edition_' + this._edition.layerId;
+        const saved = readSnapSettings(this._settingsKey);
+        const isTrue = (key) => editionLayerConfig[key] === 'True' || editionLayerConfig[key] === true;
+
+        this._snapLayers.forEach((layer) => {
+            this._snapEnabled[layer] = this.getLayerTreeVisibility(layer);
+            if (saved && Array.isArray(saved.layers)) {
+                this._snapToggled[layer] = saved.layers.includes(layer);
+            } else {
+                // on init enable snap by default on the configured visible layers
+                this._snapToggled[layer] = configuredLayers.includes(layer) && this._snapEnabled[layer];
+            }
+        });
+
+        if (saved && saved.modes) {
+            this._modes = {};
+            for (const mode of SnapModes) {
+                this._modes[mode] = !!saved.modes[mode];
+            }
+        } else if (hasConfig) {
+            // The configuration "vertices" and "intersections" both used the vertices of the features
+            this._modes = {
+                vertices: isTrue('snap_vertices') || isTrue('snap_intersections'),
+                segments: isTrue('snap_segments'),
+                midpoints: false,
+                intersections: isTrue('snap_intersections'),
+            };
+        } else {
+            this._modes = {vertices: true, segments: true, midpoints: false, intersections: false};
+        }
+
+        const tolerance = saved?.tolerance ?? editionLayerConfig.snap_vertices_tolerance ?? 10;
+        this._tolerance = Math.max(1, parseInt(tolerance) || 10);
+
+        this._sortSnapLayers();
+        this._updateConfig();
+        this._applyModes();
+
+        // Set edition layer as main layer
+        this._lizmap3.controls.snapControl.setLayer(this._edition.editLayer);
+
+        // Listen to moveend event and to layers visibility changes to able data refreshing
+        this._lizmap3.map.events.register('moveend', this, this._setSnapLayersRefreshable);
+        this._rootMapGroup.addListener(
+            this._setSnapLayersVisibility,
+            ['layer.visibility.changed','group.visibility.changed']
+        );
+
+        // Auto-activate snapping if configured (snap_on_start).
+        // Legacy configs without the key do not auto-activate.
+        this._snapOnStart = isTrue('snap_on_start');
+        if (this._snapOnStart) {
+            this._activateWhenMapReady();
+        }
+    }
+
+    /**
+     * Update the configuration read by the user interface
+     * @private
+     */
+    _updateConfig() {
+        this.config = {
+            'snap_layers': [...this._snapLayers],
+            'snap_enabled': {...this._snapEnabled},
+            'snap_on_layers': {...this._snapToggled},
+            'snap_modes': {...this._modes},
+            'snap_tolerance': this._tolerance,
+        };
+    }
+
+    /**
+     * Save the user choices for the edited layer
+     * @private
+     */
+    _saveSettings() {
+        if (!this._settingsKey) {
+            return;
+        }
+        saveSnapSettings(this._settingsKey, {
+            layers: this._snapLayers.filter(id => this._snapToggled[id]),
+            modes: this._modes,
+            tolerance: this._tolerance,
+        });
+    }
+
+    /**
+     * Apply the modes and the tolerance to the snap control targets
+     * @private
+     */
+    _applyModes() {
+        const snapControl = this._lizmap3.controls.snapControl;
+        const target = snapControl.targets[0];
+        target.node = this._modes.vertices;
+        target.vertex = this._modes.vertices;
+        target.edge = this._modes.segments;
+        target.nodeTolerance = this._tolerance;
+        target.vertexTolerance = this._tolerance;
+        target.edgeTolerance = this._tolerance;
+
+        const pointsTarget = snapControl.targets[1];
+        pointsTarget.node = this._modes.midpoints || this._modes.intersections;
+        pointsTarget.nodeTolerance = this._tolerance;
+    }
+
+    /**
+     * Compute the midpoints and the intersections of the fetched features
+     * @private
+     */
+    _updateSnapPoints() {
+        this._snapPointsLayer.destroyFeatures();
+        if (!this._modes.midpoints && !this._modes.intersections) {
+            return;
+        }
+        const points = computeSnapPoints(this._fetchedFeatures, {
+            vertices: false,
+            midpoints: this._modes.midpoints,
+            intersections: this._modes.intersections,
+        });
+        const features = points.midpoints.concat(points.intersections).map(
+            ([x, y]) => new OpenLayers.Feature.Vector(new OpenLayers.Geometry.Point(x, y))
+        );
+        if (features.length) {
+            this._snapPointsLayer.addFeatures(features);
+        }
+    }
+
+    /**
      * Activate snapping only after all visible map layers have finished loading.
      * This prevents snap WFS requests from competing with map tile rendering
      * on QGIS Server, which can significantly slow down large projects.
      * @private
      */
     _activateWhenMapReady() {
-        const visibleLayers = this._rootMapGroup.findMapLayers().filter(l => l.visibility);
-        const stillLoading = visibleLayers.filter(
-            l => l.loadStatus === MapLayerLoadStatus.Loading
-              || l.loadStatus === MapLayerLoadStatus.Undefined
-        );
-
-        if (stillLoading.length === 0) {
+        const isLoading = l => l.visibility
+            && (l.loadStatus === MapLayerLoadStatus.Loading
+             || l.loadStatus === MapLayerLoadStatus.Undefined);
+        const activate = () => {
             this.active = true;
             let previousMessage = document.getElementById('lizmap-snapping-message');
             if (previousMessage) previousMessage.remove();
             this._lizmap3.addMessage(lizDict['snapping.message.activated'] || 'Snapping has been automatically activated.', 'info', true, 7000).attr('id', 'lizmap-snapping-message');
+        };
+
+        if (this._rootMapGroup.findMapLayers().filter(isLoading).length === 0) {
+            activate();
         } else {
             const listener = () => {
-                const remaining = this._rootMapGroup.findMapLayers().filter(
-                    l => l.visibility
-                      && (l.loadStatus === MapLayerLoadStatus.Loading
-                       || l.loadStatus === MapLayerLoadStatus.Undefined)
-                );
-                if (remaining.length === 0) {
+                if (this._rootMapGroup.findMapLayers().filter(isLoading).length === 0) {
                     this._rootMapGroup.removeListener(listener, 'layer.load.status.changed');
                     this._pendingMapReadyListener = null;
-                    this.active = true;
-                    let previousMessage = document.getElementById('lizmap-snapping-message');
-                    if (previousMessage) previousMessage.remove();
-                    this._lizmap3.addMessage(lizDict['snapping.message.activated'] || 'Snapping has been automatically activated.', 'info', true, 7000).attr('id', 'lizmap-snapping-message');
+                    activate();
                 }
             };
             this._pendingMapReadyListener = listener;
@@ -246,13 +370,12 @@ export default class Snapping {
 
     /**
      * Log a WFS snap failure and surface a user-visible message, once per refresh batch.
-     * Called from both the rejection and the "no valid FeatureCollection" path.
-     * @param {string}              layerName - the layer whose WFS request failed
-     * @param {Error|object|string}  detail    - the error or payload that triggered the notice
+     * @param {string}              layerId - the layer whose WFS request failed
+     * @param {Error|object|string}  detail  - the error or payload that triggered the notice
      * @private
      */
-    _notifySnapWfsError(layerName, detail) {
-        console.warn('Snapping: WFS request failed for layer', layerName, detail);
+    _notifySnapWfsError(layerId, detail) {
+        console.warn('Snapping: WFS request failed for layer', layerId, detail);
         if (this._wfsErrorNotified) return;
         this._wfsErrorNotified = true;
         const msg = lizDict['snapping.message.wfs_error']
@@ -261,12 +384,14 @@ export default class Snapping {
     }
 
     getSnappingData () {
-        // Empty snapping layer first
+        // Empty snapping layers first
         this._snapLayer.destroyFeatures();
+        this._snapPointsLayer.destroyFeatures();
+        this._fetchedFeatures = [];
 
-        // Reset the once-per-refresh error notification flag so a new batch of
-        // requests can re-surface a user-visible message if WFS still fails.
+        // Reset the once-per-refresh error notification flag
         this._wfsErrorNotified = false;
+        const requestId = ++this._requestId;
 
         // filter only visible layers and toggled layers on the the snap list
         const currentSnapLayers = this._snapLayers.filter(
@@ -274,65 +399,37 @@ export default class Snapping {
         );
 
         // Request the map projection so QGIS Server reprojects server-side with full
-        // PROJ accuracy (including datum grid shifts). This prevents the ~cm coordinate
-        // drift that occurs when OL2 performs a client-side EPSG:4326 → map-projection
-        // transform using a simplified Helmert approximation instead of an NTv2 grid.
+        // PROJ accuracy (including datum grid shifts).
         const mapProjection = this._lizmap3.map.getProjection();
         const mapExtent = this._restrictToMapExtent ? this._lizmap3.map.getExtent() : null;
-        const wfs = new WFS();
         const gFormat = new OpenLayers.Format.GeoJSON({ ignoreExtraDims: true });
+        const options = {
+            projection: mapProjection,
+            extent: mapExtent ? [mapExtent.left, mapExtent.bottom, mapExtent.right, mapExtent.top] : null,
+            maxFeatures: this._maxFeatures,
+        };
 
-        for (const snapLayer of currentSnapLayers) {
-            const layerConfigById = this._lizmap3.getLayerConfigById(snapLayer);
-            if (!layerConfigById || !layerConfigById[0]) continue;
-
-            const layerName = layerConfigById[0];
-            const layerConf = this._lizmap3.config.layers[layerName];
-            if (!layerConf) continue;
-
-            // Resolve typename (same logic as getVectorLayerWfsUrl)
-            let typeName = layerName.split(' ').join('_');
-            if (layerConf.hasOwnProperty('shortname') && layerConf['shortname']) typeName = layerConf['shortname'];
-            else if (layerConf.hasOwnProperty('typename') && layerConf['typename']) typeName = layerConf['typename'];
-
-            const wfsOptions = {
-                VERSION: '1.1.0',
-                TYPENAME: typeName,
-                SRSNAME: mapProjection,
-                MAXFEATURES: this._maxFeatures,
-            };
-
-            // Apply existing layer filter if present (e.g. login-based filter)
-            if (layerConf.hasOwnProperty('request_params') && layerConf['request_params'].hasOwnProperty('filter')) {
-                const layerFilter = layerConf['request_params']['filter'];
-                if (layerFilter) {
-                    wfsOptions['EXP_FILTER'] = layerFilter.replace(layerName + ':', '');
-                }
-            }
-
-            // Append CRS code so the server interprets the extent in the map projection
-            if (mapExtent) {
-                wfsOptions['BBOX'] = [mapExtent.left, mapExtent.bottom, mapExtent.right, mapExtent.top].join(',') + ',' + mapProjection;
-            }
-
-            wfs.getFeature(wfsOptions).then(data => {
-                if (!data || !Array.isArray(data.features)) {
-                    // The WFS endpoint returned something (no rejection) but not a
-                    // FeatureCollection — most likely an OGC ExceptionReport wrapped as
-                    // JSON. Treat as a failure so the user sees that snap may be incomplete.
-                    this._notifySnapWfsError(layerName, data);
+        const requests = currentSnapLayers.map(layerId =>
+            fetchSnapFeatures(this._lizmap3, layerId, options).then(features => {
+                if (requestId !== this._requestId) {
                     return;
                 }
-                // Features are already in map projection — no client-side reprojection needed.
+                // Features are already in map projection
                 const tfeatures = gFormat.read({
                     type: 'FeatureCollection',
-                    features: data.features
+                    features: features
                 });
                 this._snapLayer.addFeatures(tfeatures);
+                this._fetchedFeatures.push(...features);
             }).catch(err => {
-                this._notifySnapWfsError(layerName, err);
-            });
-        }
+                this._notifySnapWfsError(layerId, err);
+            })
+        );
+        Promise.all(requests).then(() => {
+            if (requestId === this._requestId) {
+                this._updateSnapPoints();
+            }
+        });
 
         this.snapLayersRefreshable = false;
     }
@@ -340,6 +437,7 @@ export default class Snapping {
     toggle(){
         this.active = !this._active;
     }
+
     /**
      * Getting the layer visibility from the layer tree state
      * @param   {string} layerId - the layer id
@@ -358,6 +456,7 @@ export default class Snapping {
         }
         return visible;
     }
+
     /**
      * Getting the layer tile or the layer name for snap layers list
      * @param   {string} layerId - the layer id
@@ -366,7 +465,7 @@ export default class Snapping {
     getLayerTitle(layerId){
         let layerConfig = this._lizmap3.getLayerConfigById(layerId);
         if (layerConfig) {
-            return layerConfig[1].title || layerConfig[1].name;
+            return layerConfig[1].title || layerConfig[1].name || '';
         }
         return "";
     }
@@ -377,12 +476,81 @@ export default class Snapping {
 
     set snapToggled(layerId){
         this._snapToggled[layerId] = !this._snapToggled[layerId];
+        this._saveSettings();
+        this._updateConfig();
+        if (this._active) {
+            this.getSnappingData();
+        }
+    }
 
-        const config = structuredClone(this._config);
-        config.snap_on_layers = this._snapToggled;
+    // Interface shared with the snapping panel of the draw tools
 
-        this.config = config;
-        this.snapLayersRefreshable = true;
+    /**
+     * The layers of the snapping panel
+     * @type {Array<{id: string, title: string, enabled: boolean, checked: boolean}>}
+     */
+    get layers() {
+        return this._snapLayers.map(id => ({
+            id: id,
+            title: this.getLayerTitle(id),
+            enabled: !!this._snapEnabled[id],
+            checked: !!this._snapToggled[id],
+        }));
+    }
+
+    /**
+     * Toggle the snapping on a layer
+     * @param {string} layerId - the layer id
+     */
+    toggleLayer(layerId) {
+        this.snapToggled = layerId;
+    }
+
+    /**
+     * The snap modes
+     * @type {{vertices: boolean, segments: boolean, midpoints: boolean, intersections: boolean}}
+     */
+    get modes() {
+        return this._modes;
+    }
+
+    /**
+     * Enable or disable a snap mode
+     * @param {string}  mode    - one of SnapModes
+     * @param {boolean} enabled - enabled or not
+     */
+    setMode(mode, enabled) {
+        if (!SnapModes.includes(mode)) {
+            return;
+        }
+        this._modes = {...this._modes, [mode]: !!enabled};
+        this._applyModes();
+        this._updateSnapPoints();
+        this._saveSettings();
+        this._updateConfig();
+    }
+
+    /**
+     * Snap tolerance in pixels
+     * @type {number}
+     */
+    get tolerance() {
+        return this._tolerance;
+    }
+
+    set tolerance(tolerance) {
+        this._tolerance = Math.max(1, Math.min(100, parseInt(tolerance) || 10));
+        this._applyModes();
+        this._saveSettings();
+        this._updateConfig();
+    }
+
+    get refreshable() {
+        return this._snapLayersRefreshable;
+    }
+
+    refresh() {
+        this.getSnappingData();
     }
 
     get snapLayersRefreshable(){
@@ -411,8 +579,9 @@ export default class Snapping {
             this._lizmap3.controls.snapControl.deactivate();
         }
 
-        // Set snap layer visibility
+        // Set snap layers visibility
         this._snapLayer.setVisibility(this._active);
+        this._snapPointsLayer.setVisibility(this._active);
 
         mainEventDispatcher.dispatch('snapping.active');
     }

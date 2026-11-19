@@ -12,5 +12,6 @@
 
     <div class="menu-content">
         <lizmap-digitizing context="draw" save import-export measure text-tools></lizmap-digitizing>
+        <lizmap-draw-snapping></lizmap-draw-snapping>
     </div>
 </div>
