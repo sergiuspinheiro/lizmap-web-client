@@ -340,15 +340,16 @@ export default class OverlayAnalysis extends HTMLElement {
 
     _treeTemplate(node) {
         if (!node.children) {
-            return html`<li><label><input type="checkbox" .checked=${this._selected.has(node.name)}
-                @change=${(e) => this._toggle(node, e.target.checked)}> ${node.title}</label></li>`;
+            return html`<li class="overlay-tree-layer"><label><input type="checkbox" .checked=${this._selected.has(node.name)}
+                @change=${(e) => this._toggle(node, e.target.checked)}> <span class="overlay-tree-title">${node.title}</span></label></li>`;
         }
         const leaves = this._leaves(node);
         const count = leaves.filter(leaf => this._selected.has(leaf.name)).length;
-        return html`<li><details open>
+        return html`<li class="overlay-tree-group"><details open>
             <summary><label><input type="checkbox" .checked=${count === leaves.length}
                 .indeterminate=${count > 0 && count < leaves.length}
-                @change=${(e) => this._toggle(node, e.target.checked)}> ${node.title}</label></summary>
+                @change=${(e) => this._toggle(node, e.target.checked)}> <span class="overlay-tree-title">${node.title}</span></label>
+                <span class="overlay-tree-count">${count}/${leaves.length}</span></summary>
             <ul>${node.children.map(child => this._treeTemplate(child))}</ul>
         </details></li>`;
     }
@@ -546,6 +547,10 @@ export default class OverlayAnalysis extends HTMLElement {
             </label>
             <details class="overlay-themes" open>
                 <summary>${lizDict['overlay.themes']}</summary>
+                <div class="overlay-tree-actions">
+                    <button type="button" class="btn btn-sm" @click=${() => this._toggle(this._tree, true)}>${lizDict['overlay.themes.all']}</button>
+                    <button type="button" class="btn btn-sm" @click=${() => this._toggle(this._tree, false)}>${lizDict['overlay.themes.none']}</button>
+                </div>
                 <ul class="overlay-tree">${this._tree.children.map(child => this._treeTemplate(child))}</ul>
                 <p class="overlay-note">${lizDict['overlay.themes.count'].replace('%s', count).replace('%t', leaves.length)}</p>
             </details>
