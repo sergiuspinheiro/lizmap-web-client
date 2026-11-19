@@ -521,6 +521,12 @@ class Proxy
             $requestOptions['allow_redirects'] = $options['allow_redirects'];
         }
 
+        // Allow callers to give cURL options, e.g. CURLOPT_RESOLVE to connect to
+        // the IP address they checked (DNS rebinding of user-influenced external URLs)
+        if (array_key_exists('curl', $options) && is_array($options['curl'])) {
+            $requestOptions['curl'] = $options['curl'];
+        }
+
         // Set proxy request options
         $services = self::getServices();
         if ($services->requestProxyEnabled && $services->requestProxyHost != '') {
