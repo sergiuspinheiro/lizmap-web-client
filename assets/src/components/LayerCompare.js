@@ -12,6 +12,7 @@ import TileLayer from 'ol/layer/Tile.js';
 import TileWMS from 'ol/source/TileWMS.js';
 import { getRenderPixel } from 'ol/render.js';
 import WMSCapabilities from 'ol/format/WMSCapabilities.js';
+import { fetchService } from '../modules/ExternalServices.js';
 
 /**
  * Layer comparator (swipe): displays one layer on the left of a draggable
@@ -176,7 +177,7 @@ export default class LayerCompare extends HTMLElement {
         const u = new URL(LayerCompare.cleanWmsUrl(url));
         u.searchParams.set('SERVICE', 'WMS');
         u.searchParams.set('REQUEST', 'GetCapabilities');
-        const response = await fetch(u);
+        const response = await fetchService(u.toString());
         if (!response.ok) {
             throw new Error(response.statusText);
         }

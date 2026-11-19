@@ -173,6 +173,63 @@ class catalogCtrl extends jController
     }
 
     /**
+     * Read the capabilities or the features of an external service for the browser,
+     * when the service does not allow requests from this site (CORS).
+     *
+     * Connected users can read any public service, anonymous users only the
+     * hosts of the shared external services offered to them.
+     *
+     * Parameter: url, the URL to read.
+     *
+     * @return jResponseBinary|jResponseJson
+     */
+    public function external()
+    {
+        /** @var jResponseJson $error */
+        $error = $this->getResponse('json');
+        if (!(new ModulesConfig())->isEnabled('catalog')) {
+            return $this->error($error, 404, 'The data catalog is not enabled');
+        }
+        $url = trim((string) $this->param('url', ''));
+        if ($url === '') {
+            return $this->error($error, 400, 'The URL is missing');
+        }
+
+        if (!jAuth::isConnected()) {
+            $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+            $hosts = array_map(static function ($service) {
+                return strtolower((string) parse_url($service['url'], PHP_URL_HOST));
+            }, $this->sharedServices());
+            if ($host === '' || !in_array($host, $hosts, true)) {
+                return $this->error($error, 403, 'Only connected users can read this service');
+            }
+        }
+
+        $services = lizmap::getServices();
+        $proxy = new \Lizmap\Request\ExternalServiceProxy((string) $services->wmsServerURL);
+
+        try {
+            list($code, $contentType, $body) = $proxy->read($url);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($error, 403, $e->getMessage());
+        }
+
+        /** @var jResponseBinary $rep */
+        $rep = $this->getResponse('binary');
+        $rep->doDownload = false;
+        $rep->content = $body;
+        // The answer is only read by the scripts of the map, never displayed:
+        // JSON stays JSON, everything else is text, so that nothing runs in this site
+        $rep->mimeType = stripos($contentType, 'json') !== false ? 'application/json' : 'text/plain; charset=utf-8';
+        $rep->addHttpHeader('X-Content-Type-Options', 'nosniff');
+        $rep->addHttpHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+        $rep->addHttpHeader('X-Lizmap-Content-Type', preg_replace('/[^\w\/+.;=\- ]/', '', $contentType));
+        $rep->setHttpStatus($code, $code >= 400 ? 'Service error' : 'OK');
+
+        return $rep;
+    }
+
+    /**
      * Status of the AI assistant for the current user.
      *
      * @return jResponseJson
