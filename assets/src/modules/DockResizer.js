@@ -130,7 +130,6 @@ function setSwapped(doc, swapped) {
         return;
     }
     content.classList.toggle('docks-swapped', swapped);
-    doc.querySelectorAll('.dock-swap-btn').forEach(btn => btn.classList.toggle('active', swapped));
     writeStorage(SWAP_KEY, swapped ? '1' : null);
 }
 
@@ -143,13 +142,12 @@ function setSwapped(doc, swapped) {
 function createSwapButton(doc, title) {
     const btn = doc.createElement('button');
     btn.type = 'button';
-    btn.className = 'btn btn-sm dock-swap-btn';
+    btn.className = 'btn dock-swap-btn';
     btn.title = title;
     btn.setAttribute('aria-label', title);
     btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">'
         + '<path fill-rule="evenodd" d="M1 11.5a.5.5 0 0 0 .5.5h11.793l-3.147 3.146a.5.5 0 0 0 .708.708l4-4a.5.5 0 0 0 0-.708l-4-4a.5.5 0 0 0-.708.708L13.293 11H1.5a.5.5 0 0 0-.5.5zm14-7a.5.5 0 0 1-.5.5H2.707l3.147 3.146a.5.5 0 1 1-.708.708l-4-4a.5.5 0 0 1 0-.708l4-4a.5.5 0 1 1 .708.708L2.707 4H14.5a.5.5 0 0 1 .5.5z"/>'
         + '</svg>';
-    btn.classList.toggle('active', doc.getElementById('content')?.classList.contains('docks-swapped'));
     btn.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -210,14 +208,19 @@ export function initDockResizer(doc = document) {
         };
         layoutSyncs.push(syncHandle);
         new ResizeObserver(syncHandle).observe(subDock);
-        // Add the swap button to every new content
+        // Add the swap button to the title of every new content
         const addSwapButton = () => {
-            if (subDock.childElementCount && !subDock.querySelector(':scope > .dock-swap-btn')) {
-                subDock.prepend(createSwapButton(doc, swapTitle));
+            if (subDock.childElementCount && !subDock.querySelector('.dock-swap-btn')) {
+                const title = subDock.querySelector('h3');
+                if (title) {
+                    title.prepend(createSwapButton(doc, swapTitle));
+                } else {
+                    subDock.prepend(createSwapButton(doc, swapTitle));
+                }
             }
             syncHandle();
         };
-        new MutationObserver(addSwapButton).observe(subDock, { childList: true });
+        new MutationObserver(addSwapButton).observe(subDock, { childList: true, subtree: true });
         new MutationObserver(syncHandle).observe(subDock, { attributes: true, attributeFilter: ['style', 'class'] });
         addSwapButton();
     }
@@ -231,8 +234,32 @@ export function initDockResizer(doc = document) {
                 content.style.removeProperty('--lizmap-right-dock-width');
             }
         });
+        // Title bar: the title of the open panel, the swap and close buttons
+        const header = doc.getElementById('right-dock-header');
         const close = doc.getElementById('right-dock-close');
-        if (close) {
+        if (header) {
+            header.append(createSwapButton(doc, swapTitle));
+            if (close) {
+                header.append(close);
+            }
+            const title = header.querySelector('.right-dock-title');
+            const mapmenu = doc.getElementById('mapmenu');
+            const updateTitle = () => {
+                const link = mapmenu?.querySelector('.nav-right-dock.active > a');
+                const text = link?.dataset.bsTitle || link?.getAttribute('data-bs-original-title')
+                    || link?.getAttribute('title') || link?.textContent?.trim() || '';
+                if (title && title.textContent !== text) {
+                    title.textContent = text;
+                    title.title = text;
+                }
+            };
+            if (mapmenu) {
+                new MutationObserver(updateTitle).observe(mapmenu, {
+                    subtree: true, attributes: true, attributeFilter: ['class'],
+                });
+            }
+            updateTitle();
+        } else if (close) {
             close.before(createSwapButton(doc, swapTitle));
         }
     }
