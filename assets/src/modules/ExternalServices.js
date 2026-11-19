@@ -117,12 +117,51 @@ function hostname(url) {
     }
 }
 
+/** Hosts read through Lizmap because they do not allow requests from this site */
+const proxiedHosts = new Set();
+
 /**
- *
- * @param url
+ * Fetch an URL of an external service. When the service does not allow requests
+ * from this site (CORS), it is read through Lizmap.
+ * @param {string} url - the URL
+ * @returns {Promise<Response>} the response
+ */
+export async function fetchService(url) {
+    const proxy = globalThis.lizUrls?.externalProxy;
+    let u;
+    try {
+        u = new URL(url, window.location.href);
+    } catch {
+        return fetch(url);
+    }
+    const proxied = () => fetch(proxy + (proxy.includes('?') ? '&' : '?') + new URLSearchParams({ url: u.toString() }));
+    if (!proxy || u.origin === window.location.origin) {
+        return fetch(url);
+    }
+    if (proxiedHosts.has(u.host)) {
+        return proxied();
+    }
+    try {
+        return await fetch(url);
+    } catch (error) {
+        // A network or CORS error: the browser gives no details
+        const response = await proxied();
+        if (response.status === 403) {
+            // Not allowed through Lizmap either: keep the first error
+            throw error;
+        }
+        proxiedHosts.add(u.host);
+        return response;
+    }
+}
+
+/**
+ * Read the text of an URL of an external service
+ * @param {string} url - the URL
+ * @returns {Promise<string>} the text
  */
 async function fetchText(url) {
-    const response = await fetch(url);
+    const response = await fetchService(url);
     if (!response.ok) {
         throw new Error(`${response.status} ${response.statusText}`);
     }
@@ -130,8 +169,9 @@ async function fetchText(url) {
 }
 
 /**
- *
- * @param url
+ * Read the JSON of an URL of an external service
+ * @param {string} url - the URL
+ * @returns {Promise<object>} the data
  */
 async function fetchJson(url) {
     return JSON.parse(await fetchText(url));
@@ -256,7 +296,7 @@ function vectorSource(urlFunction, parse) {
         strategy: bboxStrategy,
         loader: async (extent, resolution, projection, success, failure) => {
             try {
-                const response = await fetch(urlFunction(extent, projection));
+                const response = await fetchService(urlFunction(extent, projection));
                 if (!response.ok) {
                     throw new Error(response.statusText);
                 }
