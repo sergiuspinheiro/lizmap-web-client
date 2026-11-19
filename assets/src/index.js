@@ -39,6 +39,7 @@ import OverlayAnalysis from './components/OverlayAnalysis.js';
 import MapViews from './components/MapViews.js';
 import CatalogTable from './components/CatalogTable.js';
 import { initDockResizer } from './modules/DockResizer.js';
+import { patchLegacyBootstrap } from './modules/LegacyBootstrap.js';
 
 import { mainLizmap, mainEventDispatcher } from './modules/Globals.js';
 import executeJSFromServer from './modules/ExecuteJSFromServer.js';
@@ -290,6 +291,8 @@ const initLizmapApp = () => {
                     }
                 }
             }
+            // Scripts of the projects written for older Bootstrap versions
+            patchLegacyBootstrap();
             // complete lizMap intialization
             lizMap.completeInitialization(startupConfigurations, initialPermalink);
         }
