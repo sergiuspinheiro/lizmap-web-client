@@ -182,20 +182,27 @@ class ExternalServiceProxy
                 throw new \InvalidArgumentException($refusal);
             }
             $this->checkedIps = $ips;
-            $options = array(
-                'method' => 'GET',
-                'allow_redirects' => false,
-            );
+            $tooBig = false;
+            $curl = array();
             $pin = $this->pin($url);
             if ($pin !== null) {
                 // Connect to the address checked, not to a new answer of the DNS
-                $options['curl'] = array(CURLOPT_RESOLVE => array($pin));
+                $curl[CURLOPT_RESOLVE] = array($pin);
             }
-            $response = Proxy::getRemoteDataAsStream($url, $options);
-            $code = $response->getCode();
+            try {
+                list($body, $contentType, $code, $headers) = $this->request($url, $curl, $tooBig);
+            } catch (\Throwable $e) {
+                if ($tooBig) {
+                    throw new \InvalidArgumentException('The answer of the service is too big');
+                }
+
+                throw $e;
+            }
+            if ($tooBig) {
+                throw new \InvalidArgumentException('The answer of the service is too big');
+            }
             if (in_array($code, array(301, 302, 303, 307, 308), true)) {
-                $location = self::header($response->getHeaders(), 'Location');
-                $response->getBodyAsStream()->close();
+                $location = self::header($headers, 'Location');
                 if ($location === '') {
                     break;
                 }
@@ -204,10 +211,38 @@ class ExternalServiceProxy
                 continue;
             }
 
-            return array($code, $response->getMime(), self::readLimited($response->getBodyAsStream()));
+            return array($code, $contentType, $body);
         }
 
         throw new \InvalidArgumentException('Too many redirections');
+    }
+
+    /**
+     * Send the request.
+     *
+     * @param string $url    the URL, already checked
+     * @param array  $curl   the cURL options
+     * @param bool   $tooBig set to true when the download is stopped because of its size
+     *
+     * @return array{0: string, 1: string, 2: int, 3: array} the body, the content type, the HTTP code and the headers
+     */
+    protected function request($url, array $curl, &$tooBig)
+    {
+        return Proxy::getRemoteData($url, array(
+            'method' => 'GET',
+            'allow_redirects' => false,
+            'curl' => $curl,
+            // The size is checked while downloading, not after
+            'progress' => static function ($downloadTotal, $downloaded) use (&$tooBig) {
+                if ($downloaded > self::MAX_SIZE) {
+                    $tooBig = true;
+
+                    return true;
+                }
+
+                return false;
+            },
+        ));
     }
 
     /**
@@ -236,32 +271,6 @@ class ExternalServiceProxy
         }
 
         return $host.':'.$port.':'.$ip;
-    }
-
-    /**
-     * Read a stream, without going over the maximum size.
-     *
-     * @param \Psr\Http\Message\StreamInterface $stream the stream
-     * @param int                               $max    the maximum size, in bytes
-     *
-     * @return string the content
-     *
-     * @throws \InvalidArgumentException when the content is too big
-     */
-    public static function readLimited($stream, $max = self::MAX_SIZE)
-    {
-        $body = '';
-        while (!$stream->eof()) {
-            $body .= $stream->read(65536);
-            if (strlen($body) > $max) {
-                $stream->close();
-
-                throw new \InvalidArgumentException('The answer of the service is too big');
-            }
-        }
-        $stream->close();
-
-        return $body;
     }
 
     /**

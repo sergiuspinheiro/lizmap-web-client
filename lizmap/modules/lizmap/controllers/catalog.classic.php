@@ -212,6 +212,10 @@ class catalogCtrl extends jController
             list($code, $contentType, $body) = $proxy->read($url);
         } catch (\InvalidArgumentException $e) {
             return $this->error($error, 403, $e->getMessage());
+        } catch (\Throwable $e) {
+            jLog::log('External service '.$url.': '.$e->getMessage(), 'lizmapadmin');
+
+            return $this->error($error, 502, 'The service could not be read');
         }
 
         /** @var jResponseBinary $rep */
