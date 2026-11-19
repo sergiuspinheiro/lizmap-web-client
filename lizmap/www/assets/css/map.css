@@ -4247,6 +4247,62 @@ lizmap-message button {
     overflow: auto;
     display: flex;
     flex-direction: column;
+    max-height: 220px;
+}
+
+.snap-panel-controls .snap-modes {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 10px;
+}
+
+.snap-panel-controls .snap-mode {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 25px;
+}
+
+.snap-panel-controls .snap-mode input[type="checkbox"] {
+    accent-color: #0094D6;
+    margin-top: 0;
+}
+
+.snap-panel-controls .snap-tolerance {
+    max-width: 220px;
+    margin-top: 8px;
+}
+
+.snap-layers-count {
+    font-weight: normal;
+    color: gray;
+}
+
+.snap-layers-empty {
+    color: gray;
+    font-style: italic;
+}
+
+.draw-snapping {
+    margin-top: 10px;
+}
+
+.draw-snapping > summary {
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.draw-snapping > summary .badge {
+    margin-left: 5px;
+    font-weight: normal;
+}
+
+.draw-snapping .snap-panel {
+    margin-top: 5px;
+}
+
+.draw-snapping .snap-panel-controls {
+    margin: 10px 0;
 }
 
 .snap-layer {
