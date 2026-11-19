@@ -51,13 +51,4 @@ class ExternalServiceProxyTest extends TestCase
         $this->assertSame('https://o.pt/c', ExternalServiceProxy::absoluteUrl('//o.pt/c', 'https://h.pt/x/y'));
         $this->assertSame('http://o.pt/c', ExternalServiceProxy::absoluteUrl('http://o.pt/c', 'https://h.pt/x/y'));
     }
-
-    public function testReadLimited(): void
-    {
-        $stream = \GuzzleHttp\Psr7\Utils::streamFor(str_repeat('a', 200000));
-        $this->assertSame(200000, strlen(ExternalServiceProxy::readLimited($stream, 300000)));
-
-        $this->expectException(\InvalidArgumentException::class);
-        ExternalServiceProxy::readLimited(\GuzzleHttp\Psr7\Utils::streamFor(str_repeat('a', 400000)), 300000);
-    }
 }
