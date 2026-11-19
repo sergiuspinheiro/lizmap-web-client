@@ -458,6 +458,11 @@ class Proxy
         if (array_key_exists('curl', $options) && is_array($options['curl'])) {
             $requestOptions['curl'] = $options['curl'];
         }
+        // Allow callers to follow the download, e.g. to stop it above a size:
+        // the callable returns true to abort the transfer
+        if (array_key_exists('progress', $options) && is_callable($options['progress'])) {
+            $requestOptions['progress'] = $options['progress'];
+        }
 
         // Set proxy request options
         $services = self::getServices();
