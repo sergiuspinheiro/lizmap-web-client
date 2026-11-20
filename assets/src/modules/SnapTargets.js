@@ -10,6 +10,7 @@
  */
 
 import WFS from './WFS.js';
+import GeoJSON from 'ol/format/GeoJSON.js';
 
 /**
  * Snap modes; tracing follows the lines between two snapped vertices
@@ -496,4 +497,74 @@ export function tracePath(features, start, end, tolerance) {
 
     // no vertex identical to the start or the end
     return path.filter(p => !(p[0] === start[0] && p[1] === start[1]) && !(p[0] === end[0] && p[1] === end[1]));
+}
+
+/**
+ * Prefix of the ids of the external layers (loaded files, external services)
+ * @type {string}
+ */
+export const EXTERNAL_PREFIX = 'ext:';
+
+/**
+ * The vector layers added to the map outside the project: loaded files, external
+ * services with geometries (WFS, OGC API, ArcGIS feature services, GeoJSON), catalog layers
+ * @param {object} rootMapGroup - root map group state
+ * @returns {Array<{id: string, title: string, state: object}>} the layers
+ */
+export function externalSnapLayers(rootMapGroup) {
+    const layers = [];
+    const groups = rootMapGroup?.children || [];
+    for (const group of groups) {
+        if (!group || group.type !== 'ext-group') {
+            continue;
+        }
+        for (const layer of (group.children || [])) {
+            const source = layer?.olLayer?.getSource?.();
+            if (!source || typeof source.forEachFeatureInExtent !== 'function') {
+                continue;
+            }
+            const groupTitle = group.wmsTitle && group.wmsTitle !== group.name ? group.wmsTitle : '';
+            const title = layer.wmsTitle || layer.name;
+            layers.push({
+                id: EXTERNAL_PREFIX + group.name + '/' + layer.name,
+                title: groupTitle && groupTitle !== title ? groupTitle + ' / ' + title : title,
+                state: layer,
+            });
+        }
+    }
+    return layers;
+}
+
+/**
+ * The features of an external vector layer in an extent, as GeoJSON in the map projection
+ * @param {object}   layerState - the external layer state (with olLayer)
+ * @param {number[]} extent     - the extent
+ * @param {number}   [maxFeatures] - maximum number of features
+ * @returns {object[]} the GeoJSON features
+ */
+export function externalSnapFeatures(layerState, extent, maxFeatures = 5000) {
+    const source = layerState?.olLayer?.getSource?.();
+    if (!source) {
+        return [];
+    }
+    const features = [];
+    const collect = (feature) => {
+        if (features.length >= maxFeatures) {
+            return true;
+        }
+        const geometry = feature.getGeometry();
+        if (geometry && geometry.getType() !== 'Circle') {
+            features.push(feature);
+        }
+        return undefined;
+    };
+    if (extent) {
+        source.forEachFeatureInExtent(extent, collect);
+    } else {
+        source.forEachFeature(collect);
+    }
+    if (features.length === 0) {
+        return [];
+    }
+    return new GeoJSON().writeFeaturesObject(features).features;
 }

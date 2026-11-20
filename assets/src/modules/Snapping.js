@@ -11,8 +11,19 @@ import { MapLayerLoadStatus, MapRootState } from './state/MapLayer.js';
 import { TreeRootState } from './state/LayerTree.js';
 import {
     SnapModes, snapCandidateLayers, fetchSnapFeatures, computeSnapPoints, tracePath,
+    EXTERNAL_PREFIX, externalSnapLayers, externalSnapFeatures,
     readSnapSettings, saveSnapSettings,
 } from './SnapTargets.js';
+
+/**
+ * Events of the layers changing the list of the layers to snap to
+ * @type {string[]}
+ */
+const LAYER_EVENTS = [
+    'layer.visibility.changed', 'group.visibility.changed',
+    'ext-group.added', 'ext-group.removed', 'ext-group.visibility.changed',
+    'ol-layer.added', 'ol-layer.removed', 'ol-layer.visibility.changed',
+];
 
 /**
  * Snapping of the edition tool.
@@ -152,6 +163,15 @@ export default class Snapping {
             if (this._config === undefined) {
                 return;
             }
+            // Files loaded or external services added since the form was displayed
+            for (const external of this._externalLayers()) {
+                if (!this._snapLayers.includes(external.id)) {
+                    this._snapLayers.push(external.id);
+                }
+            }
+            this._snapLayers = this._snapLayers.filter(
+                id => !id.startsWith(EXTERNAL_PREFIX) || this._externalLayers().some(l => l.id === id)
+            );
             this._snapLayers.forEach((layer)=>{
                 this._snapEnabled[layer] = this.getLayerTreeVisibility(layer);
             })
@@ -165,6 +185,20 @@ export default class Snapping {
             // dispatch an event, it might be useful to know when the list of visible layer for snap changed
             mainEventDispatcher.dispatch('snapping.layer.visibility.changed');
         }
+
+        // Ctrl+Z or Backspace: remove the last vertex of the feature being drawn
+        document.addEventListener('keydown', (event) => {
+            const target = event.target;
+            if (target && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable)) {
+                return;
+            }
+            const undoKey = ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key?.toLowerCase() === 'z')
+                || event.key === 'Backspace';
+            if (undoKey && this.undoVertex()) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+        });
 
         // Tracing: when a vertex is added, follow the snapped feature from the previous vertex
         mainEventDispatcher.addListener(
@@ -198,7 +232,7 @@ export default class Snapping {
                 this._lizmap3.map.events.unregister('moveend', this, this._setSnapLayersRefreshable);
                 this._rootMapGroup.removeListener(
                     this._setSnapLayersVisibility,
-                    ['layer.visibility.changed','group.visibility.changed']
+                    LAYER_EVENTS
                 )
             },
             'edition.formClosed'
@@ -247,6 +281,10 @@ export default class Snapping {
             if (!layers.includes(layer.id)) {
                 layers.push(layer.id);
             }
+        }
+        // Loaded files and external services with geometries
+        for (const layer of this._externalLayers()) {
+            layers.push(layer.id);
         }
         if (layers.length === 0) {
             return;
@@ -301,7 +339,7 @@ export default class Snapping {
         this._lizmap3.map.events.register('moveend', this, this._setSnapLayersRefreshable);
         this._rootMapGroup.addListener(
             this._setSnapLayersVisibility,
-            ['layer.visibility.changed','group.visibility.changed']
+            LAYER_EVENTS
         );
 
         // Auto-activate snapping if configured (snap_on_start).
@@ -520,7 +558,13 @@ export default class Snapping {
         };
 
         const requests = currentSnapLayers.map(layerId =>
-            fetchSnapFeatures(this._lizmap3, layerId, options).then(features => {
+            (layerId.startsWith(EXTERNAL_PREFIX)
+                // the features of the loaded files and external services are already on the map
+                ? Promise.resolve(externalSnapFeatures(
+                    this._externalLayers().find(l => l.id === layerId)?.state, options.extent
+                ))
+                : fetchSnapFeatures(this._lizmap3, layerId, options)
+            ).then(features => {
                 if (requestId !== this._requestId) {
                     return;
                 }
@@ -554,6 +598,10 @@ export default class Snapping {
      * @returns {boolean} the layer visibility
      */
     getLayerTreeVisibility(layerId){
+        if (layerId.startsWith(EXTERNAL_PREFIX)) {
+            const external = this._externalLayers().find(l => l.id === layerId);
+            return !!external && !!external.state.visibility;
+        }
         let visible = false;
         let layerConfig = this._lizmap3.getLayerConfigById(layerId);
 
@@ -573,11 +621,39 @@ export default class Snapping {
      * @returns {string} the layer title or layer name
      */
     getLayerTitle(layerId){
+        if (layerId.startsWith(EXTERNAL_PREFIX)) {
+            return this._externalLayers().find(l => l.id === layerId)?.title || layerId;
+        }
         let layerConfig = this._lizmap3.getLayerConfigById(layerId);
         if (layerConfig) {
             return layerConfig[1].title || layerConfig[1].name || '';
         }
         return "";
+    }
+
+    /**
+     * The external vector layers (loaded files, external services)
+     * @returns {Array<{id: string, title: string, state: object}>} the layers
+     * @private
+     */
+    _externalLayers() {
+        try {
+            return externalSnapLayers(this._rootMapGroup);
+        } catch {
+            return [];
+        }
+    }
+
+    /**
+     * Remove the last vertex of the feature being drawn
+     * @returns {boolean} true if a vertex was removed
+     */
+    undoVertex() {
+        const drawControl = this._edition.drawControl;
+        if (!this._edition.drawFeatureActivated || !drawControl?.handler?.line || typeof drawControl.undo !== 'function') {
+            return false;
+        }
+        return !!drawControl.undo();
     }
 
     get snapEnabled(){

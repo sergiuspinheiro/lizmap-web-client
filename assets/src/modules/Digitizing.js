@@ -298,13 +298,29 @@ export class Digitizing {
 
         this._drawSource = new VectorSource({ wrapX: false });
 
-        // Features to follow when tracing, filled by the draw snapping
-        this._traceSource = new VectorSource({ wrapX: false });
         /**
-         * Is tracing active for a click? Set by the draw snapping
-         * @type {Function}
+         * Tracing: vertices to insert between the previous vertex and the one added,
+         * set by the draw snapping. (start, end) => coordinates
+         * @type {Function|null}
          */
-        this.traceCondition = () => false;
+        this.traceVertices = null;
+        this._sketching = false;
+        this._sketchVertexCount = 0;
+        this._tracingVertex = false;
+
+        // Ctrl+Z or Backspace: remove the last vertex of the drawing being drawn
+        document.addEventListener('keydown', (event) => {
+            const target = event.target;
+            if (target && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable)) {
+                return;
+            }
+            const undoKey = ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key?.toLowerCase() === 'z')
+                || event.key === 'Backspace';
+            if (undoKey && this.undoLastVertex()) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+        });
 
         // Listener for color
         this._addFeatureColorListener = (event) => {
@@ -642,17 +658,12 @@ export class Digitizing {
                         drawOptions.geometryFunction = (coords, geom) => {
                             return this._contraintsHandler(coords, geom, drawOptions.type);
                         }
-                        // Tracing: follow the features between two clicks
-                        drawOptions.trace = (event) => this.traceCondition(event);
-                        drawOptions.traceSource = this._traceSource;
                         break;
                     case this._tools[3]:
                         drawOptions.type = 'Polygon';
                         drawOptions.geometryFunction = (coords, geom) => {
                             return this._contraintsHandler(coords, geom, drawOptions.type);
                         }
-                        drawOptions.trace = (event) => this.traceCondition(event);
-                        drawOptions.traceSource = this._traceSource;
                         break;
                     case this._tools[4]:
                         drawOptions.type = 'Circle';
@@ -689,7 +700,10 @@ export class Digitizing {
 
                 this._drawInteraction.on('drawstart', event => {
                     this.createMeasureTooltips();
+                    this._sketching = true;
+                    this._sketchVertexCount = this._sketchCoordinates()?.length || 0;
                     this._listener = event.feature.getGeometry().on('change', evt => {
+                        this._checkVertexAdded();
                         const geom = evt.target;
                         if (geom instanceof Polygon) {
                             this._updateTooltips(geom.getCoordinates()[0], geom, 'Polygon');
@@ -701,7 +715,12 @@ export class Digitizing {
                     });
                 });
 
+                this._drawInteraction.on('drawabort', () => {
+                    this._sketching = false;
+                });
+
                 this._drawInteraction.on('drawend', event => {
+                    this._sketching = false;
                     const geom = event.feature.getGeometry();
 
                     // Close linear ring if needed
@@ -773,6 +792,87 @@ export class Digitizing {
                 tool: this._toolSelected,
             });
         }
+    }
+
+    /**
+     * The vertices of the line or of the polygon ring being drawn, the last one follows the cursor
+     * @returns {Array<number[]>|null} the coordinates
+     * @private
+     */
+    _sketchCoordinates() {
+        const draw = this._drawInteraction;
+        if (!draw || !this._sketching || !Array.isArray(draw.sketchCoords_)) {
+            return null;
+        }
+        const coords = draw.sketchCoords_;
+        // polygon: array of rings
+        if (Array.isArray(coords[0]) && Array.isArray(coords[0][0])) {
+            return coords[0];
+        }
+        return coords;
+    }
+
+    /**
+     * Tracing: when a vertex was added, insert the vertices of the snapped feature
+     * between the previous vertex and it
+     * @private
+     */
+    _checkVertexAdded() {
+        if (this._tracingVertex || !['line', 'polygon'].includes(this._toolSelected)) {
+            return;
+        }
+        const coords = this._sketchCoordinates();
+        if (!coords) {
+            return;
+        }
+        const count = coords.length;
+        const previous = this._sketchVertexCount;
+        this._sketchVertexCount = count;
+        if (typeof this.traceVertices !== 'function' || count !== previous + 1 || count < 3) {
+            return;
+        }
+        // the clicked vertex is before the one following the cursor
+        const start = coords[count - 3].slice(0, 2);
+        const end = coords[count - 2].slice(0, 2);
+        const path = this.traceVertices(start, end);
+        if (!path || path.length === 0) {
+            return;
+        }
+        const draw = this._drawInteraction;
+        // after the draw interaction has handled the click
+        setTimeout(() => {
+            const current = this._sketchCoordinates();
+            if (draw !== this._drawInteraction || !current || current.length !== count) {
+                return;
+            }
+            this._tracingVertex = true;
+            try {
+                draw.removeLastPoint();
+                draw.appendCoordinates([...path, end]);
+            } finally {
+                this._tracingVertex = false;
+            }
+            this._sketchVertexCount = this._sketchCoordinates()?.length || 0;
+        });
+    }
+
+    /**
+     * Remove the last vertex of the drawing being drawn
+     * @returns {boolean} true if a vertex was removed
+     */
+    undoLastVertex() {
+        const draw = this._drawInteraction;
+        if (!draw || !this._sketching || !this._map.getInteractions().getArray().includes(draw)) {
+            return false;
+        }
+        this._tracingVertex = true;
+        try {
+            draw.removeLastPoint();
+        } finally {
+            this._tracingVertex = false;
+        }
+        this._sketchVertexCount = this._sketchCoordinates()?.length || 0;
+        return true;
     }
 
     /**
