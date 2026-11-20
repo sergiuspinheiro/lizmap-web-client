@@ -299,12 +299,31 @@ class QgisForm implements QgisFormControlsInterface
                         'properties' => $form->getAllData(),
                     );
                     // evaluate expression
-                    $expressionT = $this->evaluateExpressionText(array($textName => $textProp['value']), $form_feature);
+                    $textErrors = array();
+                    $expressionT = $this->evaluateExpressionText(array($textName => $textProp['value']), $form_feature, $textErrors);
                     // expecting geojson or null
                     if ($expressionT && is_array($expressionT->features) && count($expressionT->features) == 1 && property_exists($expressionT->features[0], 'properties') && property_exists($expressionT->features[0]->properties, $textName)) {
                         $form->setData($textName, $expressionT->features[0]->properties->{$textName});
                     } else {
                         $form->setData($textName, '');
+                    }
+
+                    // Show the expression error with the jForms errors: the widget and its message
+                    // in the error list at the top of the form. The error is output as HTML by jForms:
+                    // the message is escaped, and the text widget is named so that the client can
+                    // replace the message when the text widgets are evaluated again.
+                    unset($form->getContainer()->errors[$textName]);
+                    if (isset($textErrors[$textName])) {
+                        $message = \qgisExpressionUtils::expressionErrorMessage(
+                            $this->appContext,
+                            'view~edition.form.error.text.widget',
+                            $textProp['label'],
+                            $textErrors[$textName],
+                        );
+                        $form->setErrorOn(
+                            $textName,
+                            '<span data-text-widget="'.htmlspecialchars($textName).'">'.htmlspecialchars($message).'</span>'
+                        );
                     }
                 }
             }
@@ -1297,6 +1316,7 @@ class QgisForm implements QgisFormControlsInterface
 
             // Save the feature in the database
             if ($updateAction) {
+                // SQL filter added to the UPDATE query
                 $loginFilteredLayers = $this->filterDataByLogin($this->layer->getName());
                 $pkVal = $this->layer->updateFeature($feature, $values, $loginFilteredLayers);
             } else {
@@ -1712,6 +1732,7 @@ class QgisForm implements QgisFormControlsInterface
             throw new \Exception('Delete from database can\'t be done for the layer "'.$this->layer->getName().'"!');
         }
 
+        // SQL filter added to the DELETE query
         $loginFilteredLayers = $this->filterDataByLogin($this->layer->getName());
 
         // event to process data before the deletion
@@ -2002,17 +2023,8 @@ class QgisForm implements QgisFormControlsInterface
         if ($filterExpression) {
             $expFilter = $filterExpression;
         }
-        // Filter by login
-        if (!$this->loginFilteredOverride) {
-            $loginFilteredLayers = $this->filterDataByLogin($layerName);
-            if (is_array($loginFilteredLayers)) {
-                if ($expFilter) {
-                    $expFilter = ' ( '.$expFilter.' ) AND ( '.$loginFilteredLayers['where'].' ) ';
-                } else {
-                    $expFilter = $loginFilteredLayers['where'];
-                }
-            }
-        }
+        // The filter by login is applied by the WFS request: as SQL when the data
+        // is queried directly in the database, or by the lizmap_server plugin
         if ($expFilter) {
             $params['EXP_FILTER'] = $expFilter;
             // disable PROPERTYNAME in this case : if the exp_filter uses other fields, no data would be returned otherwise
@@ -2110,17 +2122,8 @@ class QgisForm implements QgisFormControlsInterface
         if ($relation['filterExpression']) {
             $expFilter = $relation['filterExpression'];
         }
-        // Filter by login
-        if (!$this->loginFilteredOverride) {
-            $loginFilteredLayers = $this->filterDataByLogin($relation['layerName']);
-            if (is_array($loginFilteredLayers)) {
-                if ($expFilter) {
-                    $expFilter = ' ( '.$expFilter.' ) AND ( '.$loginFilteredLayers['where'].' ) ';
-                } else {
-                    $expFilter = $loginFilteredLayers['where'];
-                }
-            }
-        }
+        // The filter by login is applied by the WFS request: as SQL when the data
+        // is queried directly in the database, or by the lizmap_server plugin
         if ($expFilter) {
             $params['EXP_FILTER'] = $expFilter;
             // disable PROPERTYNAME in this case : if the exp_filter uses other fields, no data would be returned otherwise
@@ -2197,6 +2200,9 @@ class QgisForm implements QgisFormControlsInterface
      * Filter data by login if necessary
      * as configured in the plugin for login filtered layers.
      *
+     * The WHERE statement is a SQL filter, run by Lizmap in the UPDATE
+     * and DELETE queries.
+     *
      * @param string $layername
      *
      * @return null|array array with these keys:
@@ -2226,7 +2232,7 @@ class QgisForm implements QgisFormControlsInterface
             $attribute = $loginFilteredConfig->filterAttribute;
 
             // SQL filter
-            $layerFilter = $layerProject->getLoginFilter($layername);
+            $layerFilter = $layerProject->getLoginFilter($layername, false, true);
             if (empty($layerFilter)) {
                 return null;
             }
@@ -2310,17 +2316,19 @@ class QgisForm implements QgisFormControlsInterface
     /**
      * Returns the text evaluated from $expression.
      *
-     * @param array      $expression   The expression to evaluate
-     * @param null|array $form_feature A feature to add to the evaluation context
+     * @param array                      $expression   The expression to evaluate
+     * @param null|array                 $form_feature A feature to add to the evaluation context
+     * @param null|array<string, string> $errors       Filled with the error message of each expression in error
      *
      * @return null|object
      */
-    public function evaluateExpressionText($expression, $form_feature = null)
+    public function evaluateExpressionText($expression, $form_feature = null, &$errors = null)
     {
         return \qgisExpressionUtils::replaceExpressionText(
             $this->layer,
             $expression,
-            $form_feature
+            $form_feature,
+            $errors
         );
     }
 
