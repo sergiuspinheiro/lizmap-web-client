@@ -4268,8 +4268,21 @@ lizmap-message button {
     margin-top: 0;
 }
 
+.snap-panel .snap-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
 .snap-panel .snap-undo {
-    margin-left: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.snap-panel .snap-undo-icon {
+    flex: 0 0 auto;
 }
 
 .snap-panel-controls .snap-mode:last-child {

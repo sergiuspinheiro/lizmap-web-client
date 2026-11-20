@@ -39,17 +39,18 @@ export function snapPanelTemplate(snap, prefix) {
     const checkedCount = layers.filter(l => l.checked).length;
     return html`
     <div class="snap-panel">
+        <div class="snap-toolbar">
         <div class="btn-group">
             <button
                 type="button"
-                class="btn btn-sm snap-toggle ${snap.active ? 'active btn-success' : ''}"
+                class="btn snap-toggle ${snap.active ? 'active btn-success' : ''}"
                 @click=${() => snap.toggle()}
                 >
                 ${snap.active ? t('geolocate.toolbar.stop', 'Stop') : t('geolocate.toolbar.start', 'Start')}
             </button>
             <button
                 type="button"
-                class="btn btn-sm snap-refresh ${snap.refreshable ? 'btn-warning' : ''}"
+                class="btn snap-refresh ${snap.refreshable ? 'btn-warning' : ''}"
                 ?disabled=${!snap.refreshable}
                 title="${t('snapping.refresh', 'Reload the features of the layers in the map extent')}"
                 @click=${() => snap.refresh()}
@@ -62,16 +63,17 @@ export function snapPanelTemplate(snap, prefix) {
         ${typeof snap.undoVertex === 'function' ? html`
         <button
             type="button"
-            class="btn btn-sm snap-undo"
+            class="btn snap-undo"
             title="${t('snapping.undo.title', 'Remove the last vertex of the drawing (Ctrl+Z or Backspace)')}"
             @mousedown=${(event) => event.preventDefault()}
             @click=${() => snap.undoVertex()}
             >
-            <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+            <svg class="snap-undo-icon" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
                 <path d="M6 3 L2 7 L6 11 M2 7 H10 A4 4 0 0 1 10 15 H7" fill="none" stroke="currentColor" stroke-width="1.8"/>
             </svg>
-            ${t('snapping.undo', 'Undo vertex')}
+            <span>${t('snapping.undo', 'Undo vertex')}</span>
         </button>` : ''}
+        </div>
         <div class="snap-panel-controls">
             <p class="snap-layers-list-title">${t('snapping.modes.title', 'Snap modes')}</p>
             <div class="snap-modes">
