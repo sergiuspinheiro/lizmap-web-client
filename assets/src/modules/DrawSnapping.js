@@ -8,7 +8,8 @@
 import { mainEventDispatcher } from './Globals.js';
 import {
     SnapModes, snapCandidateLayers, fetchSnapFeatures, computeSnapPoints,
-    readSnapSettings, saveSnapSettings,
+    readSnapSettings, saveSnapSettings, tracePath,
+    EXTERNAL_PREFIX, externalSnapLayers, externalSnapFeatures,
 } from './SnapTargets.js';
 import MultiSnap from './interaction/MultiSnap.js';
 
@@ -58,11 +59,11 @@ export default class DrawSnapping {
 
         // Layers
         this._candidates = snapCandidateLayers(lizmap3, featureTypes);
-        this._layerIds = [DRAWINGS_ID, ...this._candidates.map(l => l.id)];
         this._titles = {[DRAWINGS_ID]: lizDict['snapping.list.drawings'] || 'Drawings'};
         for (const layer of this._candidates) {
             this._titles[layer.id] = layer.title;
         }
+        this._traceFeatures = [];
 
         // Settings
         const saved = readSnapSettings('draw');
@@ -112,10 +113,15 @@ export default class DrawSnapping {
             onSnap: (result) => this._showIndicator(result),
         });
 
-        // Tracing in the draw tools: a click on a feature starts following it,
-        // the next click ends, the vertices between are added
-        this._traceSource = this._digitizing._traceSource;
-        this._digitizing.traceCondition = () => this._active && !!this._modes.tracing;
+        // Tracing in the draw tools: when a vertex is added on a feature, the vertices
+        // of the feature between the previous vertex and it are added
+        this._digitizing.traceVertices = (start, end) => {
+            if (!this._active || !this._modes.tracing) {
+                return [];
+            }
+            const tolerance = this._map.getView().getResolution() || 0;
+            return tracePath(this._traceFeatures, start, end, tolerance);
+        };
 
         // Keep the snap interaction the last one, so it is applied before the draw ones
         this._onInteractionAdded = (event) => {
@@ -141,7 +147,9 @@ export default class DrawSnapping {
                 this.refreshable = true;
             }
             this._dispatch();
-        }, ['layer.visibility.changed', 'group.visibility.changed']);
+        }, ['layer.visibility.changed', 'group.visibility.changed',
+            'ext-group.added', 'ext-group.removed', 'ext-group.visibility.changed',
+            'ol-layer.added', 'ol-layer.removed', 'ol-layer.visibility.changed', 'ol-layer.wmsTitle.changed']);
 
         // Drawings changed
         this._digitizing._drawSource.on('change', () => {
@@ -171,6 +179,10 @@ export default class DrawSnapping {
     _isVisible(layerId) {
         if (layerId === DRAWINGS_ID) {
             return true;
+        }
+        if (layerId.startsWith(EXTERNAL_PREFIX)) {
+            const external = this._externalLayers().find(l => l.id === layerId);
+            return !!external && !!external.state.visibility;
         }
         const layerConfig = this._lizmap3.getLayerConfigById(layerId);
         if (!layerConfig || !layerConfig[0]) {
@@ -202,6 +214,37 @@ export default class DrawSnapping {
         }
         this._indicatorSource.clear(true);
         this._indicatorSource.addFeatures(features);
+    }
+
+    /**
+     * The external vector layers (loaded files, external services)
+     * @returns {Array<{id: string, title: string, state: object}>} the layers
+     */
+    _externalLayers() {
+        try {
+            return externalSnapLayers(this._rootMapGroup);
+        } catch {
+            return [];
+        }
+    }
+
+    /**
+     * Ids of all the layers: drawings, project layers, external layers
+     * @type {string[]}
+     */
+    get _layerIds() {
+        const externals = this._externalLayers();
+        for (const external of externals) {
+            this._titles[external.id] = external.title;
+        }
+        return [DRAWINGS_ID, ...this._candidates.map(l => l.id), ...externals.map(l => l.id)];
+    }
+
+    /**
+     * Remove the last vertex of the drawing being drawn
+     */
+    undoVertex() {
+        this._digitizing.undoLastVertex?.();
     }
 
     _dispatch() {
@@ -243,8 +286,8 @@ export default class DrawSnapping {
      */
     _rebuild() {
         this._edgesSource.clear(true);
-        this._traceSource.clear(true);
         this._pointsSource.clear(true);
+        this._traceFeatures = [];
         if (!this._active) {
             return;
         }
@@ -274,10 +317,8 @@ export default class DrawSnapping {
         if (this._modes.segments) {
             this._edgesSource.addFeatures(olFeatures);
         }
-        // Tracing follows these features too
-        if (this._modes.tracing) {
-            this._traceSource.addFeatures(olFeatures.map(f => f.clone()));
-        }
+        // Tracing follows these features
+        this._traceFeatures = geojsonFeatures;
 
         const points = computeSnapPoints(geojsonFeatures, this._modes);
         const pointFeatures = [];
@@ -320,7 +361,13 @@ export default class DrawSnapping {
         const layerIds = this._layerIds.filter(
             id => id !== DRAWINGS_ID && this._checked.has(id) && this._isVisible(id)
         );
-        const requests = layerIds.map(layerId =>
+        // Loaded files and external services: the features are already on the map
+        for (const external of this._externalLayers()) {
+            if (layerIds.includes(external.id)) {
+                this._wfsFeatures[external.id] = externalSnapFeatures(external.state, options.extent);
+            }
+        }
+        const requests = layerIds.filter(id => !id.startsWith(EXTERNAL_PREFIX)).map(layerId =>
             fetchSnapFeatures(this._lizmap3, layerId, options).then(features => {
                 if (requestId === this._requestId) {
                     this._wfsFeatures[layerId] = features;
@@ -361,8 +408,8 @@ export default class DrawSnapping {
             this._showIndicator(null);
             this._requestId++;
             this._edgesSource.clear(true);
-            this._traceSource.clear(true);
             this._pointsSource.clear(true);
+            this._traceFeatures = [];
             this._refreshable = false;
         }
         this._dispatch();

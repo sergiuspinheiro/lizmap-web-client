@@ -4268,6 +4268,10 @@ lizmap-message button {
     margin-top: 0;
 }
 
+.snap-panel .snap-undo {
+    margin-left: 6px;
+}
+
 .snap-panel-controls .snap-mode:last-child {
     grid-column: 1 / -1;
 }

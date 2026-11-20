@@ -59,6 +59,19 @@ export function snapPanelTemplate(snap, prefix) {
                 </svg>
             </button>
         </div>
+        ${typeof snap.undoVertex === 'function' ? html`
+        <button
+            type="button"
+            class="btn btn-sm snap-undo"
+            title="${t('snapping.undo.title', 'Remove the last vertex of the drawing (Ctrl+Z or Backspace)')}"
+            @mousedown=${(event) => event.preventDefault()}
+            @click=${() => snap.undoVertex()}
+            >
+            <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M6 3 L2 7 L6 11 M2 7 H10 A4 4 0 0 1 10 15 H7" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            </svg>
+            ${t('snapping.undo', 'Undo vertex')}
+        </button>` : ''}
         <div class="snap-panel-controls">
             <p class="snap-layers-list-title">${t('snapping.modes.title', 'Snap modes')}</p>
             <div class="snap-modes">
