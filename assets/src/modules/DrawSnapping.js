@@ -112,6 +112,11 @@ export default class DrawSnapping {
             onSnap: (result) => this._showIndicator(result),
         });
 
+        // Tracing in the draw tools: a click on a feature starts following it,
+        // the next click ends, the vertices between are added
+        this._traceSource = this._digitizing._traceSource;
+        this._digitizing.traceCondition = () => this._active && !!this._modes.tracing;
+
         // Keep the snap interaction the last one, so it is applied before the draw ones
         this._onInteractionAdded = (event) => {
             if (!this._active || event.element === this._interaction) {
@@ -238,6 +243,7 @@ export default class DrawSnapping {
      */
     _rebuild() {
         this._edgesSource.clear(true);
+        this._traceSource.clear(true);
         this._pointsSource.clear(true);
         if (!this._active) {
             return;
@@ -267,6 +273,10 @@ export default class DrawSnapping {
 
         if (this._modes.segments) {
             this._edgesSource.addFeatures(olFeatures);
+        }
+        // Tracing follows these features too
+        if (this._modes.tracing) {
+            this._traceSource.addFeatures(olFeatures.map(f => f.clone()));
         }
 
         const points = computeSnapPoints(geojsonFeatures, this._modes);
@@ -351,6 +361,7 @@ export default class DrawSnapping {
             this._showIndicator(null);
             this._requestId++;
             this._edgesSource.clear(true);
+            this._traceSource.clear(true);
             this._pointsSource.clear(true);
             this._refreshable = false;
         }

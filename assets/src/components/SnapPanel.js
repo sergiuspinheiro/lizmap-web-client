@@ -16,6 +16,7 @@ const modeLabels = {
     segments: ['snapping.mode.segments', 'Segments'],
     midpoints: ['snapping.mode.midpoints', 'Segment midpoints'],
     intersections: ['snapping.mode.intersections', 'Intersections'],
+    tracing: ['snapping.mode.tracing', 'Tracing (follow the features)'],
 };
 
 /**
