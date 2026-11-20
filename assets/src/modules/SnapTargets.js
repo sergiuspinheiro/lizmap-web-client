@@ -407,6 +407,12 @@ function pathLength(path) {
 }
 
 /**
+ * Lines of the features used by the tracing
+ * @type {WeakMap<object[], Array<{line: number[][], extent: number[]}>>}
+ */
+const traceLinesCache = new WeakMap();
+
+/**
  * Tracing: the vertices of a line (or ring) between two points lying on it, like the tracing of QGIS.
  *
  * The line is the one where both points are the closest (within the tolerance). For a ring
@@ -418,15 +424,31 @@ function pathLength(path) {
  * @returns {number[][]} the vertices to insert between start and end (empty when no line links them)
  */
 export function tracePath(features, start, end, tolerance) {
-    const lines = [];
-    const points = [];
-    for (const feature of features) {
-        collectLines(feature?.geometry, lines, points);
+    // The lines and their extents are kept for the same features (called on each mouse move)
+    let lines = traceLinesCache.get(features);
+    if (!lines) {
+        const coordinates = [];
+        for (const feature of features) {
+            collectLines(feature?.geometry, coordinates, []);
+        }
+        lines = coordinates.filter(line => line.length >= 2).map(line => {
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            for (const [x, y] of line) {
+                minX = Math.min(minX, x);
+                minY = Math.min(minY, y);
+                maxX = Math.max(maxX, x);
+                maxY = Math.max(maxY, y);
+            }
+            return {line, extent: [minX, minY, maxX, maxY]};
+        });
+        traceLinesCache.set(features, lines);
     }
+    const inExtent = (extent, p) => p[0] >= extent[0] - tolerance && p[0] <= extent[2] + tolerance
+        && p[1] >= extent[1] - tolerance && p[1] <= extent[3] + tolerance;
 
     let best = null;
-    for (const line of lines) {
-        if (line.length < 2) {
+    for (const {line, extent} of lines) {
+        if (!inExtent(extent, start) || !inExtent(extent, end)) {
             continue;
         }
         const a = locateOnLine(line, start);

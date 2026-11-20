@@ -92,6 +92,7 @@ export default class Snapping {
             pointRadius: '${radius}',
             strokeColor: '#ff00ff',
             strokeWidth: '${strokeWidth}',
+            strokeDashstyle: '${dash}',
             strokeOpacity: sizes.opacity,
             fillColor: '${fillColor}',
             fillOpacity: '${fillOpacity}',
@@ -100,6 +101,7 @@ export default class Snapping {
                 graphic: f => graphicNames[f.attributes.kind] || 'circle',
                 radius: f => f.attributes.kind === 'vertex' ? sizes.vertex : sizes.other,
                 strokeWidth: f => f.attributes.kind === 'intersection' ? sizes.width / 2 : sizes.width,
+                dash: f => f.attributes.kind === 'trace' ? 'dash' : 'solid',
                 fillColor: f => f.attributes.kind === 'intersection' ? '#ff00ff' : '#ffffff',
                 fillOpacity: f => f.attributes.kind === 'intersection' ? sizes.opacity : 0.35,
             }
@@ -145,9 +147,18 @@ export default class Snapping {
                     kind = 'vertex';
                 }
                 this._indicatorLayer.destroyFeatures();
-                this._indicatorLayer.addFeatures([new OpenLayers.Feature.Vector(
+                const indicators = [new OpenLayers.Feature.Vector(
                     new OpenLayers.Geometry.Point(evt.point.x, evt.point.y), {kind: kind}
-                )]);
+                )];
+                // Tracing: preview of the way along the feature from the last vertex to the cursor
+                const trace = this._tracePreview([evt.point.x, evt.point.y]);
+                if (trace) {
+                    indicators.unshift(new OpenLayers.Feature.Vector(
+                        new OpenLayers.Geometry.LineString(trace.map(([x, y]) => new OpenLayers.Geometry.Point(x, y))),
+                        {kind: 'trace'}
+                    ));
+                }
+                this._indicatorLayer.addFeatures(indicators);
             },
             unsnap: () => this._indicatorLayer.destroyFeatures(),
             deactivate: () => this._indicatorLayer.destroyFeatures(),
@@ -581,6 +592,8 @@ export default class Snapping {
         );
         Promise.all(requests).then(() => {
             if (requestId === this._requestId) {
+                // new array: the tracing keeps the lines of an array
+                this._fetchedFeatures = [...this._fetchedFeatures];
                 this._updateSnapPoints();
             }
         });
@@ -642,6 +655,30 @@ export default class Snapping {
         } catch {
             return [];
         }
+    }
+
+    /**
+     * The way followed by the tracing from the last vertex of the feature being drawn to a point
+     * @param {number[]} coordinate - the snapped cursor coordinate
+     * @returns {number[][]|null} the line, or null when there is nothing to trace
+     * @private
+     */
+    _tracePreview(coordinate) {
+        const handler = this._edition.drawControl?.handler;
+        if (!this._modes.tracing || !this._edition.drawFeatureActivated || !handler?.line || !handler.point) {
+            return null;
+        }
+        const components = handler.line.geometry.components;
+        const index = components.indexOf(handler.point.geometry);
+        if (index < 1) {
+            return null;
+        }
+        const last = [components[index - 1].x, components[index - 1].y];
+        const path = tracePath(this._fetchedFeatures, last, coordinate, this._lizmap3.map.getResolution());
+        if (path.length === 0) {
+            return null;
+        }
+        return [last, ...path, coordinate];
     }
 
     /**

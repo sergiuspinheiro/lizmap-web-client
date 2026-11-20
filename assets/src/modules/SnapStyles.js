@@ -87,6 +87,15 @@ export const snapSegmentStyle = new Style({
 const SVG_START = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">';
 
 /**
+ * Style of the preview of the tracing: the way along the feature to the cursor
+ * @type {Style[]}
+ */
+export const snapTraceStyle = [
+    new Style({ stroke: new Stroke({ color: 'rgba(255, 255, 255, 0.9)', width: 6 }) }),
+    new Style({ stroke: new Stroke({ color: SNAP_COLOR, width: 3, lineDash: [8, 6] }) }),
+];
+
+/**
  * SVG icons of the snap modes, for the snapping panel
  * @type {Object<string, string>}
  */

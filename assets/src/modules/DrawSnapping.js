@@ -18,7 +18,7 @@ import { Vector as VectorSource } from 'ol/source.js';
 import { Vector as VectorLayer } from 'ol/layer.js';
 import { Feature } from 'ol';
 import { LineString, Point } from 'ol/geom.js';
-import { snapMarkerStyle, snapIndicatorStyle, snapSegmentStyle } from './SnapStyles.js';
+import { snapMarkerStyle, snapIndicatorStyle, snapSegmentStyle, snapTraceStyle } from './SnapStyles.js';
 
 /**
  * Id of the drawings in the layer list
@@ -95,6 +95,8 @@ export default class DrawSnapping {
         this._indicatorPoint = new Feature(new Point([0, 0]));
         this._indicatorSegment = new Feature(new LineString([[0, 0], [0, 0]]));
         this._indicatorSegment.setStyle(snapSegmentStyle);
+        this._indicatorTrace = new Feature(new LineString([[0, 0], [0, 0]]));
+        this._indicatorTrace.setStyle(snapTraceStyle);
         this._indicatorSource = new VectorSource({ wrapX: false });
         this._indicatorLayer = new VectorLayer({
             source: this._indicatorSource,
@@ -212,8 +214,36 @@ export default class DrawSnapping {
             this._indicatorSegment.getGeometry().setCoordinates(result.segment);
             features.unshift(this._indicatorSegment);
         }
+        // Tracing: preview of the way along the feature from the last vertex to the cursor
+        const trace = this._tracePreview(result.coordinate);
+        if (trace) {
+            this._indicatorTrace.getGeometry().setCoordinates(trace);
+            features.unshift(this._indicatorTrace);
+        }
         this._indicatorSource.clear(true);
         this._indicatorSource.addFeatures(features);
+    }
+
+    /**
+     * The way followed by the tracing from the last vertex of the drawing to a point
+     * @param {number[]} coordinate - the snapped cursor coordinate
+     * @returns {number[][]|null} the line, or null when there is nothing to trace
+     */
+    _tracePreview(coordinate) {
+        if (!this._modes.tracing || typeof this._digitizing._sketchCoordinates !== 'function') {
+            return null;
+        }
+        const coords = this._digitizing._sketchCoordinates();
+        if (!coords || coords.length < 2) {
+            return null;
+        }
+        const last = coords[coords.length - 2].slice(0, 2);
+        const tolerance = this._map.getView().getResolution() || 0;
+        const path = tracePath(this._traceFeatures, last, coordinate, tolerance);
+        if (path.length === 0) {
+            return null;
+        }
+        return [last, ...path, coordinate.slice(0, 2)];
     }
 
     /**
