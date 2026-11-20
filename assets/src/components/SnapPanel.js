@@ -43,14 +43,14 @@ export function snapPanelTemplate(snap, prefix) {
         <div class="btn-group">
             <button
                 type="button"
-                class="btn snap-toggle ${snap.active ? 'active btn-success' : ''}"
+                class="btn btn-sm snap-toggle ${snap.active ? 'active btn-success' : ''}"
                 @click=${() => snap.toggle()}
                 >
                 ${snap.active ? t('geolocate.toolbar.stop', 'Stop') : t('geolocate.toolbar.start', 'Start')}
             </button>
             <button
                 type="button"
-                class="btn snap-refresh ${snap.refreshable ? 'btn-warning' : ''}"
+                class="btn btn-sm snap-refresh ${snap.refreshable ? 'btn-warning' : ''}"
                 ?disabled=${!snap.refreshable}
                 title="${t('snapping.refresh', 'Reload the features of the layers in the map extent')}"
                 @click=${() => snap.refresh()}
@@ -63,7 +63,7 @@ export function snapPanelTemplate(snap, prefix) {
         ${typeof snap.undoVertex === 'function' ? html`
         <button
             type="button"
-            class="btn snap-undo"
+            class="btn btn-sm snap-undo"
             title="${t('snapping.undo.title', 'Remove the last vertex of the drawing (Ctrl+Z or Backspace)')}"
             @mousedown=${(event) => event.preventDefault()}
             @click=${() => snap.undoVertex()}
