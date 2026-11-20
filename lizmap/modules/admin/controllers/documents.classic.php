@@ -207,12 +207,19 @@ class documentsCtrl extends jController
 
             return $this->toAction('admin~documents:index');
         }
+        $back = (string) $this->param('back', '');
         $id = $this->store()->saveCollection(array(
             'id' => (string) $this->param('id', ''),
             'title' => mb_substr($title, 0, 200),
             'type' => (string) $this->param('type'),
             'description' => mb_substr((string) $this->param('description', ''), 0, 2000),
         ));
+        if ($this->param('id', '') !== '') {
+            jMessage::add(jLocale::get('admin~documents.saved'), 'info');
+        }
+        if ($back === 'index') {
+            return $this->toAction('admin~documents:index');
+        }
 
         return $this->toAction('admin~documents:collection', array('id' => $id));
     }
@@ -225,8 +232,17 @@ class documentsCtrl extends jController
     public function deleteCollection()
     {
         if ($this->checkToken()) {
-            $this->store()->deleteCollection((string) $this->param('id'));
-            jMessage::add(jLocale::get('admin~documents.deleted'), 'info');
+            // One collection (id), or the collections checked in the list (ids[])
+            $ids = $this->idsParam('ids', 'id');
+            $store = $this->store();
+            foreach ($ids as $id) {
+                $store->deleteCollection($id);
+            }
+            if (count($ids)) {
+                jMessage::add(jLocale::get('admin~documents.deleted.count', array(count($ids))), 'info');
+            } else {
+                jMessage::add(jLocale::get('admin~documents.error.selection'), 'error');
+            }
         }
 
         return $this->toAction('admin~documents:index');
@@ -289,6 +305,9 @@ class documentsCtrl extends jController
             ));
             jMessage::add(jLocale::get('admin~documents.saved'), 'info');
         }
+        if ($this->param('back', '') === 'collection') {
+            return $this->toAction('admin~documents:collection', array('id' => $collectionId));
+        }
 
         return $this->toAction('admin~documents:document', array('collection' => $collectionId, 'document' => $documentId));
     }
@@ -302,8 +321,14 @@ class documentsCtrl extends jController
     {
         $collectionId = (string) $this->param('collection');
         if ($this->checkToken()) {
-            $this->store()->deleteDocument($collectionId, (string) $this->param('document'));
-            jMessage::add(jLocale::get('admin~documents.deleted'), 'info');
+            // One document (document), or the documents checked in the list (documents[])
+            $ids = $this->idsParam('documents', 'document');
+            if (count($ids)) {
+                $this->store()->deleteDocuments($collectionId, $ids);
+                jMessage::add(jLocale::get('admin~documents.deleted.count', array(count($ids))), 'info');
+            } else {
+                jMessage::add(jLocale::get('admin~documents.error.selection'), 'error');
+            }
         }
 
         return $this->toAction('admin~documents:collection', array('id' => $collectionId));
@@ -380,8 +405,17 @@ class documentsCtrl extends jController
     {
         $collectionId = (string) $this->param('collection');
         if ($this->checkToken()) {
-            $this->store()->deleteLink((string) $this->param('link'));
-            jMessage::add(jLocale::get('admin~documents.deleted'), 'info');
+            // One link (link), or the links checked in the list (links[])
+            $ids = $this->idsParam('links', 'link');
+            $store = $this->store();
+            foreach ($ids as $id) {
+                $store->deleteLink($id);
+            }
+            if (count($ids)) {
+                jMessage::add(jLocale::get('admin~documents.deleted.count', array(count($ids))), 'info');
+            } else {
+                jMessage::add(jLocale::get('admin~documents.error.selection'), 'error');
+            }
         }
 
         return $this->toAction('admin~documents:collection', array('id' => $collectionId));
@@ -463,6 +497,28 @@ class documentsCtrl extends jController
         }
 
         return $rep;
+    }
+
+    /**
+     * The ids of the items to change: the ones checked in a list, or a single one.
+     *
+     * @param string $listName   the parameter of the checked items, an array
+     * @param string $singleName the parameter of a single item
+     *
+     * @return list<string> the ids, without duplicates
+     */
+    protected function idsParam($listName, $singleName)
+    {
+        $ids = $this->param($listName, array());
+        $ids = is_array($ids) ? array_map('strval', $ids) : array();
+        $single = (string) $this->param($singleName, '');
+        if ($single !== '') {
+            $ids[] = $single;
+        }
+
+        return array_slice(array_values(array_unique(array_filter($ids, static function ($id) {
+            return $id !== '';
+        }))), 0, 1000);
     }
 
     /**
