@@ -3,14 +3,44 @@
 <p><a href="{jurl 'admin~documents:index'}">← {@admin~documents.h1@}</a></p>
 <h1>{$collection['title']|eschtml}</h1>
 <p>{if $collection['type'] == 'regulation'}{@admin~documents.type.regulation@}{else}{@admin~documents.type.documents@}{/if}
-  {if $collection['description']} — {$collection['description']|eschtml}{/if}</p>
+  {if $collection['description']} — {$collection['description']|eschtml}{/if}
+  {if $canUpdate}<button type="button" class="btn btn-sm btn-outline-secondary ms-2 documents-edit-toggle" data-target="collection-edit">{@admin~documents.collection.edit@}</button>{/if}</p>
+{if $canUpdate}
+<div id="collection-edit" class="card card-body mb-3" hidden>
+  <form method="post" action="{jurl 'admin~documents:saveCollection'}">
+    <input type="hidden" name="token" value="{$token}">
+    <input type="hidden" name="id" value="{$collection['id']|eschtml}">
+    <table class="table services-table">
+      <tr><th><label for="collection-title">{@admin~documents.collection.title@}</label></th>
+        <td><input id="collection-title" name="title" class="form-control" required maxlength="200" value="{$collection['title']|eschtml}"></td></tr>
+      <tr><th><label for="collection-type">{@admin~documents.collection.type@}</label></th>
+        <td><select id="collection-type" name="type" class="form-select">
+          <option value="regulation"{if $collection['type'] == 'regulation'} selected{/if}>{@admin~documents.type.regulation@}</option>
+          <option value="documents"{if $collection['type'] != 'regulation'} selected{/if}>{@admin~documents.type.documents@}</option>
+        </select>
+        <div class="form-text">{@admin~documents.type.help@}</div></td></tr>
+      <tr><th><label for="collection-description">{@admin~documents.collection.description@}</label></th>
+        <td><textarea id="collection-description" name="description" class="form-control" rows="2" maxlength="2000">{$collection['description']|eschtml}</textarea></td></tr>
+    </table>
+    <button type="submit" class="btn btn-primary">{@admin~documents.save@}</button>
+    <button type="button" class="btn btn-outline-secondary documents-edit-toggle" data-target="collection-edit">{@admin~documents.cancel@}</button>
+  </form>
+</div>
+{/if}
 
 <h2>{@admin~documents.documents@}</h2>
 {if $collection['type'] == 'regulation'}<p>{@admin~documents.regulation.help@}
   <a href="{jurl 'admin~documents:document', array('collection' => $collection['id'])}">{@admin~documents.inforce@}</a></p>{/if}
+{if $canUpdate && count($collection['documents'])}
+<form method="post" action="{jurl 'admin~documents:deleteDocument'}" id="documents-bulk-documents" onsubmit="return confirm('{@admin~documents.confirm.selected@}');">
+  <input type="hidden" name="token" value="{$token}">
+  <input type="hidden" name="collection" value="{$collection['id']}">
+</form>
+{/if}
 <table class="table">
   <thead>
     <tr>
+      {if $canUpdate && count($collection['documents'])}<th><input type="checkbox" class="form-check-input documents-select-all" data-form="documents-bulk-documents" title="{@admin~documents.selectall@}" aria-label="{@admin~documents.selectall@}"></th>{/if}
       <th>{@admin~documents.document.title@}</th>
       <th>{@admin~documents.document.date@}</th>
       <th>{@admin~documents.document.parts@}</th>
@@ -21,13 +51,15 @@
   <tbody>
   {if count($collection['documents'])}{foreach $collection['documents'] as $document}
     <tr>
+      {if $canUpdate}<td><input type="checkbox" class="form-check-input" name="documents[]" value="{$document['id']|eschtml}" form="documents-bulk-documents" aria-label="{$document['title']|eschtml}"></td>{/if}
       <td><a href="{jurl 'admin~documents:document', array('collection' => $collection['id'], 'document' => $document['id'])}">{$document['title']|eschtml}</a></td>
       <td>{$document['date']}</td>
       <td>{$document['partCount']} {if $document['kind'] == 'articles'}{@admin~documents.kind.articles@}{else}{@admin~documents.kind.sections@}{/if}
         {if $document['revokedText']}<br><small>{@admin~documents.revoked@} {$document['revokedText']|eschtml}</small>{/if}</td>
       <td><a href="{jurl 'admin~documents:file', array('collection' => $collection['id'], 'document' => $document['id'])}" target="_blank">{$document['fileName']|eschtml}</a></td>
-      {if $canUpdate}<td>
-        <form method="post" action="{jurl 'admin~documents:deleteDocument'}" onsubmit="return confirm('{@admin~documents.confirm@}');">
+      {if $canUpdate}<td class="text-nowrap">
+        <button type="button" class="btn btn-sm btn-outline-secondary documents-edit-toggle" data-target="document-edit-{$document['id']|eschtml}">{@admin~documents.edit@}</button>
+        <form method="post" action="{jurl 'admin~documents:deleteDocument'}" class="d-inline" onsubmit="return confirm('{@admin~documents.confirm@}');">
           <input type="hidden" name="token" value="{$token}">
           <input type="hidden" name="collection" value="{$collection['id']}">
           <input type="hidden" name="document" value="{$document['id']}">
@@ -35,11 +67,34 @@
         </form>
       </td>{/if}
     </tr>
+    {if $canUpdate}
+    <tr id="document-edit-{$document['id']|eschtml}" hidden>
+      <td></td>
+      <td colspan="5">
+        <form method="post" action="{jurl 'admin~documents:saveDocument'}" class="row g-2">
+          <input type="hidden" name="token" value="{$token}">
+          <input type="hidden" name="collection" value="{$collection['id']}">
+          <input type="hidden" name="document" value="{$document['id']|eschtml}">
+          <input type="hidden" name="back" value="collection">
+          <div class="col-md-6"><input name="title" class="form-control" value="{$document['title']|eschtml}" maxlength="200" required aria-label="{@admin~documents.document.title@}"></div>
+          <div class="col-md-3"><input type="date" name="date" class="form-control" value="{$document['date']}" required aria-label="{@admin~documents.document.date@}"></div>
+          <div class="col-md-3 text-nowrap">
+            <button type="submit" class="btn btn-sm btn-primary">{@admin~documents.save@}</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary documents-edit-toggle" data-target="document-edit-{$document['id']|eschtml}">{@admin~documents.cancel@}</button>
+          </div>
+          <div class="col-12 form-text"><a href="{jurl 'admin~documents:document', array('collection' => $collection['id'], 'document' => $document['id'])}">{@admin~documents.parts.help@}</a></div>
+        </form>
+      </td>
+    </tr>
+    {/if}
   {/foreach}{else}
-    <tr><td colspan="5">{@admin~documents.document.none@}</td></tr>
+    <tr><td colspan="6">{@admin~documents.document.none@}</td></tr>
   {/if}
   </tbody>
 </table>
+{if $canUpdate && count($collection['documents'])}
+<p><button type="submit" class="btn btn-sm btn-outline-danger documents-bulk-submit" form="documents-bulk-documents" disabled>{@admin~documents.delete.selected@}</button></p>
+{/if}
 
 {if $canUpdate}
 <h3>{@admin~documents.document.new@}</h3>
@@ -62,9 +117,16 @@
 
 <h2>{@admin~documents.links@}</h2>
 <p>{@admin~documents.links.help@}</p>
+{if $canUpdate && count($links)}
+<form method="post" action="{jurl 'admin~documents:deleteLink'}" id="documents-bulk-links" onsubmit="return confirm('{@admin~documents.confirm.selected@}');">
+  <input type="hidden" name="token" value="{$token}">
+  <input type="hidden" name="collection" value="{$collection['id']}">
+</form>
+{/if}
 <table class="table">
   <thead>
     <tr>
+      {if $canUpdate && count($links)}<th><input type="checkbox" class="form-check-input documents-select-all" data-form="documents-bulk-links" title="{@admin~documents.selectall@}" aria-label="{@admin~documents.selectall@}"></th>{/if}
       <th>{@admin~documents.link.map@}</th>
       <th>{@admin~documents.link.layer@}</th>
       <th>{@admin~documents.link.features@}</th>
@@ -76,6 +138,7 @@
   <tbody>
   {if count($links)}{foreach $links as $link}
     <tr>
+      {if $canUpdate}<td><input type="checkbox" class="form-check-input" name="links[]" value="{$link['id']|eschtml}" form="documents-bulk-links" aria-label="{$link['layer']|eschtml}"></td>{/if}
       <td>{$link['repository']|eschtml}~{$link['project']|eschtml}</td>
       <td>{if $link['layer']}{$link['layer']|eschtml}{else}<em>{@admin~documents.link.alllayers@}</em>{/if}</td>
       <td>{if $link['value']}{if $link['field']}{$link['field']|eschtml} = {/if}{$link['value']|eschtml}{else}<em>{@admin~documents.link.all@}</em>{/if}</td>
@@ -92,10 +155,13 @@
       </td>{/if}
     </tr>
   {/foreach}{else}
-    <tr><td colspan="6">{@admin~documents.link.none@}</td></tr>
+    <tr><td colspan="7">{@admin~documents.link.none@}</td></tr>
   {/if}
   </tbody>
 </table>
+{if $canUpdate && count($links)}
+<p><button type="submit" class="btn btn-sm btn-outline-danger documents-bulk-submit" form="documents-bulk-links" disabled>{@admin~documents.delete.selected@}</button></p>
+{/if}
 
 {if $canUpdate}
 <h3 id="link-form-title" data-new="{@admin~documents.link.new@}" data-edit="{@admin~documents.link.editing@}">{@admin~documents.link.new@}</h3>
@@ -338,3 +404,5 @@
   <button type="submit" class="btn btn-outline-danger">{@admin~documents.collection.delete@}</button>
 </form>
 {/if}
+
+{include 'admin~documents_selection'}

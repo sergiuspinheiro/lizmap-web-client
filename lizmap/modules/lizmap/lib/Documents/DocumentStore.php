@@ -198,19 +198,36 @@ class DocumentStore
      */
     public function deleteDocument($collectionId, $documentId)
     {
+        $this->deleteDocuments($collectionId, array($documentId));
+    }
+
+    /**
+     * Delete several documents of a collection.
+     *
+     * @param string   $collectionId the collection id
+     * @param string[] $documentIds  the document ids
+     *
+     * @return int the number of documents deleted
+     */
+    public function deleteDocuments($collectionId, array $documentIds)
+    {
         $collection = $this->collection($collectionId);
         if (!$collection) {
-            return;
+            return 0;
         }
         $documents = array();
+        $deleted = 0;
         foreach ($collection['documents'] as $document) {
-            if ($document['id'] === $documentId) {
+            if (in_array($document['id'], $documentIds, true)) {
+                ++$deleted;
                 @unlink($this->dir.$collectionId.'/'.basename($document['file']));
             } else {
                 $documents[] = $document;
             }
         }
         $this->writeJson($this->collectionPath($collectionId), array('documents' => $documents));
+
+        return $deleted;
     }
 
     /**
