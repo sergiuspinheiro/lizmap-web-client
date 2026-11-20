@@ -4232,42 +4232,26 @@ lizmap-message button {
   font-weight: bold;
 }
 
-/* Snap layer list */
-.snap-panel-controls {
-    margin:10px;
+/* Snapping: the same section in the edition, the draw tools and the overlay analysis */
+.snap-section {
+    margin-top: 10px;
 }
 
-.snap-layers-list-title {
+.snap-section > summary {
     font-weight: bold;
+    cursor: pointer;
+}
+
+.snap-section > summary .badge {
+    margin-left: 5px;
+    font-weight: normal;
+}
+
+.snap-panel {
     margin-top: 5px;
-    margin-bottom: 5px;
 }
 
-.snap-layers-list {
-    overflow: auto;
-    display: flex;
-    flex-direction: column;
-    max-height: 220px;
-}
-
-.snap-panel-controls .snap-modes {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    column-gap: 10px;
-}
-
-.snap-panel-controls .snap-mode {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    min-height: 25px;
-}
-
-.snap-panel-controls .snap-mode input[type="checkbox"] {
-    accent-color: #0094D6;
-    margin-top: 0;
-}
-
+/* Toolbar: icon buttons like the draw tools */
 .snap-panel .snap-toolbar {
     display: flex;
     flex-wrap: wrap;
@@ -4275,29 +4259,65 @@ lizmap-message button {
     gap: 6px;
 }
 
-.snap-panel .snap-undo {
+.snap-panel .snap-toolbar .btn-group > .btn {
+    width: 34px;
+    height: 34px;
+    box-sizing: border-box;
+    padding: 4px;
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    justify-content: center;
 }
 
-.snap-panel .snap-undo-icon {
+.snap-panel .snap-toolbar .btn svg {
+    width: 22px;
+    height: 22px;
+}
+
+.snap-panel .snap-tolerance {
+    width: auto;
+    flex-wrap: nowrap;
+}
+
+.snap-panel .snap-tolerance .form-control {
+    width: 4.5em;
     flex: 0 0 auto;
 }
 
-.snap-panel-controls .snap-mode:last-child {
-    grid-column: 1 / -1;
+/* Modes: the icons are coloured, a light background shows the active ones */
+.snap-panel .snap-modes > .btn.snap-mode {
+    border-color: var(--bs-border-color, #dee2e6);
 }
 
-.snap-panel-controls .snap-mode-icon {
-    display: inline-block;
-    vertical-align: -3px;
-    margin-right: 3px;
+.snap-panel .snap-modes > .btn.snap-mode.active {
+    background-color: #cfe7ff;
+    border-color: #0084ff;
+    box-shadow: inset 0 0 0 1px #0084ff;
 }
 
-.snap-panel-controls .snap-tolerance {
-    max-width: 220px;
-    margin-top: 8px;
+.snap-panel .snap-modes > .btn.snap-mode:not(.active) svg {
+    opacity: 0.55;
+}
+
+/* Layers: a sub-area of the snapping tool */
+.snap-panel .snap-layers {
+    border: 1px solid var(--bs-border-color, #dee2e6);
+    border-radius: 0.375rem;
+    padding: 0.5rem;
+    margin: 0.5rem 0;
+}
+
+.snap-panel .snap-layers > summary {
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.snap-layers-list {
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    max-height: 220px;
+    margin-top: 5px;
 }
 
 .snap-layers-count {
@@ -4308,28 +4328,7 @@ lizmap-message button {
 .snap-layers-empty {
     color: gray;
     font-style: italic;
-}
-
-.draw-snapping {
-    margin-top: 10px;
-}
-
-.draw-snapping > summary {
-    font-weight: bold;
-    cursor: pointer;
-}
-
-.draw-snapping > summary .badge {
-    margin-left: 5px;
-    font-weight: normal;
-}
-
-.draw-snapping .snap-panel {
-    margin-top: 5px;
-}
-
-.draw-snapping .snap-panel-controls {
-    margin: 10px 0;
+    margin: 0;
 }
 
 .snap-layer {

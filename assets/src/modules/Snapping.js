@@ -198,14 +198,17 @@ export default class Snapping {
         }
 
         // Ctrl+Z or Backspace: remove the last vertex of the feature being drawn
+        // Ctrl+Y or Ctrl+Shift+Z: add it again
         document.addEventListener('keydown', (event) => {
             const target = event.target;
             if (target && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable)) {
                 return;
             }
-            const undoKey = ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key?.toLowerCase() === 'z')
-                || event.key === 'Backspace';
-            if (undoKey && this.undoVertex()) {
+            const key = event.key?.toLowerCase();
+            const ctrl = event.ctrlKey || event.metaKey;
+            const undoKey = (ctrl && !event.shiftKey && key === 'z') || event.key === 'Backspace';
+            const redoKey = ctrl && ((event.shiftKey && key === 'z') || key === 'y');
+            if ((undoKey && this.undoVertex()) || (redoKey && this.redoVertex())) {
                 event.preventDefault();
                 event.stopPropagation();
             }
@@ -706,6 +709,18 @@ export default class Snapping {
             return true;
         }
         return !!drawControl.undo();
+    }
+
+    /**
+     * Add again the last vertex removed by undoVertex
+     * @returns {boolean} true if a vertex was added
+     */
+    redoVertex() {
+        const drawControl = this._edition.drawControl;
+        if (!this._edition.drawFeatureActivated || !drawControl?.handler?.line || typeof drawControl.redo !== 'function') {
+            return false;
+        }
+        return !!drawControl.redo();
     }
 
     get snapEnabled(){

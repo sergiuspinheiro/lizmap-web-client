@@ -8,7 +8,7 @@
 
 import { mainLizmap, mainEventDispatcher } from '../modules/Globals.js';
 import { html, render } from 'lit-html';
-import { snapPanelTemplate } from './SnapPanel.js';
+import { snapSectionTemplate, snapPanelTooltips } from './SnapPanel.js';
 
 /**
  * Snapping panel of the edition tool
@@ -19,22 +19,22 @@ import { snapPanelTemplate } from './SnapPanel.js';
 export default class Snapping extends HTMLElement {
     constructor() {
         super();
+        this._open = true;
     }
 
     connectedCallback() {
         const mainTemplate = () => html`
         <div class="${mainLizmap.snapping.config !== undefined ? '' : 'hide'}">
-            <h3>${lizDict['snapping.title']}</h3>
-            <div class="form-group">
-                ${mainLizmap.snapping.config !== undefined
-                    ? snapPanelTemplate(mainLizmap.snapping, 'edition')
-                    : ''}
-            </div>
+            ${mainLizmap.snapping.config !== undefined
+                ? snapSectionTemplate(mainLizmap.snapping, 'edition', this._open, (open) => { this._open = open; })
+                : ''}
         </div>`;
 
-        render(mainTemplate(), this);
-
-        this._listener = () => render(mainTemplate(), this);
+        this._listener = () => {
+            render(mainTemplate(), this);
+            snapPanelTooltips(this);
+        };
+        this._listener();
         mainEventDispatcher.addListener(
             this._listener,
             [
