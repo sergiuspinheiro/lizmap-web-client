@@ -26,6 +26,8 @@
 import { expect, test } from '@playwright/test';
 import { editedFeatureIds } from './globals';
 import { ProjectPage } from './pages/project';
+import { expect as requestExpect } from './fixtures/expect-request.js';
+import { DrawPage } from './pages/drawpage.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -39,18 +41,42 @@ const LAYERS = {
         name: 'point_2154',
         id: 'form_edition_point_2154_bfabce3b_eb48_4631_b43f_d1db3772f0a5',
         geomType: 'point',
+        olGeomType:'Point'
     },
     line: {
         name: 'line_2154',
         id: 'form_edition_line_2154_8797dd9f_d762_436f_91b6_1f06a37e9cf3',
         geomType: 'line',
+        olGeomType:'LineString'
     },
     polygon: {
         name: 'polygon_2154',
         id: 'form_edition_polygon_2154_6b836ded_12c4_44ee_a6c4_44bf0a0d349e',
         geomType: 'polygon',
+        olGeomType:'Polygon'
     },
 };
+
+const LAYERS_4326 = {
+    point: {
+        name: 'point_4326',
+        id: 'form_edition_point_4326_f1955711_4ebd_4c78_a9fd_58083b600d6a',
+        geomType: 'point',
+        olGeomType:'Point'
+    },
+    line: {
+        name: 'line_4326',
+        id: 'form_edition_line_4326_2e2d506d_414a_4731_a1bb_17e33c490923',
+        geomType: 'line',
+        olGeomType:'LineString'
+    },
+    polygon: {
+        name: 'polygon_4326',
+        id: 'form_edition_polygon_4326_36f846ad_6690_4d2d_b48d_c342db7c07e9',
+        geomType: 'polygon',
+        olGeomType:'Polygon'
+    },
+}
 
 /**
  * Pixel positions on the OL2 map used as source / target drawing locations.
@@ -88,6 +114,34 @@ async function drawGeometry(project, geomType, x, y) {
         await project.clickOnMapLegacy(x, y);
         await project.clickOnMapLegacy(x + 60, y);
         await project.dblClickOnMapLegacy(x + 30, y + 50);
+    }
+}
+
+/**
+ * Draw a digitizing geometry on map at the given coordinates.
+ * The digitized geometries are automatically translated by a constant 'shift' value relative to x|y input values.
+ *
+ * @param {ProjectPage} project
+ * @param {'point'|'line'|'polygon'|'circle'} geomType
+ * @param {number} x
+ * @param {number} y
+ */
+const drawDigitizingGeometry = async (project, geomType, x, y) => {
+    const shift = 5;
+    const xs = x + shift;
+    const ys = y + shift;
+    if (geomType === 'point') {
+        await project.clickOnMap(xs, ys);
+    } else if (geomType === 'line') {
+        await project.clickOnMap(xs, ys);
+        await project.dblClickOnMap(xs + 60, ys);
+    } else if (geomType === 'polygon') {
+        await project.clickOnMap(xs, ys);
+        await project.clickOnMap(xs + 60, ys);
+        await project.dblClickOnMap(xs + 30, ys + 50);
+    } else if (geomType == 'circle') {
+        await project.clickOnMap(xs, ys);
+        await project.clickOnMap(xs + 60, ys);
     }
 }
 
@@ -148,6 +202,30 @@ async function openEditFormForFeature(project, x, y, featureId, layerId) {
     await (await editRequestPromise).response();
     // lizmap-paste-geom lives in #tabdigitization — switch to it so the button is visible
     await project.page.locator('.edition-tabs button[data-bs-target="#tabdigitization"]').click();
+}
+
+/**
+ * Check if the FeaturePickerHighlight layers contains only one feature
+ * of the "geometryType" type
+ *
+ * @param {ProjectPage} projectPage - the project page instance
+ * @param {string} geometryType - type of geometry to test
+ */
+const checkHighLightLayerFeature = async (projectPage, geometryType)=>{
+    const page = projectPage.page;
+
+    const geometry = await page.evaluate(()=> {
+        const highlightLayer = lizMap.map.getLayersByName('FeaturePickerHighlight');
+        if (!highlightLayer && highlightLayer.length != 1) return '';
+        const features = highlightLayer[0].features;
+        if (!features || features.length !== 1) return '';
+        const geometryComponents = features[0].geometry?.CLASS_NAME?.split('.')
+        if(!geometryComponents || geometryComponents.length != 3) return ''
+
+        return geometryComponents[2];
+    });
+
+    expect(geometry).toBe(geometryType);
 }
 
 /**
@@ -410,54 +488,156 @@ test.describe('Copy-paste geometry — copy mode activation / deactivation',
 test.describe('Copy-paste geometry — feature picker popup',
     { tag: ['@write'] }, () => {
 
-        test('TC-11: Clicking on an existing feature in copy mode shows the picker popup',
-            async ({ page }) => {
-                const project = new ProjectPage(page, PROJECT);
-                await project.open();
+        // test feature picker popup with all geometry types, includes tests for digitizing features
+        [
+            { editLayer: LAYERS.polygon, tcId: 'TC-11-p', label: 'tc11-p-source', displayName:'tc11-p-source-displayName', drawTestRecords:2},
+            { editLayer: LAYERS.line, tcId: 'TC-11-l', label: 'tc11-l-source', displayName:'tc11-l-source', drawTestRecords:2 },
+            { editLayer: LAYERS.point, tcId: 'TC-11-d', label: 'tc11-d-source', displayName:'1', drawTestRecords:1},
+        ].forEach(({editLayer, tcId, label, displayName, drawTestRecords}) => {
+            test(`${tcId}: Clicking on an existing ${editLayer.geomType} feature in copy mode shows the picker popup`,
+                async ({ page }) => {
+                    const project = new DrawPage(page, PROJECT);
+                    await project.open();
 
-                // Create a source polygon that will appear in the WMS GetFeatureInfo result
-                const srcIds = await createFeature(
-                    project, page,
-                    LAYERS.polygon.name, 'polygon',
-                    SRC_X, SRC_Y,
-                    'tc11-source',
-                );
+                    // Create a source feature that will appear in the WMS GetFeatureInfo result
+                    const srcIds = await createFeature(
+                        project, page,
+                        editLayer.name, editLayer.geomType,
+                        SRC_X, SRC_Y,
+                        label,
+                    );
 
-                // Open its edit form (modify mode) to get layerId set
-                await openEditFormForFeature(project, SRC_X, SRC_Y, srcIds['id'], LAYERS.polygon.id);
+                    // Open its edit form (modify mode) to get layerId set
+                    await openEditFormForFeature(project, SRC_X, SRC_Y, srcIds['id'], editLayer.id);
 
-                const btn = page.locator('lizmap-paste-geom button');
-                await btn.click(); // activate copy mode
-                await expect(btn).toHaveClass(/active/);
+                    const btn = page.locator('lizmap-paste-geom button');
+                    await btn.click(); // activate copy mode
+                    await expect(btn).toHaveClass(/active/);
 
-                // Set up the GFI request waiter BEFORE clicking
-                const gfiRequestPromise = waitForCopyModeGFIRequest(page);
+                    // Set up the GFI request waiter BEFORE clicking
+                    const gfiRequestPromise = waitForCopyModeGFIRequest(page);
 
-                // Click on the map where the source feature lives
-                // GeometryCopyHandler._onMapClick fires → WMS GetFeatureInfo POST
-                await project.clickOnMapLegacy(SRC_X, SRC_Y);
+                    // Click on the map where the source feature lives
+                    // GeometryCopyHandler._onMapClick fires → WMS GetFeatureInfo POST
+                    await project.clickOnMapLegacy(SRC_X, SRC_Y);
+                    // Wait for the WMS request to complete so the response is processed
+                    await (await gfiRequestPromise).response();
 
-                // Wait for the WMS request to complete so the response is processed
-                const gfiRequest = await gfiRequestPromise;
-                await gfiRequest.response();
+                    // The feature picker popup must appear
+                    const popup = page.locator('#feature-picker-popup');
+                    await expect(popup).toBeVisible({ timeout: 5_000 });
 
-                // The feature picker popup must appear
-                const popup = page.locator('#feature-picker-popup');
-                await expect(popup).toBeVisible({ timeout: 5_000 });
+                    // At least one feature row representing the source feature
+                    // (may include features from previous failed test runs if cleanup didn't run)
+                    await expect(popup.locator('.feature-row')).not.toHaveCount(0);
 
-                // At least one feature row representing the source polygon
-                // (may include features from previous failed test runs if cleanup didn't run)
-                await expect(popup.locator('.feature-row')).not.toHaveCount(0);
+                    // Row must show the feature display name and the layer name
+                    // Display name
+                    await expect(
+                        popup.locator('.feature-row', { hasText: `${displayName}` })
+                    ).toHaveCount(1);
+                    // Layer name
+                    await expect(popup.locator('.feature-row td').first())
+                        .toContainText(editLayer.name);
 
-                // Row must show the layer name
-                await expect(popup.locator('.feature-row td').first())
-                    .toContainText(LAYERS.polygon.name);
+                    // hover on the row and check highlighted feature
+                    await popup.locator('.feature-row td').first().hover();
+                    await checkHighLightLayerFeature(project,editLayer.olGeomType);
 
-                // Cleanup: close popup, cancel form, delete source
-                await popup.locator('.close-btn').click();
-                await cancelEditForm(project);
-                await deleteFeature(project, SRC_X, SRC_Y, srcIds['id'], LAYERS.polygon.id);
-            });
+                    // prepare UI for digitizing features
+                    await popup.locator('.close-btn').click();
+                    await cancelEditForm(project);
+
+                    // add drawings
+                    await project.openDrawPanel();
+
+                    // draw point
+                    await project.selectGeometry('point');
+                    await drawDigitizingGeometry(project, 'point', SRC_X, SRC_Y);
+
+                    // draw line 1
+                    await project.selectGeometry('line');
+                    await drawDigitizingGeometry(project, 'line', SRC_X, SRC_Y);
+                    // draw line 1
+                    await drawDigitizingGeometry(project, 'line', SRC_X, SRC_Y+3);
+
+                    // draw circle
+                    await project.selectGeometry('circle');
+                    await drawDigitizingGeometry(project, 'circle', SRC_X, SRC_Y);
+
+                    // draw polygon
+                    await project.selectGeometry('polygon');
+                    await drawDigitizingGeometry(project, 'polygon', SRC_X, SRC_Y);
+
+                    await page.waitForTimeout(500);
+                    await project.toggleSelectedTool()
+                    await project.closeDrawPanel();
+
+                    // Open edition again
+                    await openEditFormForFeature(project, SRC_X, SRC_Y, srcIds['id'], editLayer.id);
+
+                    await btn.click(); // activate copy mode
+                    await expect(btn).toHaveClass(/active/);
+
+                    // Click again on the same point and wait for a new popup request
+                    await project.clickOnMapLegacy(SRC_X, SRC_Y);
+                    await (await gfiRequestPromise).response();
+
+                    // Test the same popup locator
+                    await expect(popup).toBeVisible({ timeout: 5_000 });
+
+                    // drawTestRecords is the number of digitizing feature expected in the popup
+                    // we expect a total of drawTestRecords + 1 records
+                    // for points, expect two total records, one for the map feature and one digitized feature
+                    // for lines, expect three total records, one for the map feature and two digitized feature
+                    // for polygon, expect three total records, one for the map feature and two from digitizing (one poligon and one circle)
+                    await expect(popup.locator('.feature-row')).toHaveCount(drawTestRecords + 1);
+
+                    const digitizinLayerName = await lizDictKey(page, 'edition.geom.copyPaste.digitizinLayerName');
+                    const totalRecords = popup.locator('.feature-row');
+                    // the map features records are always shown first, so we start from the second item in the list (i = 1)
+                    for (let i = 1; i < drawTestRecords; i++) {
+                        const digtizingRow = totalRecords.nth(i);
+                        // Capitalize geometry name
+                        const name = editLayer.geomType.charAt(0).toUpperCase() + editLayer.geomType.slice(1);
+
+                        await expect(digtizingRow).toHaveText(`${name} ${i} ${digitizinLayerName}`);
+                        await digtizingRow.hover();
+                        // check highlight layer
+                        await checkHighLightLayerFeature(project,editLayer.olGeomType);
+                    }
+
+                    // toggle current layer visibility to left only digitizing features available for query
+                    await project.switcher.click();
+                    await page.getByLabel(editLayer.name).uncheck();
+
+                    // query map
+                    await project.clickOnMapLegacy(SRC_X, SRC_Y);
+                    await (await gfiRequestPromise).response();
+
+                    // wait for feature-picker-popup
+                    await expect(popup).toBeVisible({ timeout: 5_000 });
+
+                    // in this case we expect exactly a number of records equal to drawTestRecords (no map features to query)
+                    await expect(popup.locator('.feature-row')).toHaveCount(drawTestRecords);
+                    const digitizingTotalRecords = popup.locator('.feature-row');
+
+                    for (let i = 0; i < drawTestRecords; i++) {
+                        const digtizingRow = digitizingTotalRecords.nth(i);
+                        const name = editLayer.geomType.charAt(0).toUpperCase() + editLayer.geomType.slice(1);
+
+                        await expect(digtizingRow).toHaveText(`${name} ${i+1} ${digitizinLayerName}`);
+                        await digtizingRow.hover();
+                        await checkHighLightLayerFeature(project,editLayer.olGeomType);
+                    }
+
+                    // Cleanup: cancel form, delete source
+                    await page.getByLabel(editLayer.name).check();
+                    await project.buttonEditing.click();
+                    await cancelEditForm(project);
+                    await deleteFeature(project, SRC_X, SRC_Y, srcIds['id'], editLayer.id);
+                });
+        })
 
         test('TC-12: Clicking on an empty area in copy mode does not show the picker popup',
             async ({ page }) => {
@@ -490,9 +670,8 @@ test.describe('Copy-paste geometry — feature picker popup',
                 // No picker popup must appear
                 await expect(page.locator('#feature-picker-popup')).toHaveCount(0);
 
-                // Copy mode must have been deactivated automatically
-                // (GeometryCopyHandler calls deactivate() when no features found)
-                await expect(btn).not.toHaveClass(/active/);
+                // Copy mode must remain active if no features was found
+                await expect(btn).toHaveClass(/active/);
 
                 // Cleanup
                 await cancelEditForm(project);
@@ -588,20 +767,21 @@ test.describe('Copy-paste geometry — geometry type filtering',
     { tag: ['@write'] }, () => {
 
         /**
-         * Incompatible geometry combinations where the editing layer is polygon.
-         * Copy-paste geometry currently only supports polygons, so we only test
-         * polygon editing layer vs point/line sources.
-         *
+         * Incompatible geometry combinations where the editing layer is either polygon, line or point.
          * Each combination must produce: no picker popup + auto-deactivation of copy mode.
          */
         [
             { editLayer: LAYERS.polygon, srcLayer: LAYERS.point,  tcId: 'TC-17a' },
             { editLayer: LAYERS.polygon, srcLayer: LAYERS.line,   tcId: 'TC-17b' },
+            { editLayer: LAYERS.line, srcLayer: LAYERS.polygon,   tcId: 'TC-17c' },
+            { editLayer: LAYERS.line, srcLayer: LAYERS.point,   tcId: 'TC-17d' },
+            { editLayer: LAYERS.point, srcLayer: LAYERS.line,   tcId: 'TC-17e' },
+            { editLayer: LAYERS.point, srcLayer: LAYERS.polygon,   tcId: 'TC-17f' },
         ].forEach(({ editLayer, srcLayer, tcId }) => {
 
             test(`${tcId}: editing ${editLayer.geomType} layer — ${srcLayer.geomType} source is filtered out`,
                 async ({ page }) => {
-                    const project = new ProjectPage(page, PROJECT);
+                    const project = new DrawPage(page, PROJECT);
                     await project.open();
 
                     // Create the incompatible source feature at SRC position
@@ -639,8 +819,42 @@ test.describe('Copy-paste geometry — geometry type filtering',
                     // No picker popup — all features were filtered out
                     await expect(page.locator('#feature-picker-popup')).toHaveCount(0);
 
-                    // Copy mode must have deactivated automatically
-                    await expect(btn).not.toHaveClass(/active/);
+                    // Copy mode must remain active if no features was found
+                    await expect(btn).toHaveClass(/active/);
+                    const message = page.locator('#lizmap-copy-geometry-message');
+                    await expect(message).toHaveClass(/alert-info/);
+
+                    // dismiss alert to speed up tests
+                    await message.locator('.btn-close').click();
+
+                    await cancelEditForm(project);
+
+                    // test drawings
+                    await project.openDrawPanel();
+
+                    // create a digitizing feature with incompatible geometry
+                    await project.selectGeometry(srcLayer.geomType);
+                    await drawDigitizingGeometry(project, srcLayer.geomType, SRC_X, SRC_Y);
+                    await page.waitForTimeout(500);
+                    await project.toggleSelectedTool()
+                    await project.closeDrawPanel();
+
+                    // Open the edit feature's form (modify mode → layerId set)
+                    await openEditFormForFeature(
+                        project, TGT_X, TGT_Y, editIds['id'], editLayer.id,
+                    );
+
+                    await btn.click();
+                    await expect(btn).toHaveClass(/active/);
+
+                    await project.clickOnMapLegacy(SRC_X, SRC_Y);
+                    await (await gfiRequestPromise).response();
+
+                    // No picker popup — all features were filtered out
+                    await expect(page.locator('#feature-picker-popup')).toHaveCount(0);
+
+                    // Copy mode must remain active if no features was found
+                    await expect(btn).toHaveClass(/active/);
 
                     // Cleanup
                     await cancelEditForm(project);
@@ -658,10 +872,47 @@ test.describe('Copy-paste geometry — full copy workflow',
     { tag: ['@write'] }, () => {
 
         /**
+         * Creates a source feature for full workflow test.
+         * Creates a digitizing feature or a map feature, depending on 'digitizing' boolean parameter
+         *
+         * @param {DrawPage} project
+         * @param {import('@playwright/test').Page} page
+         * @param {string} layerName
+         * @param {string} geomType
+         * @param {number} x
+         * @param {number} y
+         * @param {string} label
+         * @param {boolean} digitizing
+         * @returns {Promise<{id: string}>}
+         */
+        async function createSourceFeature(project, page, layerName, geomType, x, y, label, digitizing){
+            if (digitizing) {
+                // open digitizing panel
+                await project.openDrawPanel();
+
+                // digitize source geometry
+                await project.selectGeometry(geomType);
+                await drawDigitizingGeometry(project, geomType, SRC_X, SRC_Y);
+                await page.waitForTimeout(500);
+                await project.toggleSelectedTool()
+                await project.closeDrawPanel();
+                // mock id, it's not really needed for testing digitizing features
+                return {id:'1'}
+            } else {
+                return await createFeature(
+                    project, page,
+                    layerName, geomType,
+                    x, y,
+                    label,
+                );
+            }
+        }
+
+        /**
          * Core workflow test used for point / line / polygon.
          *
          * Strategy:
-         *   1. Create source feature S at (SRC_X, SRC_Y) — geometry to copy FROM.
+         *   1. Create source feature (map or digitizing) S at (SRC_X, SRC_Y) — geometry to copy FROM.
          *   2. Create target feature T at (TGT_X, TGT_Y) — will receive S's geometry.
          *   3. Open T's edit form (modify mode → layerId set → button enabled).
          *   4. Activate copy mode → click at S's position → picker popup.
@@ -674,17 +925,18 @@ test.describe('Copy-paste geometry — full copy workflow',
          * @param {string} layerName
          * @param {string} layerId
          * @param {'point'|'line'|'polygon'} geomType
+         * @param {boolean} digitizing
          */
-        async function runFullWorkflowTest(page, layerName, layerId, geomType) {
-            const project = new ProjectPage(page, PROJECT);
+        async function runFullWorkflowTest(page, layerName, layerId, geomType, digitizing) {
+            const project = new DrawPage(page, PROJECT);
             await project.open();
 
-            // Step 1: create source feature S
-            const srcIds = await createFeature(
+            const srcIds = await createSourceFeature(
                 project, page,
                 layerName, geomType,
                 SRC_X, SRC_Y,
                 'workflow-source',
+                digitizing
             );
 
             // Step 2: create target feature T
@@ -736,17 +988,31 @@ test.describe('Copy-paste geometry — full copy workflow',
             // Step 8: cleanup — delete T (now at SRC position) and S
             // Both may now share the same geometry location; use IDs to target each.
             await deleteFeature(project, SRC_X, SRC_Y, tgtIds['id'], layerId);
-            await deleteFeature(project, SRC_X, SRC_Y, srcIds['id'], layerId);
+            // remove only source map feature
+            if (!digitizing)
+                await deleteFeature(project, SRC_X, SRC_Y, srcIds['id'], layerId);
         }
 
-        test('TC-21: Full workflow — copy POLYGON geometry and save', async ({ page }) => {
-            await runFullWorkflowTest(
-                page,
-                LAYERS.polygon.name,
-                LAYERS.polygon.id,
-                'polygon',
-            );
-        });
+        // Test full workflow with all geometry types
+        [
+            {editLayer:LAYERS.polygon, tcId: 'TC-21-p'},
+            {editLayer:LAYERS.line, tcId: 'TC-21-l'},
+            {editLayer:LAYERS.point, tcId: 'TC-21-d'},
+            {editLayer:LAYERS.polygon, tcId: 'TC-22-p', digitizing:true},
+            {editLayer:LAYERS.line, tcId: 'TC-22-l', digitizing:true},
+            {editLayer:LAYERS.point, tcId: 'TC-22-d', digitizing:true},
+        ].forEach(({editLayer, tcId, digitizing})=>{
+            const geomType = editLayer.geomType.toUpperCase();
+            test(`${tcId}: Full workflow — copy ${digitizing ? 'digitized':''} ${geomType} geometry and save`, async ({ page }) => {
+                await runFullWorkflowTest(
+                    page,
+                    editLayer.name,
+                    editLayer.id,
+                    editLayer.geomType,
+                    digitizing
+                );
+            });
+        })
     });
 
 // ---------------------------------------------------------------------------
@@ -932,6 +1198,10 @@ test.describe('Copy-paste geometry — user-facing messages (_notify)',
 
                 await openEditFormForFeature(project, SRC_X, SRC_Y, ids['id'], LAYERS.polygon.id);
 
+                // dismiss edition message leaving only the "lizmap-copy-geometry-message" notification,
+                // to ensure a clean interface for subsequent activations/deactivations of the copy feature.
+                await page.locator('#lizmap-edition-message .btn-close').click();
+
                 const btn = page.locator('lizmap-paste-geom button');
                 const message = page.locator('#lizmap-copy-geometry-message');
 
@@ -952,11 +1222,14 @@ test.describe('Copy-paste geometry — user-facing messages (_notify)',
                 const firstMessageHandle = await message.elementHandle();
                 expect(firstMessageHandle).not.toBeNull();
 
-                // GeometryCopyHandler auto-deactivates copy mode when no feature
-                // matches, so re-activate it for the second round.
-                await expect(btn).not.toHaveClass(/active/);
+                // GeometryCopyHandler remains active when no feature matches
+                await expect(btn).toHaveClass(/active/);
 
                 // ---- Second _notify call ----
+                // disable copy handler and re-enable it
+                await btn.click();
+                await expect(btn).not.toHaveClass(/active/);
+                await page.waitForTimeout(200);
                 await btn.click();
                 await expect(btn).toHaveClass(/active/);
 
@@ -982,6 +1255,93 @@ test.describe('Copy-paste geometry — user-facing messages (_notify)',
                 await deleteFeature(project, SRC_X, SRC_Y, ids['id'], LAYERS.polygon.id);
             });
     });
+
+test.describe('Check copy handler on 4326 project for axis orientation adjustment',
+    { tag: ['@write'] }, () => {
+
+        [
+            { editLayer: LAYERS_4326.point, label:'4326_point' },
+            { editLayer: LAYERS_4326.line, label:'4326_line' },
+            { editLayer: LAYERS_4326.polygon, label:'4326_polygon' },
+        ].forEach(({editLayer, label})=>{
+            test(`Check getFeatureInfo WMS request for 4326 ${editLayer.geomType.toUpperCase()} feature`,
+                async ({ page }) => {
+
+                    // change project projection, bbox and initial extent on the fly
+                    await page.route('**/service/getProjectConfig*', async route => {
+                        const response = await route.fetch();
+                        const json = await response.json();
+
+                        // change projection
+                        json.options.projection = {
+                            proj4: "+proj=longlat +datum=WGS84 +no_defs",
+                            ref: "EPSG:4326"
+                        }
+
+                        // change bbox
+                        json.options.bbox = [
+                            "-6.76292745900000014",
+                            "36.02200815300000158",
+                            "20.54463446100000112",
+                            "55.98576099299999953",
+                        ]
+
+                        // change initialExtent
+                        json.options.initialExtent = [
+                            -6.762927459,
+                            36.022008153,
+                            20.544634461,
+                            55.985760993,
+                        ]
+
+                        await route.fulfill({ response, json });
+                    });
+
+                    const project = new ProjectPage(page, PROJECT);
+                    await project.open();
+
+                    // create a new 4326 feature
+                    const srcIds = await createFeature(
+                        project, page,
+                        editLayer.name, editLayer.geomType,
+                        SRC_X, SRC_Y,
+                        label,
+                    );
+
+                    await openEditFormForFeature(project, SRC_X, SRC_Y, srcIds['id'], editLayer.id);
+
+                    const btn = page.locator('lizmap-paste-geom button');
+                    await btn.click(); // activate copy mode
+                    await expect(btn).toHaveClass(/active/);
+
+                    const gfiRequestPromise = waitForCopyModeGFIRequest(page);
+
+                    // Click on the map
+                    await project.clickOnMapLegacy(SRC_X, SRC_Y);
+
+                    // Wait for the WMS GetFeatureInfo request
+                    const gfiRequest = await gfiRequestPromise;
+
+                    // check GetFeatureInfo parameters. BBOX should be issued with lat/long format
+                    const expectedParameters = {
+                        'SERVICE': 'WMS',
+                        'VERSION': '1.3.0',
+                        'REQUEST': 'GetFeatureInfo',
+                        'QUERY_LAYERS': 'polygon_2154,line_2154,point_2154,polygon_4326,line_4326,point_4326,polygon_3857,line_3857,point_3857',
+                        'STYLE':'default,default,default,default,default,default,default,default,default',
+                        'INFO_FORMAT':'text/html',
+                        'CRS': 'EPSG:4326',
+                        'BBOX': /39.1582\d+,-3.4668\d+,52.8495\d+,17.2485\d+/,
+                    }
+                    requestExpect(gfiRequest).toContainParametersInPostData(expectedParameters);
+                    await gfiRequest.response();
+
+                    // delete feature
+                    await cancelEditForm(project);
+                    await deleteFeature(project, SRC_X, SRC_Y, srcIds['id'], editLayer.id);
+                })
+        })
+    })
 
 /**
  * Read a lizDict translation entry from the running page so the assertion

@@ -14,8 +14,9 @@
 namespace Lizmap\Request;
 
 use GuzzleHttp\Client;
-use GuzzleHttp\Exception\ConnectException;
+use GuzzleHttp\Exception\NetworkException;
 use GuzzleHttp\Exception\RequestException;
+use GuzzleHttp\Exception\ResponseException;
 use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
@@ -250,6 +251,66 @@ class Proxy
     }
 
     /**
+     * Check that a URL is safe to fetch server-side, to mitigate SSRF.
+     *
+     * Only http(s) is allowed, and the host must resolve exclusively to addresses
+     * that are not loopback, link-local or otherwise reserved. This blocks the most
+     * dangerous SSRF targets (e.g. 127.0.0.1, ::1 and the 169.254.169.254 cloud
+     * metadata endpoint) while still allowing private RFC1918 ranges, since internal
+     * WMS servers are a legitimate configuration. Hosts that cannot be resolved are
+     * refused (fail closed).
+     *
+     * @param string $url the URL to check
+     *
+     * @return bool true if the URL may be fetched
+     */
+    public static function isAllowedRemoteUrl($url)
+    {
+        $parts = parse_url($url);
+        if ($parts === false || !isset($parts['scheme']) || !isset($parts['host'])) {
+            return false;
+        }
+        if (!in_array(strtolower($parts['scheme']), array('http', 'https'), true)) {
+            return false;
+        }
+
+        $host = trim($parts['host'], '[]');
+
+        // Resolve the host to one or more IP addresses
+        $ips = array();
+        if (filter_var($host, FILTER_VALIDATE_IP)) {
+            $ips[] = $host;
+        } else {
+            $ipv4 = @gethostbynamel($host);
+            if (is_array($ipv4)) {
+                $ips = array_merge($ips, $ipv4);
+            }
+            $ipv6 = @dns_get_record($host, DNS_AAAA);
+            if (is_array($ipv6)) {
+                foreach ($ipv6 as $record) {
+                    if (isset($record['ipv6'])) {
+                        $ips[] = $record['ipv6'];
+                    }
+                }
+            }
+        }
+
+        // Could not resolve the host: refuse (fail closed)
+        if (count($ips) === 0) {
+            return false;
+        }
+
+        // Every resolved address must be outside loopback/link-local/reserved ranges
+        foreach ($ips as $ip) {
+            if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_RES_RANGE)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
      * @param null|array|string $options
      * @param string            $method
      * @param null|int          $debug
@@ -349,7 +410,12 @@ class Proxy
         }
 
         if (isset($options['loginFilteredOverride'])) {
-            $options['headers']['X-Lizmap-Override-Filter'] = $options['loginFilteredOverride'];
+            // convert boolean to string for the header
+            if (is_bool($options['loginFilteredOverride'])) {
+                $options['headers']['X-Lizmap-Override-Filter'] = $options['loginFilteredOverride'] ? 'true' : 'false';
+            } else {
+                $options['headers']['X-Lizmap-Override-Filter'] = ''.$options['loginFilteredOverride'];
+            }
         }
 
         return array($url, $options);
@@ -419,9 +485,11 @@ class Proxy
             $stack->push(new EchoMiddleWare(self::getAppContext()));
         }
         // Create Client
+        // We set some request options.
         $client = new Client(array(
-            // You can set any number of default request options.
-            'timeout' => max(10.0, floatval(ini_get('max_execution_time')) - 5.0),
+            // We use a timeout equal to the default_socket_timeout (usually 60 seconds) to avoid PHP timeout errors.
+            // NB: the network request time is not part of the PHP execution time, so we can set a timeout higher than the PHP max_execution_time.
+            'timeout' => max(10.0, floatval(ini_get('default_socket_timeout'))),
             // Set stack handler
             'handler' => $stack,
         ));
@@ -494,17 +562,17 @@ class Proxy
         try {
             // Send request
             $response = $client->send($request, $requestOptions);
-        } catch (ConnectException $e) {
+        } catch (NetworkException $e) {
             // Handle connection timeout
             \lizmap::getLogger()->error('Connection failed: '.$e->getMessage());
             $response = new Response(504, array(), null, '1.1', 'HTTP/1.1 504 Gateway Timeout');
-        } catch (RequestException $e) {
-            // Handle transfer timeout
+        } catch (ResponseException $e) {
             // throwing exceptions on an HTTP protocol errors (i.e., 4xx and 5xx responses) has been disabled
             \lizmap::getLogger()->error('Request failed: '.$e->getMessage());
-            if ($e->hasResponse()) {
-                $response = $e->getResponse();
-            }
+            $response = $e->getResponse();
+        } catch (RequestException $e) {
+            // Handle transfer timeout
+            \lizmap::getLogger()->error('Request failed: '.$e->getMessage());
             $response = new Response(504, array(), null, '1.1', 'HTTP/1.1 504 Gateway Timeout');
         }
 
@@ -726,7 +794,7 @@ class Proxy
         if ($cacheStorageType == 'file') {
             // CACHE CONTENT INTO FILE SYSTEM
             // Directory where to store the cached files
-            $cacheDirectory = $cacheRootDirectory.'/'.$repository.'/'.$project.'/'.$layers.'/'.$crs.'/';
+            $cacheDirectory = $cacheRootDirectory.'/'.$repository.'/'.$project.'/'.sha1($layers).'/'.$crs.'/';
             self::createFileProfile($cacheDirectory, $cacheName, $cacheExpiration);
         } elseif ($cacheStorageType == 'redis') {
             // CACHE CONTENT INTO REDIS
@@ -735,7 +803,7 @@ class Proxy
             // CACHE CONTENT INTO SQLITE DATABASE
             // Directory where to store the sqlite database
             $cacheDirectory = $cacheRootDirectory.'/'.$repository.'/'.$project.'/';
-            $cacheDatabase = $cacheDirectory.$layers.'_'.$crs.'.db';
+            $cacheDatabase = $cacheDirectory.sha1($layers).'_'.$crs.'.db';
             self::createSqLiteProfile($cacheDirectory, $cacheName, $cacheExpiration, $cacheDatabase);
         }
 
@@ -893,6 +961,7 @@ class Proxy
 
         // Cache root directory
         if ($cacheStorageType != 'redis') {
+            $sha1Layer = sha1($layer);
             $cacheRootDirectory = $ser->cacheRootDirectory;
             if (!is_dir($cacheRootDirectory) or !is_writable($cacheRootDirectory)) {
                 $cacheRootDirectory = sys_get_temp_dir();
@@ -907,7 +976,7 @@ class Proxy
                 while (($entry = readdir($handle)) !== false) {
                     if ($entry != '.' && $entry != '..') {
                         // Get directories and files corresponding to the layer
-                        if (preg_match('#(^|_)'.$layer.'($|_)#', $entry)) {
+                        if (preg_match('#(^|_)'.$sha1Layer.'($|_)#', $entry)) {
                             $results[] = $cacheProjectDir.$entry;
                         }
                     }

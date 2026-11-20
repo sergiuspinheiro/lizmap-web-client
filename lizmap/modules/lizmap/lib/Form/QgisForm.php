@@ -13,10 +13,9 @@
 
 namespace Lizmap\Form;
 
-use GuzzleHttp\Psr7\StreamWrapper as Psr7StreamWrapper;
-use JsonMachine\Items as JsonMachineItems;
 use Lizmap\App\AppContextInterface;
 use Lizmap\App\WktTools;
+use Lizmap\Request\FeatureStream;
 use Lizmap\Request\RemoteStorageRequest;
 use Lizmap\Request\WFSRequest;
 
@@ -76,6 +75,12 @@ class QgisForm implements QgisFormControlsInterface
     protected $defaultApplyOnUpdateMap = array();
 
     /**
+     * @var string[] fields displayed as an upload control. Their default value
+     *               only names the uploaded file, see computeDefaultFilename()
+     */
+    protected $uploadFields = array();
+
+    /**
      * QgisForm constructor.
      *
      * @param \qgisVectorLayer $layer
@@ -120,13 +125,17 @@ class QgisForm implements QgisFormControlsInterface
         $cacheHandler = $layer->getProject()->getCacheHandler();
         $formInfos = $cacheHandler->getEditableLayerFormCache($layer->getId());
 
+        // The default value of an upload field is not a value of the form:
+        // it only names the uploaded file, see computeDefaultFilename()
+        $this->uploadFields = self::getUploadFieldNames($formInfos);
+
         // Classify default expressions once to avoid per-field HTTP calls.
         $staticDefaults = array();
         $dynamicExpressions = array();
         $applyOnUpdateMap = array();
         $allDefs = $layer->getDefaultValueDefinitions();
         foreach ($dataFields as $fieldName => $unusedProp) {
-            if (!isset($allDefs[$fieldName])) {
+            if (!isset($allDefs[$fieldName]) || in_array($fieldName, $this->uploadFields, true)) {
                 continue;
             }
             $expression = $allDefs[$fieldName]['expression'];
@@ -155,18 +164,19 @@ class QgisForm implements QgisFormControlsInterface
         $defaultsByField = $staticDefaults + $evaluated;
 
         foreach ($dataFields as $fieldName => $prop) {
+            $controlName = self::escapeFieldName($fieldName);
             $defaultValue = isset($defaultsByField[$fieldName]) ? $defaultsByField[$fieldName] : null;
 
             $constraints = $this->getConstraints($fieldName);
 
             if (isset($formInfos[$fieldName])) {
-                $formControl = new QgisFormControl($fieldName, $formInfos[$fieldName], $prop, $defaultValue, $constraints, $this->appContext);
+                $formControl = new QgisFormControl($controlName, $fieldName, $formInfos[$fieldName], $prop, $defaultValue, $constraints, $this->appContext);
             } else {
                 // The field is not present in the .XML
-                $formControl = new QgisFormControl($fieldName, null, $prop, null, $constraints, $this->appContext);
+                $formControl = new QgisFormControl($controlName, $fieldName, null, $prop, null, $constraints, $this->appContext);
             }
 
-            $this->fillFormControl($formControl, $fieldName, $form);
+            $this->fillFormControl($formControl, $controlName, $form);
 
             // Force readonly to not be required
             if ($formControl->isReadOnly && $formControl->ctrl->required) {
@@ -176,7 +186,7 @@ class QgisForm implements QgisFormControlsInterface
             // Add the control to the form
             $form->addControl($formControl->ctrl);
             // Set readonly if needed
-            $form->setReadOnly($fieldName, $formControl->isReadOnly);
+            $form->setReadOnly($controlName, $formControl->isReadOnly);
 
             // Hide when no modify capabilities, only for UPDATE cases ( when $this->featureId control exists )
             if (!empty($featureId)
@@ -189,7 +199,7 @@ class QgisForm implements QgisFormControlsInterface
                 }
             }
 
-            $this->formControls[$fieldName] = $formControl;
+            $this->formControls[$controlName] = $formControl;
         }
 
         // Deactivate undisplayed fields in Drag and Drop form
@@ -197,8 +207,8 @@ class QgisForm implements QgisFormControlsInterface
         if ($attributeEditorForm) {
             $attributeEditorFormFields = $attributeEditorForm->getFields();
             if (count($attributeEditorFormFields) > 0) {
-                foreach ($this->formControls as $fieldName => $formControl) {
-                    if (in_array($fieldName, $attributeEditorFormFields)) {
+                foreach ($this->formControls as $controlName => $formControl) {
+                    if (in_array($controlName, $attributeEditorFormFields)) {
                         continue;
                     }
                     if ($formControl->ctrl->type == 'hidden') {
@@ -246,23 +256,26 @@ class QgisForm implements QgisFormControlsInterface
         $attributeEditorForm = $this->getAttributesEditorForm();
         if ($attributeEditorForm) {
             $groupVisibilities = $attributeEditorForm->getGroupVisibilityExpressions();
-            $qgis_groupDependencies = \qgisExpressionUtils::getCriteriaFromExpressions($groupVisibilities);
+            $qgis_groupDependencies = $this->resolveFieldNames(\qgisExpressionUtils::getCriteriaFromExpressions($groupVisibilities));
             $privateData['qgis_groupDependencies'] = array_intersect($qgis_groupDependencies, array_keys($this->dbFieldsInfo->dataFields));
         } else {
             $privateData['qgis_groupDependencies'] = array();
         }
 
+        $textWidgets = $attributeEditorForm ? $attributeEditorForm->getTextWidgetFields() : array();
         $privateData['qgis_defaultExpressions'] = array(
-            'dependencies' => \qgisExpressionUtils::getCriteriaFromExpressions($this->dynamicDefaultExpressions),
+            'dependencies' => $this->resolveFieldNames(\qgisExpressionUtils::getCriteriaFromExpressions(
+                array_merge($this->dynamicDefaultExpressions, array_column($textWidgets, 'value'))
+            )),
             'applyOnUpdate' => $this->defaultApplyOnUpdateMap,
             'fields' => array_keys($this->dynamicDefaultExpressions),
+            'textWidgets' => array_keys($textWidgets),
         );
 
         // adding text widget fields to the form
         if ($attributeEditorForm) {
-            $textWidgetFields = $attributeEditorForm->getTextWidgetFields();
-            if (count($textWidgetFields) > 0) {
-                foreach ($textWidgetFields as $textName => $textProp) {
+            if (count($textWidgets) > 0) {
+                foreach ($textWidgets as $textName => $textProp) {
                     // use jFormsControlOutput instance
                     $textCtrl = new \jFormsControlOutput($textName);
                     $textCtrl->label = $textProp['label'];
@@ -286,12 +299,31 @@ class QgisForm implements QgisFormControlsInterface
                         'properties' => $form->getAllData(),
                     );
                     // evaluate expression
-                    $expressionT = $this->evaluateExpressionText(array($textName => $textProp['value']), $form_feature);
+                    $textErrors = array();
+                    $expressionT = $this->evaluateExpressionText(array($textName => $textProp['value']), $form_feature, $textErrors);
                     // expecting geojson or null
                     if ($expressionT && is_array($expressionT->features) && count($expressionT->features) == 1 && property_exists($expressionT->features[0], 'properties') && property_exists($expressionT->features[0]->properties, $textName)) {
                         $form->setData($textName, $expressionT->features[0]->properties->{$textName});
                     } else {
                         $form->setData($textName, '');
+                    }
+
+                    // Show the expression error with the jForms errors: the widget and its message
+                    // in the error list at the top of the form. The error is output as HTML by jForms:
+                    // the message is escaped, and the text widget is named so that the client can
+                    // replace the message when the text widgets are evaluated again.
+                    unset($form->getContainer()->errors[$textName]);
+                    if (isset($textErrors[$textName])) {
+                        $message = \qgisExpressionUtils::expressionErrorMessage(
+                            $this->appContext,
+                            'view~edition.form.error.text.widget',
+                            $textProp['label'],
+                            $textErrors[$textName],
+                        );
+                        $form->setErrorOn(
+                            $textName,
+                            '<span data-text-widget="'.htmlspecialchars($textName).'">'.htmlspecialchars($message).'</span>'
+                        );
                     }
                 }
             }
@@ -314,7 +346,31 @@ class QgisForm implements QgisFormControlsInterface
     }
 
     /**
+     * Get the names of the fields displayed as an upload control.
+     *
+     * The default value of these fields must not fill the form: it only names
+     * the uploaded file.
+     *
+     * @param null|array<string, QgisFormControlProperties> $formInfos the form controls properties of the layer
+     *
+     * @return string[]
+     */
+    public static function getUploadFieldNames($formInfos)
+    {
+        $uploadFields = array();
+        foreach ($formInfos ?: array() as $fieldName => $properties) {
+            if (QgisFormControl::isUploadEditType($properties->getFieldEditType())) {
+                $uploadFields[] = (string) $fieldName;
+            }
+        }
+
+        return $uploadFields;
+    }
+
+    /**
      * Collect the dynamic (non-literal) default expressions from the layer.
+     *
+     * Upload fields are skipped: their default value only names the uploaded file.
      *
      * @return array<string, string> field name => expression string
      */
@@ -322,6 +378,9 @@ class QgisForm implements QgisFormControlsInterface
     {
         $dynamic = array();
         foreach ($this->layer->getDefaultValueDefinitions() as $fieldName => $def) {
+            if (in_array($fieldName, $this->uploadFields, true)) {
+                continue;
+            }
             $expression = $def['expression'];
             if (trim($expression) === '') {
                 continue;
@@ -778,14 +837,15 @@ class QgisForm implements QgisFormControlsInterface
         $form = $this->form;
         $values = $this->layer->getDbFieldValues($feature);
         foreach ($values as $ref => $value) {
-            if (($this->formControls[$ref]->fieldEditType === 7
-                or $this->formControls[$ref]->fieldEditType === 'CheckBox')
-                and $this->formControls[$ref]->fieldDataType === 'boolean'
+            $controlName = self::escapeFieldName($ref);
+            if (($this->formControls[$controlName]->fieldEditType === 7
+                or $this->formControls[$controlName]->fieldEditType === 'CheckBox')
+                and $this->formControls[$controlName]->fieldDataType === 'boolean'
             ) {
-                $form->getControl($ref)->setDataFromDao($value, 'boolean');
+                $form->getControl($controlName)->setDataFromDao($value, 'boolean');
             }
             // ValueRelation can be an array (i.e. {1,2,3} or {'foo', 'bar'})
-            elseif ($this->formControls[$ref]->isValueRelation() && is_string($value) && strpos($value, '{') === 0) {
+            elseif ($this->formControls[$controlName]->isValueRelation() && is_string($value) && strpos($value, '{') === 0) {
                 $arrayValue = explode(',', trim($value, '{}'));
                 // Depending on the QGIS version or values,
                 // QGIS also enclose each single value with double-quotes
@@ -794,11 +854,11 @@ class QgisForm implements QgisFormControlsInterface
                 };
                 $arrayValue = array_map($func, $arrayValue);
                 $form->setData($ref, $arrayValue);
-            } elseif ($this->formControls[$ref]->isUploadControl()) {
+            } elseif ($this->formControls[$controlName]->isUploadControl()) {
                 /** @var null|\jFormsControlUpload2 $ctrl */
-                $ctrl = $form->getControl($this->formControls[$ref]->getControlName());
+                $ctrl = $form->getControl($this->formControls[$controlName]->getControlName());
                 if ($ctrl) {
-                    if (!(empty($this->getQgisControl($ref)->rootPathExpression))) {
+                    if (!(empty($this->getQgisControl($controlName)->rootPathExpression))) {
                         list($targetPath, $targetFullPath) = $this->getStoragePathForControl($this->formControls[$ref], $values);
                         if ($targetPath) {
                             $this->formWidgetsAttributes[$ref]['uriActionParameters']['path'] = $targetPath.'%s';
@@ -812,8 +872,8 @@ class QgisForm implements QgisFormControlsInterface
                     }
                 }
             } else {
-                if (in_array(strtolower($this->formControls[$ref]->fieldEditType), array('date', 'time', 'datetime'))) {
-                    $format = $this->formControls[$ref]->getEditAttribute('field_format');
+                if (in_array(strtolower($this->formControls[$controlName]->fieldEditType), array('date', 'time', 'datetime'))) {
+                    $format = $this->formControls[$controlName]->getEditAttribute('field_format');
                     if ($format && $value) {
                         $format = $this->convertQgisFormatToPHP($format);
                         $date = \DateTime::createFromFormat($format, $value);
@@ -842,7 +902,7 @@ class QgisForm implements QgisFormControlsInterface
                         $value = rtrim(rtrim($value, '0'), '.');
                     }
                 }
-                $form->setData($ref, $value);
+                $form->setData($controlName, $value);
             }
         }
 
@@ -895,7 +955,8 @@ class QgisForm implements QgisFormControlsInterface
         // even if they have already been set from the database objet (for UPDATE)
         $constraintExpressions = array();
         foreach ($formFields as $fieldName) {
-            $values[$fieldName] = $this->getFieldValue($fieldName, $form);
+            $controlName = self::escapeFieldName($fieldName);
+            $values[$fieldName] = $this->getFieldValue($controlName, $form);
             // Get expression constraint
             $constraints = $this->getConstraints($fieldName);
             if ($constraints && $constraints['exp'] && $constraints['exp_value'] !== '') {
@@ -918,21 +979,22 @@ class QgisForm implements QgisFormControlsInterface
         // We must do it here because we might need form values
         // to evaluate the path if it is calculated with a QGIS expression
         foreach ($dataFields as $fieldName => $prop) {
-            if ($form->getControl($fieldName) instanceof \jFormsControlUpload2) {
-                if ($this->getQgisControl($fieldName)->isWebDAV) {
+            $controlName = self::escapeFieldName($fieldName);
+            if ($form->getControl($controlName) instanceof \jFormsControlUpload2) {
+                if ($this->getQgisControl($controlName)->isWebDAV) {
                     // WEBDAV storage, no file path to check, but we need to check the connection
                     if (!RemoteStorageRequest::checkWebDAVStorageConnection()) {
                         $check = false;
-                        $form->setErrorOn($fieldName, 'WEBDAV storage unavailable');
+                        $form->setErrorOn($controlName, 'WEBDAV storage unavailable');
                     }
                 } else {
                     // Classical disk storage
                     // We may need to calculate the target path with an expression
-                    list($targetPath, $targetFullPath) = $this->getStoragePathForControl($this->getQgisControl($fieldName), $values);
-
+                    list($targetPath, $targetFullPath) = $this->getStoragePathForControl($this->getQgisControl($controlName), $values);
                     // if the target path to store the file is not valid: error
                     if ($targetFullPath == '' || !is_dir($targetFullPath) || !is_writable($targetFullPath)) {
-                        $form->setErrorOn($fieldName, \jLocale::get('view~edition.message.error.upload.layer', array($dtParams->tablename)));
+                        $check = false;
+                        $form->setErrorOn($controlName, \jLocale::get('view~edition.message.error.upload.layer', array($dtParams->tablename)));
                     }
                 }
             }
@@ -1168,8 +1230,10 @@ class QgisForm implements QgisFormControlsInterface
         // In case of an UPDATE, we
         $form = $this->form;
         foreach ($fields as $ref) {
+            $controlName = self::escapeFieldName($ref);
+
             /** @var null|\jFormsControl $jCtrl */
-            $jCtrl = $form->getControl($ref);
+            $jCtrl = $form->getControl($controlName);
             // Field not in form
             if ($jCtrl === null) {
                 continue;
@@ -1183,7 +1247,7 @@ class QgisForm implements QgisFormControlsInterface
             }
 
             // Parse the given value and transform it into a usable value for the database field
-            $values[$ref] = $this->getParsedValue($ref, $geometryColumn);
+            $values[$ref] = $this->getParsedValue($controlName, $geometryColumn);
 
             // An error occurred, return false
             if ($values[$ref] === false) {
@@ -1199,30 +1263,34 @@ class QgisForm implements QgisFormControlsInterface
         // with given QGIS expressions depending on other field values
         // We must evaluate them now that we have the values for the other fields
         foreach ($fields as $ref) {
-            $jCtrl = $form->getControl($ref);
+            $controlName = self::escapeFieldName($ref);
+            $jCtrl = $form->getControl($controlName);
             // Field not in form
             if ($jCtrl === null) {
                 continue;
             }
             // Control is an upload control
             if ($jCtrl instanceof \jFormsControlUpload2 || $jCtrl instanceof \jFormsControlUpload) {
-                if (array_key_exists($ref, $this->formControls) && $this->formControls[$ref]->isWebDAV && isset($this->formControls[$ref]->webDavStorageUrl)) {
-                    // WEBDAV
-                    try {
-                        $values[$ref] = $this->processWebDavUploadFile($form, $ref);
-                    } catch (\Exception $e) {
-                        // Need to catch Exception if operation on remote storage fails
-                        $form->setErrorOn($ref, $e->getMessage());
-                        $this->logMessage($e->getMessage(), 'lizmapadmin');
-                        $this->appContext->logException($e, 'lizmapadmin');
-
-                        return false;
+                try {
+                    $webdavUpload = array_key_exists($ref, $this->formControls)
+                        && $this->formControls[$ref]->isWebDAV
+                        && isset($this->formControls[$ref]->webDavStorageUrl);
+                    if ($webdavUpload) {
+                        // WEBDAV
+                        $values[$ref] = $this->processWebDavUploadFile($form, $controlName);
+                    } else {
+                        // Normal type of UPLOAD.
+                        // It can be a simple storage path, or a path calculated dynamically with a QGIS Expression
+                        // We must pass the other field values
+                        $values[$ref] = $this->processUploadedFile($form, $controlName, $databaseValues);
                     }
-                } else {
-                    // Normal type of UPLOAD.
-                    // It can be a simple storage path, or a path calculated dynamically with a QGIS Expression
-                    // We must pass the other field values
-                    $values[$ref] = $this->processUploadedFile($form, $ref, $databaseValues);
+                } catch (\Exception $e) {
+                    // Need to catch Exception if operation fails
+                    $form->setErrorOn($ref, $e->getMessage());
+                    $this->logMessage($e->getMessage(), 'lizmapadmin');
+                    $this->appContext->logException($e, 'lizmapadmin');
+
+                    return false;
                 }
             }
         }
@@ -1248,6 +1316,7 @@ class QgisForm implements QgisFormControlsInterface
 
             // Save the feature in the database
             if ($updateAction) {
+                // SQL filter added to the UPDATE query
                 $loginFilteredLayers = $this->filterDataByLogin($this->layer->getName());
                 $pkVal = $this->layer->updateFeature($feature, $values, $loginFilteredLayers);
             } else {
@@ -1283,6 +1352,7 @@ class QgisForm implements QgisFormControlsInterface
         // Get list of fields which are not primary keys
         $fields = array();
         foreach ($dataFields as $fieldName => $prop) {
+            $controlName = self::escapeFieldName($fieldName);
             // For geometry column does not add it
             // if it's not an insert action
             // and no geometry modification capability
@@ -1306,7 +1376,7 @@ class QgisForm implements QgisFormControlsInterface
             if ($fieldName != $geometryColumn
                 && count($modifiedFields) != 0
                 && !in_array($fieldName, $modifiedFields)
-                && !in_array($this->getFormControlName($fieldName), $modifiedFields)) {
+                && !in_array($this->getFormControlName($controlName), $modifiedFields)) {
                 continue;
             }
 
@@ -1461,10 +1531,8 @@ class QgisForm implements QgisFormControlsInterface
             && !is_file($targetFullPath.$newFilename)
             && !is_file($targetFullPath.$filename)
         ) {
-            // TODO : raise an exception or an error
-            // to let the user know the file has not been saved ?
-            // Or just a use a jMessage ?
-            return 'NULL';
+            // raise exception
+            throw new \Exception(\jLocale::get('view~edition.message.error.upload.file'));
         }
 
         if ($newFilename) {
@@ -1664,6 +1732,7 @@ class QgisForm implements QgisFormControlsInterface
             throw new \Exception('Delete from database can\'t be done for the layer "'.$this->layer->getName().'"!');
         }
 
+        // SQL filter added to the DELETE query
         $loginFilteredLayers = $this->filterDataByLogin($this->layer->getName());
 
         // event to process data before the deletion
@@ -1954,17 +2023,8 @@ class QgisForm implements QgisFormControlsInterface
         if ($filterExpression) {
             $expFilter = $filterExpression;
         }
-        // Filter by login
-        if (!$this->loginFilteredOverride) {
-            $loginFilteredLayers = $this->filterDataByLogin($layerName);
-            if (is_array($loginFilteredLayers)) {
-                if ($expFilter) {
-                    $expFilter = ' ( '.$expFilter.' ) AND ( '.$loginFilteredLayers['where'].' ) ';
-                } else {
-                    $expFilter = $loginFilteredLayers['where'];
-                }
-            }
-        }
+        // The filter by login is applied by the WFS request: as SQL when the data
+        // is queried directly in the database, or by the lizmap_server plugin
         if ($expFilter) {
             $params['EXP_FILTER'] = $expFilter;
             // disable PROPERTYNAME in this case : if the exp_filter uses other fields, no data would be returned otherwise
@@ -2062,17 +2122,8 @@ class QgisForm implements QgisFormControlsInterface
         if ($relation['filterExpression']) {
             $expFilter = $relation['filterExpression'];
         }
-        // Filter by login
-        if (!$this->loginFilteredOverride) {
-            $loginFilteredLayers = $this->filterDataByLogin($relation['layerName']);
-            if (is_array($loginFilteredLayers)) {
-                if ($expFilter) {
-                    $expFilter = ' ( '.$expFilter.' ) AND ( '.$loginFilteredLayers['where'].' ) ';
-                } else {
-                    $expFilter = $loginFilteredLayers['where'];
-                }
-            }
-        }
+        // The filter by login is applied by the WFS request: as SQL when the data
+        // is queried directly in the database, or by the lizmap_server plugin
         if ($expFilter) {
             $params['EXP_FILTER'] = $expFilter;
             // disable PROPERTYNAME in this case : if the exp_filter uses other fields, no data would be returned otherwise
@@ -2104,8 +2155,7 @@ class QgisForm implements QgisFormControlsInterface
         // Used data
         if ($code < 400 && !in_array(strtolower($mime), array('text/html', 'text/xml'))) {
             // Get data from layer
-            $featureStream = Psr7StreamWrapper::getResource($result->getBodyAsStream());
-            $features = JsonMachineItems::fromStream($featureStream, array('pointer' => '/features'));
+            $features = FeatureStream::fromResponse($result);
             $data = array();
             foreach ($features as $feat) {
                 if (property_exists($feat, 'properties')
@@ -2150,6 +2200,9 @@ class QgisForm implements QgisFormControlsInterface
      * Filter data by login if necessary
      * as configured in the plugin for login filtered layers.
      *
+     * The WHERE statement is a SQL filter, run by Lizmap in the UPDATE
+     * and DELETE queries.
+     *
      * @param string $layername
      *
      * @return null|array array with these keys:
@@ -2179,7 +2232,7 @@ class QgisForm implements QgisFormControlsInterface
             $attribute = $loginFilteredConfig->filterAttribute;
 
             // SQL filter
-            $layerFilter = $layerProject->getLoginFilter($layername);
+            $layerFilter = $layerProject->getLoginFilter($layername, false, true);
             if (empty($layerFilter)) {
                 return null;
             }
@@ -2263,17 +2316,52 @@ class QgisForm implements QgisFormControlsInterface
     /**
      * Returns the text evaluated from $expression.
      *
-     * @param array      $expression   The expression to evaluate
-     * @param null|array $form_feature A feature to add to the evaluation context
+     * @param array                      $expression   The expression to evaluate
+     * @param null|array                 $form_feature A feature to add to the evaluation context
+     * @param null|array<string, string> $errors       Filled with the error message of each expression in error
      *
      * @return null|object
      */
-    public function evaluateExpressionText($expression, $form_feature = null)
+    public function evaluateExpressionText($expression, $form_feature = null, &$errors = null)
     {
         return \qgisExpressionUtils::replaceExpressionText(
             $this->layer,
             $expression,
-            $form_feature
+            $form_feature,
+            $errors
         );
+    }
+
+    public static function escapeFieldName(string $fieldName)
+    {
+        $escapedFieldName = preg_replace('/\'/', '__escaped_quote__', $fieldName);
+        $escapedFieldName = preg_replace('/^action$/', '__escaped_action__', $escapedFieldName);
+        $escapedFieldName = preg_replace('/\?/', '__escaped_question__', $escapedFieldName);
+
+        return preg_replace('/ /', '__escaped_space__', $escapedFieldName);
+    }
+
+    /**
+     * Resolve names referenced in expressions to field names, as QGIS does:
+     * exact name, then case-insensitive name, then case-insensitive alias.
+     *
+     * @param string[] $names
+     *
+     * @return string[]
+     */
+    protected function resolveFieldNames($names)
+    {
+        $aliases = $this->layer->getAliasFields();
+        $fields = array_keys($aliases);
+        $lowerFields = array_change_key_case(array_combine($fields, $fields));
+        $lowerAliases = array_change_key_case(array_flip($aliases));
+
+        $resolved = array();
+        foreach ($names as $name) {
+            $lower = strtolower($name);
+            $resolved[] = array_key_exists($name, $aliases) ? $name : ($lowerFields[$lower] ?? $lowerAliases[$lower] ?? $name);
+        }
+
+        return array_values(array_unique($resolved));
     }
 }

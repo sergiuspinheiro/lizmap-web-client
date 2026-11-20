@@ -157,6 +157,12 @@ class QgisFormControl
         'bigint' => 'integer',
         'smallint' => 'integer',
         '_int' => 'integer[]',
+
+        // PostgreSQL floating point arrays
+        '_float' => 'decimal[]',
+        '_float4' => 'decimal[]',
+        '_float8' => 'decimal[]',
+
         'text' => 'text',
         'string' => 'text',
         'varchar' => 'text',
@@ -197,16 +203,17 @@ class QgisFormControl
      * And add it to the passed form.
      *
      * @param string                         $ref          name of the control
+     * @param string                         $fieldName    name of the field
      * @param null|QgisFormControlProperties $properties
      * @param \jDbFieldProperties            $prop         Jelix object with field properties (datatype, required, etc.)
      * @param null|string                    $defaultValue the QGIS expression of the default value
      * @param null|array                     $constraints  the QGIS constraints
      */
-    public function __construct($ref, $properties, $prop, $defaultValue, $constraints, App\AppContextInterface $appContext)
+    public function __construct($ref, $fieldName, $properties, $prop, $defaultValue, $constraints, App\AppContextInterface $appContext)
     {
         // Set class attributes
         $this->ref = $ref;
-        $this->fieldName = $ref;
+        $this->fieldName = $fieldName;
         $this->appContext = $appContext;
         $this->fieldDataType = self::castDataType[strtolower($prop->type)];
         $this->defaultValue = $defaultValue;
@@ -376,6 +383,7 @@ class QgisFormControl
         }
         $upload->mimetype = $this->properties->getMimeTypes();
         $upload->accept = $this->properties->getUploadAccept();
+        $upload->capture = $this->properties->getUploadCapture();
         $this->DefaultRoot = $this->getEditAttribute('DefaultRoot');
 
         // WebDAV External Resource
@@ -413,6 +421,7 @@ class QgisFormControl
 
         // Add new editTypes naming convention since QGIS 2.4
         self::$qgisEdittypeMap['LineEdit'] = self::$qgisEdittypeMap[0];
+        self::$qgisEdittypeMap['List'] = self::$qgisEdittypeMap[0]; // QGIS PostgreSQL array/List widget:fallback to a standard text input
         self::$qgisEdittypeMap['UniqueValues'] = self::$qgisEdittypeMap[2];
         self::$qgisEdittypeMap['UniqueValuesEditable'] = self::$qgisEdittypeMap[2];
         self::$qgisEdittypeMap['ValueMap'] = self::$qgisEdittypeMap[3];
@@ -719,10 +728,20 @@ class QgisFormControl
 
     public function isUploadControl()
     {
-        return $this->fieldEditType === 8
-            || $this->fieldEditType === 'FileName'
-            || $this->fieldEditType === 'Photo'
-            || $this->fieldEditType === 'ExternalResource';
+        return self::isUploadEditType($this->fieldEditType);
+    }
+
+    /**
+     * Tell if a QGIS edit type is displayed as a file upload control.
+     *
+     * @param int|string $fieldEditType the QGIS edit type
+     */
+    public static function isUploadEditType($fieldEditType): bool
+    {
+        return $fieldEditType === 8
+            || $fieldEditType === 'FileName'
+            || $fieldEditType === 'Photo'
+            || $fieldEditType === 'ExternalResource';
     }
 
     public function isImageUploadControl()

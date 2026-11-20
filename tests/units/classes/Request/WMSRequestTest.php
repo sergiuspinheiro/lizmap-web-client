@@ -3,16 +3,32 @@
 use Lizmap\Project\Repository;
 use Lizmap\Request\OGCResponse;
 use Lizmap\Request\WMSRequest;
+use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
  * @internal
- *
- * @coversNothing
  */
+#[CoversNothing]
 class WMSRequestTest extends TestCase
 {
+    protected function tearDown(): void
+    {
+        $this->setLizmapServices(null);
+    }
+
+    /**
+     * Set the services used by the WMS request to log the metrics.
+     *
+     * @param null|lizmapServices $services
+     */
+    protected function setLizmapServices($services): void
+    {
+        $instance = new ReflectionProperty(lizmap::class, 'lizmapServicesInstance');
+        $instance->setValue(null, $services);
+    }
+
     public function testParameters(): void
     {
         $params = array(
@@ -56,16 +72,17 @@ class WMSRequestTest extends TestCase
             ),
         );
 
+        // The filter by login is not added to the FILTER parameter:
+        // it is applied by the lizmap_server plugin
         return array(
             array(array(), null, null),
+            array($loginFilters, null, null),
             array(array('layer' => array('filter' => '')), 'layer:filter', 'layer:filter'),
             array($loginFilters, 'layer1:filter;layer:dontExists', 'layer1:filter;layer:dontExists'),
         );
     }
 
     /**
-     * @dataProvider getParametersWithFilterData
-     *
      * @param mixed $loginFilter
      * @param mixed $filter
      * @param mixed $expectedFilter
@@ -151,8 +168,6 @@ class WMSRequestTest extends TestCase
     }
 
     /**
-     * @dataProvider getGetContextData
-     *
      * @param mixed $response
      * @param mixed $url
      * @param mixed $expectedResponse
@@ -191,8 +206,6 @@ class WMSRequestTest extends TestCase
     }
 
     /**
-     * @dataProvider getCheckMaximumWidthHeightData
-     *
      * @param mixed $width
      * @param mixed $maxWidth
      * @param mixed $height
@@ -234,8 +247,6 @@ class WMSRequestTest extends TestCase
     }
 
     /**
-     * @dataProvider getUseCacheData
-     *
      * @param mixed $params
      * @param mixed $cacheDriver
      * @param mixed $cached
@@ -252,6 +263,100 @@ class WMSRequestTest extends TestCase
         list($useCache, $wmsClient) = $wms->useCacheForTests($configLayer, $params, '');
         $this->assertEquals($expectedUseCache, $useCache);
         $this->assertEquals($expectedWmsClient, $wmsClient);
+    }
+
+    public static function getTileCacheMimeData()
+    {
+        return array(
+            array('image/png', 'image/png'),
+            array('image/png; mode=8bit', 'image/png'),
+            array('image/webp', 'image/webp'),
+            array('image/jpeg', 'image/jpeg'),
+        );
+    }
+
+    /**
+     * @param mixed $format
+     * @param mixed $expectedMime
+     */
+    #[DataProvider('getTileCacheMimeData')]
+    public function testGetTileCacheMime($format, $expectedMime): void
+    {
+        $this->setLizmapServices(new lizmapServices(array(), (object) array(), false, '', null));
+        $testContext = new ContextForTests();
+        $wms = new WMSRequestForTests(new ProjectForOGCForTests($testContext), array(), null);
+        $params = array('service' => 'WMS', 'request' => 'GetMap', 'format' => $format);
+
+        // The tile is not in cache: the cache key is returned
+        $key = $wms->getTileCache($params, 'tiles', true, false);
+        $this->assertIsString($key);
+
+        $testContext->setCache($key, 'tile content', null, 'tiles');
+        $this->assertEquals(
+            array('tile content', $expectedMime, 200, true),
+            $wms->getTileCache($params, 'tiles', true, false)
+        );
+    }
+
+    public static function getImageDataData()
+    {
+        return array(
+            array('image/png', 'image/png', true),
+            array('image/png; mode=8bit', 'image/png', true),
+            array('image/webp', 'image/webp', true),
+            array('image/jpeg', 'image/jpeg', false),
+        );
+    }
+
+    /**
+     * @param mixed $format
+     * @param mixed $expectedMime
+     * @param mixed $expectedTransparency
+     */
+    #[DataProvider('getImageDataData')]
+    public function testGetImageData($format, $expectedMime, $expectedTransparency): void
+    {
+        if (!extension_loaded('gd') || ($expectedMime == 'image/webp' && !function_exists('imagewebp'))) {
+            $this->markTestSkipped('gd is not able to handle '.$expectedMime);
+        }
+
+        // The image returned by QGIS Server: a tile of 256px with a buffer of 5px,
+        // fully transparent except an opaque square in the top left corner
+        $metatile = imagecreatetruecolor(266, 266);
+        imagealphablending($metatile, false);
+        imagesavealpha($metatile, true);
+        imagefill($metatile, 0, 0, imagecolorallocatealpha($metatile, 0, 0, 0, 127));
+        imagefilledrectangle($metatile, 0, 0, 132, 132, imagecolorallocate($metatile, 255, 0, 0));
+        ob_start();
+        if ($expectedMime == 'image/png') {
+            imagepng($metatile);
+        } elseif ($expectedMime == 'image/webp') {
+            imagewebp($metatile);
+        } else {
+            imagejpeg($metatile);
+        }
+        $data = ob_get_clean();
+
+        $this->setLizmapServices(new lizmapServices(array(), (object) array(), false, '', null));
+        $wms = new WMSRequestForTests(new ProjectForOGCForTests(new ContextForTests()), array(), null);
+        $tile = $wms->getImageDataForTests(
+            $data,
+            array('format' => $format),
+            array('width' => 256, 'height' => 256),
+            0,
+            0
+        );
+
+        // The tile is cropped and keeps the requested image format
+        $tileInfo = getimagesizefromstring($tile);
+        $this->assertEquals($expectedMime, $tileInfo['mime']);
+        $this->assertEquals(256, $tileInfo[0]);
+        $this->assertEquals(256, $tileInfo[1]);
+
+        // The transparency is kept if the image format supports it
+        $image = imagecreatefromstring($tile);
+        $this->assertEquals(0, (imagecolorat($image, 10, 10) >> 24) & 0x7F);
+        $this->assertEquals($expectedTransparency ? 127 : 0, (imagecolorat($image, 200, 200) >> 24) & 0x7F);
     }
 
     public function testRegexpMediaUrls(): void
@@ -403,8 +508,6 @@ class WMSRequestTest extends TestCase
     }
 
     /**
-     * @dataProvider matchCheckBoxStateData
-     *
      * @param mixed       $value
      * @param mixed       $checked
      * @param mixed       $unchecked
@@ -444,42 +547,40 @@ class WMSRequestTest extends TestCase
         $uncheckedHtml = '<input type="checkbox" disabled="disabled" class="lizmap-popup-checkbox-widget">';
 
         return array(
-            'WMS true → checked'                    => array(
+            'WMS true → checked' => array(
                 $spanTrue, $boolFields,
                 '<span id="dd_jforms_view_edition_has_photo" class="jforms-control-input">'.$checkedHtml.'</span>',
             ),
-            'WMS false → unchecked'                 => array(
+            'WMS false → unchecked' => array(
                 $spanFalse, $boolFields,
                 '<span id="dd_jforms_view_edition_has_photo" class="jforms-control-input">'.$uncheckedHtml.'</span>',
             ),
-            'bool_field true → checked'             => array(
+            'bool_field true → checked' => array(
                 $spanBoolTrue, $boolFields,
                 '<span id="dd_jforms_view_edition_bool_field" class="jforms-control-input">'.$checkedHtml.'</span>',
             ),
-            'custom Yes → checked'                  => array(
+            'custom Yes → checked' => array(
                 $spanCustomYes, $textFields,
                 '<span id="dd_jforms_view_edition_status" class="jforms-control-input">'.$checkedHtml.'</span>',
             ),
-            'fallback suppressed for text field'    => array(
+            'fallback suppressed for text field' => array(
                 $spanCustomFallback, $textFields,
                 $spanCustomFallback,
             ),
-            'field not in checkBoxFields'           => array(
+            'field not in checkBoxFields' => array(
                 $spanUnknownField, $boolFields,
                 $spanUnknownField,
             ),
-            'value not recognised'                  => array(
+            'value not recognised' => array(
                 $spanUnknownValue, $boolFields,
                 $spanUnknownValue,
             ),
-            'empty html passthrough'                => array('', $boolFields, ''),
-            'empty fields passthrough'              => array($spanTrue, array(), $spanTrue),
+            'empty html passthrough' => array('', $boolFields, ''),
+            'empty fields passthrough' => array($spanTrue, array(), $spanTrue),
         );
     }
 
     /**
-     * @dataProvider applyCheckBoxesToFormPopupData
-     *
      * @param mixed $html
      * @param mixed $fields
      * @param mixed $expected
@@ -532,11 +633,11 @@ class WMSRequestTest extends TestCase
 
     public function testBuildAllFeaturesTableDataDiscardsEmptyAndInternalColumns(): void
     {
-        // 'geometry' and 'maptip' are never displayed, and a field which is empty
-        // for every feature is still dropped.
+        // 'geometry', 'maptip' and 'displayName' are never displayed, and a field
+        // which is empty for every feature is still dropped.
         $allFeatureAttributes = self::featureAttributes(array(
-            array('idu' => '1', 'unused' => '', 'geometry' => 'POLYGON((0 0))', 'maptip' => '<p>tip</p>'),
-            array('idu' => '2', 'unused' => '', 'geometry' => 'POLYGON((1 1))', 'maptip' => '<p>tip</p>'),
+            array('idu' => '1', 'unused' => '', 'geometry' => 'POLYGON((0 0))', 'maptip' => '<p>tip</p>', 'displayName' => 'Auch'),
+            array('idu' => '2', 'unused' => '', 'geometry' => 'POLYGON((1 1))', 'maptip' => '<p>tip</p>', 'displayName' => 'Condom'),
         ));
 
         list($columns, $rows) = WMSRequestForTests::buildAllFeaturesTableDataForTests($allFeatureAttributes);

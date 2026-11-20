@@ -686,6 +686,9 @@ button.btn-primary:hover > [class*=" icon-"] {
   padding-bottom:2px;
   height: 26px;
   box-sizing: border-box;
+
+  /* Bootstrap 5 .form-control forces 1rem, keep the header font size */
+  font-size: inherit;
 }
 
 #headermenu .navbar-search .search-icon {
@@ -2391,6 +2394,8 @@ lizmap-print .flex {
   text-align: right;
   border-top: 1px solid rgb(255 255 255 / 40%);
 
+  /* Anchors the theme selector dropdown */
+  position: relative;
 }
 
 #switcher-layers-actions div.btn-group > ul{
@@ -3104,6 +3109,29 @@ lizmap-mouse-position > div.coords-unit > select{
   padding-right: 5px;
 }
 
+/* Tooltip tables reuse the light popup style; reset it for the dark box.
+   Keep after the `.lizmapPopupTable` rules above.
+   https://github.com/3liz/lizmap-web-client/issues/7163 */
+#tooltip table,
+#tooltip .lizmapPopupTable {
+  width: auto;
+  margin: 0;
+  background-color: transparent !important;
+}
+
+/* Bootstrap paints every cell */
+#tooltip table > :not(caption) > * > * {
+  padding: 1px 5px;
+  color: inherit;
+  background-color: transparent;
+  box-shadow: none;
+}
+
+#tooltip table th {
+  text-align: left;
+  white-space: nowrap;
+}
+
 #edition-modal form {
   margin: 0;
 }
@@ -3174,6 +3202,16 @@ img.ui-datepicker-trigger {
 
 #edition-form-container .form-horizontal .jforms-choice .jforms-item-controls .form-label{
   width:0;
+}
+
+/* Checkboxes and radios are sized in em from the dock font (12px),
+   which left them too small next to the other controls */
+#edition-form-container .form-check-input,
+#edition-modal .form-check-input {
+  width: 1rem;
+  height: 1rem;
+  margin-right: 0.4em;
+  vertical-align: -0.2rem;
 }
 
 #edition-segment-length, #edition-segment-angle {
@@ -3763,6 +3801,24 @@ img {
   --bs-btn-padding-y: 0.15rem;
 }
 
+/* Anchor the menu on the toolbar, not the button-wide group, so it cannot
+   overflow the legend panel and make it scroll sideways. See #7223 */
+#theme-selector {
+  position: static;
+}
+
+#switcher-layers-actions #theme-selector > ul.dropdown-menu {
+  inset: 100% 0 auto auto;
+  max-width: 100%;
+  max-height: 300px;
+  overflow: hidden auto;
+}
+
+/* Wrap long theme names instead of widening the menu */
+#switcher-layers-actions #theme-selector .dropdown-item {
+  white-space: normal;
+}
+
 /* Geolocation */
 lizmap-geolocation .geolocation-infos {
     background-color: lightgray;
@@ -3849,7 +3905,7 @@ lizmap-overviewmap .ol-overviewmap.ol-collapsed{
 }
 
 lizmap-overviewmap .ol-overviewmap .ol-overviewmap-map {
-  width: 210px;
+  width: 100%;
   height: 100px;
   border: none;
 }
@@ -4559,7 +4615,9 @@ These lines will be removed in the future, when the minimum target version will 
 
 /** server-side-permalink **/
 #permalink-back {
-    margin-bottom: 1em;
+  display: block;
+  margin-top: 0.5em;
+  margin-left: auto;
 }
 
 #lizmap-new-permalink {

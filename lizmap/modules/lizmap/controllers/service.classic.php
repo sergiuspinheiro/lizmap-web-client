@@ -102,58 +102,52 @@ class serviceCtrl extends jController
 
         $request = strtoupper($request);
 
+        /** @var null|jResponse $rep */
+        $rep = null;
+
         // Extra request
         if ($request == 'GETPROJ4') {
-            return $this->GetProj4();
-        }
-        if ($request == 'GETSELECTIONTOKEN') {
-            return $this->GetSelectionToken();
-        }
-        if ($request == 'GETFILTERTOKEN') {
-            return $this->GetFilterToken();
+            $rep = $this->GetProj4();
+        } elseif ($request == 'GETSELECTIONTOKEN') {
+            $rep = $this->GetSelectionToken();
+        } elseif ($request == 'GETFILTERTOKEN') {
+            $rep = $this->GetFilterToken();
         }
 
         // Standard request
         // All requests are not possible for all services. The possibility is
         // checked into the process() method of $ogcRequest.
-        if ($request == 'GETCAPABILITIES') {
-            return $this->GetCapabilities($ogcRequest);
+        elseif ($request == 'GETCAPABILITIES') {
+            $rep = $this->GetCapabilities($ogcRequest);
+        } elseif ($request == 'GETCONTEXT') {
+            $rep = $this->GetContext($ogcRequest);
+        } elseif ($request == 'GETSCHEMAEXTENSION') {
+            $rep = $this->GetSchemaExtension($ogcRequest);
+        } elseif ($request == 'GETLEGENDGRAPHICS') {
+            $rep = $this->GetLegendGraphics($ogcRequest);
+        } elseif ($request == 'GETLEGENDGRAPHIC') {
+            $rep = $this->GetLegendGraphics($ogcRequest);
+        } elseif ($request == 'GETFEATUREINFO') {
+            $rep = $this->GetFeatureInfo($ogcRequest);
+        } elseif ($request == 'GETPRINT') {
+            $rep = $this->GetPrint($ogcRequest);
+        } elseif ($request == 'GETPRINTATLAS') {
+            $rep = $this->GetPrintAtlas($ogcRequest);
+        } elseif ($request == 'GETSTYLES') {
+            $rep = $this->GetStyles($ogcRequest);
+        } elseif ($request == 'GETMAP') {
+            $rep = $this->GetMap($ogcRequest);
+        } elseif ($request == 'GETFEATURE') {
+            $rep = $this->GetFeature($ogcRequest);
+        } elseif ($request == 'DESCRIBEFEATURETYPE') {
+            $rep = $this->DescribeFeatureType($ogcRequest);
+        } elseif ($request == 'GETTILE') {
+            $rep = $this->GetTile($ogcRequest);
         }
-        if ($request == 'GETCONTEXT') {
-            return $this->GetContext($ogcRequest);
-        }
-        if ($request == 'GETSCHEMAEXTENSION') {
-            return $this->GetSchemaExtension($ogcRequest);
-        }
-        if ($request == 'GETLEGENDGRAPHICS') {
-            return $this->GetLegendGraphics($ogcRequest);
-        }
-        if ($request == 'GETLEGENDGRAPHIC') {
-            return $this->GetLegendGraphics($ogcRequest);
-        }
-        if ($request == 'GETFEATUREINFO') {
-            return $this->GetFeatureInfo($ogcRequest);
-        }
-        if ($request == 'GETPRINT') {
-            return $this->GetPrint($ogcRequest);
-        }
-        if ($request == 'GETPRINTATLAS') {
-            return $this->GetPrintAtlas($ogcRequest);
-        }
-        if ($request == 'GETSTYLES') {
-            return $this->GetStyles($ogcRequest);
-        }
-        if ($request == 'GETMAP') {
-            return $this->GetMap($ogcRequest);
-        }
-        if ($request == 'GETFEATURE') {
-            return $this->GetFeature($ogcRequest);
-        }
-        if ($request == 'DESCRIBEFEATURETYPE') {
-            return $this->DescribeFeatureType($ogcRequest);
-        }
-        if ($request == 'GETTILE') {
-            return $this->GetTile($ogcRequest);
+
+        Checker::logoutCredentials($_SERVER);
+        if ($rep !== null) {
+            return $rep;
         }
 
         jMessage::add('Request '.$request.' is not supported', 'OperationNotSupported');
@@ -297,7 +291,9 @@ class serviceCtrl extends jController
         jMessage::clearAll();
 
         foreach ($messages as $code => $msg) {
-            if ($code == 'AuthorizationRequired') {
+            if ($code == 'BadRequest') {
+                $rep->setHttpStatus(400, Proxy::getHttpStatusMsg(400));
+            } elseif ($code == 'AuthorizationRequired') {
 
                 // 401 : AuthorizationRequired
                 $rep->setHttpStatus(401, Proxy::getHttpStatusMsg(401));
@@ -525,6 +521,11 @@ class serviceCtrl extends jController
                                 $feature_ids[] = implode(',', $data_ids);
                             }
                         }
+                    } else {
+                        // Unkown or expired token
+                        jMessage::add('Unknown or expired token: '.$token, 'BadRequest');
+
+                        return false;
                     }
                 }
                 // Add SELECTION for WMS
@@ -647,6 +648,21 @@ class serviceCtrl extends jController
 
                 if (!$hasAccess) {
                     jMessage::add('You do not have permission to export DXF from this project', 'Forbidden');
+
+                    return $this->serviceException();
+                }
+            }
+
+            // Check that DXF export is not disabled for one of the requested layers
+            $layerNames = isset($this->params['layers']) ? explode(',', $this->params['layers']) : array();
+            foreach ($layerNames as $layerName) {
+                $configLayer = $this->project->findLayerByAnyName(trim($layerName));
+                if (!$configLayer || !property_exists($configLayer, 'dxfExportEnabled')) {
+                    continue;
+                }
+                $dxfExportEnabled = $configLayer->dxfExportEnabled;
+                if ($dxfExportEnabled === false || strtolower((string) $dxfExportEnabled) === 'false') {
+                    jMessage::add('DXF export is not enabled for the layer '.$layerName, 'Forbidden');
 
                     return $this->serviceException();
                 }
@@ -831,57 +847,32 @@ class serviceCtrl extends jController
         $featureId = $ids[0];
         lizmap::getLogger()->debug("generateAtlasFilename: Single feature ID: {$featureId}");
 
-        // Get atlas configuration from QGIS project file
-        try {
-            $qgisPath = $this->project->getQgisPath();
-            lizmap::getLogger()->debug("generateAtlasFilename: QGIS project path: {$qgisPath}");
-
-            if (!file_exists($qgisPath)) {
-                lizmap::getLogger()->warning("generateAtlasFilename: QGIS project file does not exist at {$qgisPath}");
-
-                return null;
-            }
-
-            $xmlContent = file_get_contents($qgisPath);
-            $xml = simplexml_load_string($xmlContent);
-
-            if (!$xml) {
-                lizmap::getLogger()->warning('generateAtlasFilename: Could not parse QGIS project XML');
-
-                return null;
-            }
-            lizmap::getLogger()->debug('generateAtlasFilename: Got QGIS project XML');
-        } catch (Exception $e) {
-            lizmap::getLogger()->error('generateAtlasFilename: Exception reading QGIS project: '.$e->getMessage());
+        // The feature ID is used in an expression filter
+        if (!preg_match('/^-?\d+$/', $featureId)) {
+            lizmap::getLogger()->debug('generateAtlasFilename: Feature ID is not an integer');
 
             return null;
         }
 
-        // Find the Layout (print template) with the given name
-        $layouts = $xml->xpath("//Layout[@name='{$template}']");
-        lizmap::getLogger()->debug('generateAtlasFilename: Found '.count($layouts)." layout(s) with name '{$template}'");
-        if (empty($layouts)) {
+        // Get atlas configuration from the print template already read from the QGIS project
+        $printTemplate = $this->project->getPrintTemplate($template);
+        if (!$printTemplate) {
             lizmap::getLogger()->debug("generateAtlasFilename: No layout found with name '{$template}'");
 
             return null;
         }
 
-        $layout = $layouts[0];
-
-        // Get atlas configuration from the layout
-        $atlasElements = $layout->xpath('.//Atlas');
-        lizmap::getLogger()->debug('generateAtlasFilename: Found '.count($atlasElements).' atlas element(s) in layout');
-        if (empty($atlasElements)) {
+        if (!isset($printTemplate['atlas'])) {
             lizmap::getLogger()->debug('generateAtlasFilename: No atlas configuration found in layout');
 
             return null;
         }
 
-        $atlas = $atlasElements[0];
+        $atlas = $printTemplate['atlas'];
         lizmap::getLogger()->debug('generateAtlasFilename: Processing atlas element');
 
         // Check if atlas is enabled
-        if (!isset($atlas['enabled']) || ($atlas['enabled'] != '1' && $atlas['enabled'] !== true)) {
+        if (empty($atlas['enabled'])) {
             lizmap::getLogger()->debug('generateAtlasFilename: Atlas is not enabled');
 
             return null;
@@ -894,18 +885,16 @@ class serviceCtrl extends jController
         lizmap::getLogger()->debug('generateAtlasFilename: filenamePattern: '.($filenamePattern ?: 'NULL'));
         lizmap::getLogger()->debug('generateAtlasFilename: pageNameExpression: '.($pageNameExpression ?: 'NULL'));
 
-        if (!$filenamePattern || !$pageNameExpression) {
-            lizmap::getLogger()->debug('generateAtlasFilename: Missing filenamePattern or pageNameExpression');
+        if (!$filenamePattern) {
+            lizmap::getLogger()->debug('generateAtlasFilename: Missing filenamePattern');
 
             return null;
         }
 
         // Get the coverage layer ID from atlas config and use it to get layer config
         $coverageLayerId = isset($atlas['coverageLayer']) ? (string) $atlas['coverageLayer'] : null;
-        $coverageLayerName = isset($atlas['coverageLayerName']) ? (string) $atlas['coverageLayerName'] : null;
 
         lizmap::getLogger()->debug('generateAtlasFilename: Coverage Layer ID: '.($coverageLayerId ?: 'NULL'));
-        lizmap::getLogger()->debug('generateAtlasFilename: Coverage Layer Name: '.($coverageLayerName ?: 'NULL'));
 
         if (!$coverageLayerId) {
             lizmap::getLogger()->debug('generateAtlasFilename: No coverageLayer in atlas config');
@@ -915,78 +904,40 @@ class serviceCtrl extends jController
 
         // Get the layer config using the coverage layer ID from atlas
         $layerConfig = $this->project->getLayer($coverageLayerId);
-        if (!$layerConfig) {
-            lizmap::getLogger()->warning("generateAtlasFilename: Layer config not found for coverage layer ID '{$coverageLayerId}'");
+        if (!$layerConfig instanceof qgisVectorLayer) {
+            lizmap::getLogger()->warning("generateAtlasFilename: Vector layer not found for coverage layer ID '{$coverageLayerId}'");
 
             return null;
         }
         lizmap::getLogger()->debug('generateAtlasFilename: Got layer config from coverage layer ID');
 
-        // Fetch feature data via WFS to get the attribute value
+        // Evaluate the filename pattern with QGIS Server for the requested feature
         try {
-            // Use the built-in method to get the WFS typename
-            // This will use shortname if available (e.g., "Flurstucke"), otherwise name
-            /** @var qgisVectorLayer $layerConfig */
-            $typename = $layerConfig->getWfsTypeName();
-            lizmap::getLogger()->debug("generateAtlasFilename: WFS typename: {$typename}");
-
-            // FEATUREID format must be typename.id for WFS
-            $wfsFeatureId = $typename.'.'.$featureId;
-            lizmap::getLogger()->debug("generateAtlasFilename: WFS FeatureID: {$wfsFeatureId}");
-
-            $wfsParams = array(
-                'SERVICE' => 'WFS',
-                'VERSION' => '1.0.0',
-                'REQUEST' => 'GetFeature',
-                'TYPENAME' => $typename,
-                'OUTPUTFORMAT' => 'GeoJSON',
-                'FEATUREID' => $wfsFeatureId,
+            $expression = qgisExpressionUtils::replaceAtlasVariables(
+                $filenamePattern,
+                $pageNameExpression,
+                $coverageLayerId,
+                $layerConfig->getName()
             );
+            lizmap::getLogger()->debug("generateAtlasFilename: Expression to evaluate: {$expression}");
 
-            lizmap::getLogger()->debug('generateAtlasFilename: WFS request TYPENAME='.$typename.' FEATUREID='.$wfsFeatureId);
-
-            $wfsRequest = new WFSRequest(
-                $this->project,
-                $wfsParams,
-                lizmap::getServices()
+            $features = qgisExpressionUtils::virtualFields(
+                $layerConfig,
+                array('filename' => $expression),
+                '$id = '.$featureId,
+                'true',
+                '',
+                1
             );
-
-            $wfsResult = $wfsRequest->process();
-            $geojsonString = $wfsResult->getBodyAsString();
-            lizmap::getLogger()->debug('generateAtlasFilename: WFS response length: '.strlen($geojsonString));
-
-            $geojson = json_decode($geojsonString, true);
-
-            if (!$geojson || !isset($geojson['features']) || count($geojson['features']) === 0) {
-                lizmap::getLogger()->warning('generateAtlasFilename: No features returned from WFS');
-                lizmap::getLogger()->debug('generateAtlasFilename: GeoJSON response: '.substr($geojsonString, 0, 500));
+            if (!$features || !isset($features[0]->properties->filename)) {
+                lizmap::getLogger()->warning('generateAtlasFilename: Filename expression could not be evaluated');
 
                 return null;
             }
 
-            lizmap::getLogger()->debug('generateAtlasFilename: Got '.count($geojson['features']).' feature(s) from WFS');
-
-            $feature = $geojson['features'][0];
-            $properties = $feature['properties'];
-            lizmap::getLogger()->debug('generateAtlasFilename: Feature properties: '.implode(', ', array_keys($properties)));
-
-            // Clean up the page name expression (remove quotes)
-            $pageNameField = str_replace('"', '', $pageNameExpression);
-            lizmap::getLogger()->debug("generateAtlasFilename: Looking for field: '{$pageNameField}'");
-
-            if (!isset($properties[$pageNameField])) {
-                lizmap::getLogger()->warning("generateAtlasFilename: Field '{$pageNameField}' not found in feature properties");
-                lizmap::getLogger()->debug('generateAtlasFilename: Available fields: '.implode(', ', array_keys($properties)));
-
-                return null;
-            }
-
-            $pageNameValue = $properties[$pageNameField];
-            lizmap::getLogger()->debug("generateAtlasFilename: Page name value: '{$pageNameValue}'");
-
-            // Evaluate the filename pattern
-            // Replace @atlas_pagename with the actual value
-            $evaluatedFilename = $this->evaluateAtlasFilenamePattern($filenamePattern, $pageNameValue);
+            // Sanitize filename - remove/replace unsafe characters
+            $evaluatedFilename = trim((string) $features[0]->properties->filename);
+            $evaluatedFilename = preg_replace('/[\x00-\x1F<>:"\/\\\|?*]/', '_', $evaluatedFilename);
             lizmap::getLogger()->debug("generateAtlasFilename: Evaluated filename: '{$evaluatedFilename}'");
 
             if ($evaluatedFilename) {
@@ -1009,48 +960,6 @@ class serviceCtrl extends jController
         lizmap::getLogger()->debug('generateAtlasFilename: Reached end of function without generating filename');
 
         return null;
-    }
-
-    /**
-     * Evaluate atlas filename pattern with feature data.
-     *
-     * @param string $pattern  The filename pattern (e.g., "'Flstk_'||replace(@atlas_pagename ,'/','-')")
-     * @param string $pageName The page name value from the feature
-     *
-     * @return null|string The evaluated filename or null if cannot evaluate
-     */
-    protected function evaluateAtlasFilenamePattern($pattern, $pageName)
-    {
-        // Simple evaluation for common patterns
-        // This handles: 'Flstk_'||replace(@atlas_pagename ,'/','-')
-
-        // Replace @atlas_pagename with actual value
-        $evaluated = $pattern;
-
-        // Handle replace() function: replace(@atlas_pagename, '/', '-')
-        if (preg_match('/replace\s*\(\s*@atlas_pagename\s*,\s*[\'"]([^\'"]*)[\'"],\s*[\'"]([^\'"]*)[\'"].*\)/i', $evaluated, $matches)) {
-            $searchStr = $matches[1];
-            $replaceStr = $matches[2];
-            $replacedValue = str_replace($searchStr, $replaceStr, $pageName);
-            $evaluated = preg_replace('/replace\s*\([^)]+\)/i', "'{$replacedValue}'", $evaluated);
-        } else {
-            // Simple replacement without replace() function
-            $evaluated = str_replace('@atlas_pagename', "'{$pageName}'", $evaluated);
-        }
-
-        // Handle string concatenation with ||
-        $evaluated = preg_replace('/\'\s*\|\|\s*\'/', '', $evaluated);
-
-        // Remove remaining quotes
-        $evaluated = str_replace("'", '', $evaluated);
-
-        // Clean up the filename
-        $evaluated = trim($evaluated);
-
-        // Sanitize filename - remove/replace unsafe characters
-        $evaluated = preg_replace('/[<>:"|?*]/', '_', $evaluated);
-
-        return $evaluated ?: null;
     }
 
     /**

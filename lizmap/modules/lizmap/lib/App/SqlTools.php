@@ -15,6 +15,7 @@ namespace Lizmap\App;
 
 class SqlTools
 {
+    public const PARSER_STATE_BETWEEN_TOKENS = 0;
     public const PARSER_STATE_BETWEEN_PARAMETERS = 0;
     public const PARSER_STATE_PARAM_NAME = 1;
     public const PARSER_STATE_PARAM_EQUAL = 2;
@@ -26,24 +27,9 @@ class SqlTools
     public const PARSER_STATE_TABLE_NAME = 8;
     public const PARSER_STATE_TABLE_SQL = 9;
     public const PARSER_STATE_SQL_VALUE = 10;
-
-    protected static $blockSqlWords = array(
-        ';',
-        'select',
-        'delete',
-        'insert',
-        'update',
-        'drop',
-        'alter',
-        '--',
-        'truncate',
-        'vacuum',
-        'create',
-        'reindex',
-        'grant',
-        'revoke',
-        '/*',
-    );
+    public const PARSER_STATE_STRING_VALUE = 11;
+    public const PARSER_STATE_COMMENT_SQL_1 = 12;
+    public const PARSER_STATE_COMMENT_SQL_2 = 13;
 
     /**
      * QGIS geometry predicate functions mapped to their PostGIS ST_* equivalents.
@@ -63,18 +49,589 @@ class SqlTools
     );
 
     /**
-     * Validate an expression filter.
-     *
-     * @param string $filter The expression filter to validate
-     *
-     * @return array{0: bool, 1: list<string>} returns if the expression does not contains dangerous chars, and the list of blocked items
+     * Allowed SQL tokens.
+     * Please only in lowercase.
      */
-    public static function validateExpressionFilter(string $filter): array
-    {
-        $block_items = array();
-        $pattern = '#'.implode('|', array_map(fn ($w): string => preg_quote($w, '#'), static::$blockSqlWords)).'#i';
+    protected const ALLOWED_SQL_TOKENS = array(
 
-        return array(!preg_match($pattern, $filter, $block_items), $block_items);
+        // operators
+        ',', '=', '<', '>', '<=', '>=', '!=',
+        'is',
+        'not',
+        'null',
+        'and',
+        'or',
+        'in',
+        'like',
+        'ilike',
+        'as',
+        'case',
+        'when',
+        'then',
+        'else',
+        'end',
+        'between',
+        'dmetaphone',
+        'soundex',
+
+        // QGIS Expression tokens
+        '$id',
+        '$geometry',
+        '$area',
+        '$length',
+
+        // Lizmap tokens
+        '@lizmap_user',
+        '@lizmap_user_groups',
+
+        // Spatial functions
+        'st_intersects',
+        'st_contains',
+        'st_within',
+        'st_crosses',
+        'st_overlaps',
+        'st_touches',
+        'st_disjoint',
+        'st_geomfromgml',
+        'st_geomfromtext',
+        'st_geomfromwkb',
+        'st_geomfromewkb',
+        'st_geomfromewkt',
+        'st_geomfromgeojson',
+        'st_geomfromkml',
+        'st_makepoint',
+        'st_makeline',
+        'st_makepolygon',
+        'st_makeenvelope',
+        'st_buffer',
+        'st_transform',
+        'st_setsrid',
+        'st_srid',
+        'st_astext',
+        'st_asbinary',
+        'st_asewkt',
+        'st_asewkb',
+        'st_asgeojson',
+        'st_askml',
+        'st_asgml',
+        'st_distance',
+        'st_length',
+        'st_area',
+        'st_area2d',
+        'st_intersection',
+        'st_union',
+        'st_difference',
+        'st_symdifference',
+        'st_convexhull',
+        'st_envelope',
+        'st_centroid',
+        'st_x',
+        'st_y',
+        'st_exteriorring',
+        'st_interiorringn',
+        'st_numinteriorrings',
+        'st_numgeometries',
+        'st_geometryn',
+
+        // QGIS Expression functions, used by the filters built by the web client,
+        // e.g. the selection tool, which are also sent to QGIS Server.
+        // When the filter is run as SQL by Lizmap, translateExpressionToPostgis()
+        // translates the spatial predicates and geom_from_gml to their PostGIS
+        // ST_* equivalents, and $geometry to the geometry column.
+        'buffer',
+        'distance',
+        'area',
+        'length',
+        'intersects',
+        'contains',
+        'within',
+        'crosses',
+        'overlaps',
+        'touches',
+        'disjoint',
+        'geom_from_gml',
+
+        // String functions
+        'length',
+        'lower',
+        'upper',
+        'trim',
+        'ltrim',
+        'rtrim',
+        'substring',
+        'position',
+        'replace',
+        'concat',
+        'left',
+        'right',
+        'initcap',
+
+        // Date and time functions
+        'now',
+        'current_date',
+        'current_time',
+        'current_timestamp',
+        'extract',
+        'date_part',
+        'date_trunc',
+        'age',
+        'to_date',
+
+        // Miscellaneous functions
+        'coalesce',
+        'nullif',
+    );
+
+    /**
+     * Tokens of the QGIS expressions without risk, added to the whitelist for the
+     * expressions evaluated only by QGIS Server, e.g. the filter of the features table.
+     *
+     * Only operators and functions using the values of the current feature are listed:
+     * no function reading other layers, the project, the files or the server environment.
+     * A more complex expression can be used in a virtual field of the layer.
+     *
+     * These tokens are not added to ALLOWED_SQL_TOKENS: they are not valid in the SQL
+     * run by Lizmap, e.g. the WFS filter queried directly in the database, which would
+     * fail instead of being sent to QGIS Server, or the filter of the filter module.
+     * Please only in lowercase.
+     */
+    public const QGIS_EXPRESSION_TOKENS = array(
+        // Operators
+        '<>', '||', '+', '-', '*', '/', '%', '~',
+
+        // Booleans
+        'true', 'false',
+
+        // Conditionals
+        'if', 'try',
+
+        // Conversions
+        'to_string', 'to_int', 'to_real', 'to_date', 'to_datetime', 'to_time',
+
+        // Strings
+        'substr', 'strpos', 'title', 'lpad', 'rpad',
+        'regexp_match', 'regexp_replace', 'regexp_substr',
+
+        // Mathematics
+        'abs', 'round', 'floor', 'ceil', 'min', 'max',
+
+        // Dates
+        'year', 'month', 'week', 'day', 'hour', 'minute', 'second', 'day_of_week', 'format_date',
+
+        // Arrays
+        'array', 'array_contains', 'array_length', 'array_to_string', 'string_to_array',
+
+        // Current feature
+        'attribute', '$x', '$y', 'x', 'y', 'perimeter', 'centroid', 'geom_from_wkt', 'geom_to_wkt',
+    );
+
+    /**
+     * Allowed SQL tokens which are keywords, not column names, when they are
+     * not followed by an opening parenthesis.
+     * Please only in lowercase.
+     */
+    protected const SQL_KEYWORDS = array(
+        'is', 'not', 'null', 'and', 'or', 'in', 'like', 'ilike', 'as',
+        'case', 'when', 'then', 'else', 'end', 'between',
+        'current_date', 'current_time', 'current_timestamp',
+    );
+
+    /**
+     * Regular expression of a numeric literal, without delimiters.
+     */
+    protected const NUMERIC_LITERAL_PATTERN = '[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?';
+
+    /**
+     * Split a SQL string into tokens.
+     *
+     * The string is split on the syntactic elements: numeric literals,
+     * operators, punctuation, comments, quotes and whitespace,
+     * which are kept as tokens.
+     *
+     * @param string $sql the SQL string
+     *
+     * @return string[] the tokens
+     *
+     * @throws \InvalidArgumentException if the string cannot be split
+     */
+    protected static function tokenizeSQLString(string $sql): array
+    {
+        // split the SQL string into tokens using regular expression. Splitting is made on syntaxic elements
+        $tokens = preg_split('#('
+            .self::NUMERIC_LITERAL_PATTERN
+            .'|!=|<=|>=|<>|==|\|\||->>|->' // Composed operators
+            .'|--|\r\n|\r|\n|/\*|\*/' // comments
+            .'|[;:.,()=<>%\'"+*\-/!|&^~?\[\]{}]' // Simple operators, ponctuations, Parentheses, brackets
+            .'|[ \t]+)#u', $sql, -1, PREG_SPLIT_DELIM_CAPTURE | PREG_SPLIT_NO_EMPTY);
+
+        if ($tokens === false) {
+            throw new \InvalidArgumentException('Unable to tokenize SQL filter');
+        }
+
+        return $tokens;
+    }
+
+    /**
+     * Get the next significant token of a list of SQL tokens.
+     *
+     * The whitespaces, line breaks and comments are skipped, as done by the
+     * databases. A block comment ends at the first closing mark, as in SQLite
+     * and in parseAndValidateSQLString(): with the nested comments of PostgreSQL,
+     * the extra closing mark is then rejected by the whitelist.
+     *
+     * @param string[] $tokens the tokens returned by tokenizeSQLString()
+     * @param int      $start  the index of the first token to look at
+     *
+     * @return null|string the next significant token, or null if there is none
+     */
+    protected static function getNextSignificantToken(array $tokens, int $start): ?string
+    {
+        $count = count($tokens);
+        $inBlockComment = false;
+        $inLineComment = false;
+
+        for ($k = $start; $k < $count; ++$k) {
+            $token = $tokens[$k];
+            $isLineBreak = ($token === "\n" || $token === "\r" || $token === "\r\n");
+
+            // Inside a line comment, until the end of the line
+            if ($inLineComment) {
+                if ($isLineBreak) {
+                    $inLineComment = false;
+                }
+
+                continue;
+            }
+
+            // Inside a block comment, until the first closing mark
+            if ($inBlockComment) {
+                if ($token === '*/') {
+                    $inBlockComment = false;
+                }
+
+                continue;
+            }
+
+            // Start of a comment
+            if ($token === '--') {
+                $inLineComment = true;
+
+                continue;
+            }
+            if ($token === '/*') {
+                $inBlockComment = true;
+
+                continue;
+            }
+
+            // Whitespaces and line breaks
+            if ($isLineBreak || trim($token, " \t") === '') {
+                continue;
+            }
+
+            return $token;
+        }
+
+        return null;
+    }
+
+    /**
+     * Get the column names referenced by a SQL filter.
+     *
+     * The filter must have been validated with parseAndValidateSQLString().
+     * The column names are the double-quoted identifiers, and the bare words
+     * which are neither SQL keywords nor function calls, nor QGIS or Lizmap
+     * variables like $geometry or @lizmap_user, e.g. "age" in "age > 3".
+     * The bare words are returned in lowercase, as the database folds them.
+     * Strings and comments are ignored.
+     *
+     * @param string $sql the validated SQL filter
+     *
+     * @return string[] the unique column names
+     *
+     * @throws \InvalidArgumentException if the string cannot be split
+     */
+    public static function getSQLStringColumnNames(string $sql): array
+    {
+        $tokens = self::tokenizeSQLString($sql);
+        $count = count($tokens);
+        $columns = array();
+        $state = self::PARSER_STATE_BETWEEN_TOKENS;
+        $identifier = '';
+
+        for ($k = 0; $k < $count; ++$k) {
+            $token = $tokens[$k];
+
+            switch ($state) {
+                case self::PARSER_STATE_BETWEEN_TOKENS:
+                    // Start of a string, an identifier or a comment
+                    if ($token === "'") {
+                        $state = self::PARSER_STATE_STRING_VALUE;
+                    } elseif ($token === '"') {
+                        $state = self::PARSER_STATE_TABLE_NAME;
+                        $identifier = '';
+                    } elseif ($token === '--') {
+                        $state = self::PARSER_STATE_COMMENT_SQL_1;
+                    } elseif ($token === '/*') {
+                        $state = self::PARSER_STATE_COMMENT_SQL_2;
+                    } elseif (preg_match('/^[a-z_][a-z0-9_]*$/i', $token)
+                        && !in_array(strtolower($token), self::SQL_KEYWORDS, true)) {
+                        // A bare word is a column name, unless it is a function call
+                        $next = $k + 1;
+                        while ($next < $count && trim($tokens[$next], " \t\r\n") === '') {
+                            ++$next;
+                        }
+                        if ($next >= $count || $tokens[$next] !== '(') {
+                            $columns[] = strtolower($token);
+                        }
+                    }
+
+                    break;
+
+                case self::PARSER_STATE_STRING_VALUE:
+                    // Skip the escaped quotes '' and stop at the closing quote
+                    if ($token === "'") {
+                        if (isset($tokens[$k + 1]) && $tokens[$k + 1] === "'") {
+                            ++$k;
+                        } else {
+                            $state = self::PARSER_STATE_BETWEEN_TOKENS;
+                        }
+                    }
+
+                    break;
+
+                case self::PARSER_STATE_TABLE_NAME:
+                    // Unescape the double quotes "" and stop at the closing quote
+                    if ($token === '"') {
+                        if (isset($tokens[$k + 1]) && $tokens[$k + 1] === '"') {
+                            $identifier .= '"';
+                            ++$k;
+                        } else {
+                            $columns[] = $identifier;
+                            $state = self::PARSER_STATE_BETWEEN_TOKENS;
+                        }
+                    } else {
+                        $identifier .= $token;
+                    }
+
+                    break;
+
+                case self::PARSER_STATE_COMMENT_SQL_1:
+                    if ($token === "\n" || $token === "\r" || $token === "\r\n") {
+                        $state = self::PARSER_STATE_BETWEEN_TOKENS;
+                    }
+
+                    break;
+
+                case self::PARSER_STATE_COMMENT_SQL_2:
+                    if ($token === '*/') {
+                        $state = self::PARSER_STATE_BETWEEN_TOKENS;
+                    }
+
+                    break;
+            }
+        }
+
+        return array_values(array_unique($columns));
+    }
+
+    /**
+     * Parse and validate the provided SQL query string against the defined whitelist of tokens and functions.
+     *
+     * The column names are accepted without double quotes, but not as a function, followed
+     * by an opening parenthesis: a column with the name of a function, e.g. env, does not
+     * allow this function.
+     *
+     * @param string   $sql              the SQL query string to be parsed and validated
+     * @param array    $allowedSqlTokens allowed SQL tokens to be merged with the default whitelist
+     * @param string[] $columnNames      column names allowed without double quotes, not as functions
+     *
+     * @return bool true when no exceptions
+     *
+     * @throws \Exception if the SQL query contains disallowed tokens, functions, or syntax errors
+     */
+    public static function parseAndValidateSQLString(string $sql, array $allowedSqlTokens = array(), array $columnNames = array()): bool
+    {
+        $columnNames = array_map('strtolower', $columnNames);
+        $numericLiteral = self::NUMERIC_LITERAL_PATTERN;
+        $tokens = self::tokenizeSQLString($sql);
+
+        $state = self::PARSER_STATE_BETWEEN_TOKENS;
+
+        if (count($allowedSqlTokens)) {
+            $whitelistWords = array_unique(array_merge(self::ALLOWED_SQL_TOKENS, array_map('strtolower', $allowedSqlTokens)));
+        } else {
+            $whitelistWords = self::ALLOWED_SQL_TOKENS;
+        }
+
+        $openedParenthesis = 0;
+        $escapedSingleQuote = false;
+        $escapedDoubleQuote = false;
+        $numericLiteralPattern = '/^'.$numericLiteral.'$/';
+        foreach ($tokens as $k => $token) {
+
+            switch ($state) {
+                case self::PARSER_STATE_BETWEEN_TOKENS:
+                    if ($token[0] == ' ' || $token[0] == "\t") {
+                        break;
+
+                    }
+                    if ($token == ';') {
+                        throw new \Exception('forbidden semi-colon');
+                    }
+
+                    if ($token == "'") {
+                        $state = self::PARSER_STATE_STRING_VALUE;
+
+                        break;
+                    }
+                    if ($token == '"') {
+                        $state = self::PARSER_STATE_TABLE_NAME;
+
+                        break;
+                    }
+
+                    if ($token == '--') {
+                        $state = self::PARSER_STATE_COMMENT_SQL_1;
+
+                        break;
+                    }
+                    if ($token == '/*') {
+                        $state = self::PARSER_STATE_COMMENT_SQL_2;
+
+                        break;
+                    }
+
+                    if ($token == '(') {
+                        ++$openedParenthesis;
+                    } elseif ($token == ')') {
+                        --$openedParenthesis;
+                        if ($openedParenthesis < 0) {
+                            throw new \Exception('SQL parser - Unmatched closing parenthesis');
+                        }
+                    } elseif (
+                        !preg_match($numericLiteralPattern, $token)
+                        && !in_array(strtolower($token), $whitelistWords, true)
+                    ) {
+                        // A column name is accepted, but not as a function
+                        if (!in_array(strtolower($token), $columnNames, true)) {
+                            throw new \Exception('Forbidden keyword or syntax element: '.$token);
+                        }
+                        if (self::getNextSignificantToken($tokens, $k + 1) === '(') {
+                            throw new \Exception('SQL parser - A column name can not be used as a function: '.$token);
+                        }
+                    }
+
+                    break;
+
+                case self::PARSER_STATE_STRING_VALUE:
+                    if ($escapedSingleQuote) {
+                        // This is the second quote in an escaped SQL quote: ''
+                        if ($token !== "'") {
+                            throw new \Exception('SQL parser - Invalid escaped single quote');
+                        }
+                        $escapedSingleQuote = false;
+
+                        break;
+                    }
+
+                    if ($token === "'") {
+                        if (isset($tokens[$k + 1]) && $tokens[$k + 1] === "'") {
+                            // The next quote is part of the escaped quote pair.
+                            $escapedSingleQuote = true;
+                        } else {
+                            // This is the closing quote.
+                            $state = self::PARSER_STATE_BETWEEN_TOKENS;
+                        }
+                    }
+
+                    break;
+
+                case self::PARSER_STATE_TABLE_NAME:
+                    if ($escapedDoubleQuote) {
+                        // This is the second quote in an escaped SQL double quote: ""
+                        if ($token !== '"') {
+                            throw new \Exception('SQL parser - Invalid escaped double quote');
+                        }
+                        $escapedDoubleQuote = false;
+
+                        break;
+                    }
+
+                    if ($token === '"') {
+                        if (isset($tokens[$k + 1]) && $tokens[$k + 1] === '"') {
+                            // The next quote is part of the escaped quote pair.
+                            $escapedDoubleQuote = true;
+                        } else {
+                            // This is the closing quote.
+                            // A double quoted identifier followed by a parenthesis is a function call
+                            // in the databases: any function could be called, bypassing the whitelist
+                            if (self::getNextSignificantToken($tokens, $k + 1) === '(') {
+                                throw new \Exception('SQL parser - A double quoted identifier can not be used as a function');
+                            }
+                            $state = self::PARSER_STATE_BETWEEN_TOKENS;
+                        }
+                    }
+
+                    break;
+
+                case self::PARSER_STATE_COMMENT_SQL_1:
+                    // The comment ends at the end of the line, as in the databases
+                    if ($token === "\n" || $token === "\r" || $token === "\r\n") {
+                        $state = self::PARSER_STATE_BETWEEN_TOKENS;
+                    }
+
+                    break;
+
+                case self::PARSER_STATE_COMMENT_SQL_2:
+                    if ($token == '*/') {
+                        $state = self::PARSER_STATE_BETWEEN_TOKENS;
+                    }
+
+                    break;
+            }
+        }
+        if ($openedParenthesis > 0) {
+            throw new \Exception("SQL parser - Unmatched parenthesis. Missing {$openedParenthesis} closing parenthesis(es)");
+        }
+        if ($state != self::PARSER_STATE_BETWEEN_TOKENS && $state != self::PARSER_STATE_COMMENT_SQL_1) {
+            $reason = '';
+            if ($state == self::PARSER_STATE_COMMENT_SQL_2) {
+                $reason = ': Comment not closed';
+            } elseif ($state == self::PARSER_STATE_TABLE_NAME) {
+                $reason = ': Double quoted string not closed';
+            } elseif ($state == self::PARSER_STATE_STRING_VALUE) {
+                $reason = ': Single quoted string not closed';
+            }
+
+            throw new \Exception('SQL parser - Syntax error'.$reason);
+        }
+
+        return true;
+    }
+
+    /**
+     * Validate if the given string is valid.
+     *
+     * The string is checked against the whitelist of tokens, extended with the
+     * given tokens, e.g. the QGIS expression tokens, and with the unquoted column
+     * names, e.g. the field names of a layer, which can not be used as functions.
+     *
+     * @param string   $sql              The SQL string to test
+     * @param string[] $allowedSqlTokens Allowed SQL tokens to be merged with the default whitelist
+     * @param string[] $columnNames      Column names allowed without double quotes, not as functions
+     *
+     * @return bool True if the SQL string is valid
+     */
+    public static function validateExpressionFilter(string $sql, array $allowedSqlTokens = array(), array $columnNames = array()): bool
+    {
+        try {
+            self::parseAndValidateSQLString($sql, $allowedSqlTokens, $columnNames);
+        } catch (\Exception $e) {
+            return false;
+        }
+
+        return true;
     }
 
     /**

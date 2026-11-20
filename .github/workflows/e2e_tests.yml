@@ -146,7 +146,7 @@ jobs:
           sudo echo "127.0.0.1 othersite.local" | sudo tee -a /etc/hosts
 
       - name: "Setup Node.js (from .nvmrc)"
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version-file: '.nvmrc'
           cache: 'npm'
@@ -159,7 +159,11 @@ jobs:
 
       - name: Run BATS tests
         # BATS tests are shard-independent; run them once per config (first shard).
+        # continue-on-error: a BATS failure must not prevent the Playwright tests
+        # below from running.
+        id: bats-tests
         if: matrix.shard == 1
+        continue-on-error: true
         working-directory: ./
         run: |
           npm run bats
@@ -183,7 +187,7 @@ jobs:
           npx playwright install --with-deps chromium
 
       - name: Install Playwright dependencies
-        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         working-directory: tests/end2end
         run: |
           npx playwright install-deps
@@ -323,7 +327,7 @@ jobs:
           steps.test-playwright-read-only.outcome != 'success' ||
           steps.test-playwright-no-tag.outcome != 'success' ||
           steps.test-playwright-write.outcome != 'success'
-        uses: ctrf-io/github-test-reporter@v1.1.0
+        uses: ctrf-io/github-test-reporter@v1.3.0
         env:
           GITHUB_TOKEN: ${{ secrets.BOT_HUB_TOKEN || github.token  }}
         with:
@@ -377,3 +381,9 @@ jobs:
       - name: Database diff check after readonly tests
         run:
           exit ${{ env.db_diff }}
+
+      - name: Fail the job if BATS tests failed
+        if: steps.bats-tests.outcome == 'failure'
+        run: |
+          echo "::error BATS tests failed earlier in this job (see 'Run BATS tests' step)"
+          exit 1

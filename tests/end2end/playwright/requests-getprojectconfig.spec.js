@@ -284,7 +284,18 @@ test.describe('Request Lizmap GetProjectConfig - anonymous - @requests @readonly
 
         expect(body.tooltipLayers).toEqual({});
 
-        expect(body.formFilterLayers).toEqual({});
+        // The form filter is configured to test the filter service
+        expect(body.formFilterLayers).toEqual({
+            '0': {
+                layerId: 'filter_layer_by_user_8bd3128f_2cad_4121_b5f9_0b6f6118e2f0',
+                provider: 'postgres',
+                title: 'User',
+                type: 'uniquevalues',
+                field: 'user',
+                format: 'checkboxes',
+                order: 0,
+            },
+        });
 
         expect(body.datavizLayers.locale).not.toEqual('');
         expect(body.datavizLayers.layers).toEqual([]);
@@ -354,7 +365,18 @@ test.describe('Request Lizmap GetProjectConfig - anonymous - @requests @readonly
 
         expect(body.tooltipLayers).toEqual({});
 
-        expect(body.formFilterLayers).toEqual({});
+        // The form filter is configured to test the filter service
+        expect(body.formFilterLayers).toEqual({
+            '0': {
+                layerId: 'shop_bakery_pg_403084fe_041d_4ede_a2dc_cd9866a53623',
+                provider: 'postgres',
+                title: 'Name',
+                type: 'uniquevalues',
+                field: 'name',
+                format: 'checkboxes',
+                order: 0,
+            },
+        });
 
         expect(body.datavizLayers.locale).not.toEqual('');
         expect(body.datavizLayers.layers).toEqual([]);
@@ -585,8 +607,8 @@ test.describe('Request Lizmap GetProjectConfig - anonymous - @requests @readonly
             height: 210,
             maps: [{
                 id: 'map0',
-                width: 227,
-                height: 150,
+                width: 227.427,
+                height: 150.174,
                 grid: false,
                 overviewMap: null,
             }],
@@ -609,14 +631,14 @@ test.describe('Request Lizmap GetProjectConfig - anonymous - @requests @readonly
             height: 210,
             maps: [{
                 id: 'map0',
-                width: 46,
-                height: 44,
+                width: 46.6875,
+                height: 44.4101,
                 grid: false,
                 overviewMap: body.printTemplates[1].maps[1].uuid,
             },{
                 id: 'map1',
-                width: 253,
-                height: 171,
+                width: 253.649,
+                height: 171.946,
                 grid: false,
                 overviewMap: null,
             }],
@@ -631,8 +653,8 @@ test.describe('Request Lizmap GetProjectConfig - anonymous - @requests @readonly
             height: 210,
             maps: [{
                 id: 'map0',
-                width: 98,
-                height: 152,
+                width: 98.1905,
+                height: 152.34,
                 grid: false,
                 overviewMap: null,
             }],
@@ -647,8 +669,8 @@ test.describe('Request Lizmap GetProjectConfig - anonymous - @requests @readonly
             height: 210,
             maps: [{
                 id: 'map0',
-                width: 236,
-                height: 156,
+                width: 236.09,
+                height: 156.671,
                 grid: false,
                 overviewMap: null,
             }],
@@ -664,8 +686,8 @@ test.describe('Request Lizmap GetProjectConfig - anonymous - @requests @readonly
             height: 210,
             maps: [{
                 id: 'map0',
-                width: 230,
-                height: 147,
+                width: 230.314,
+                height: 147.285,
                 grid: false,
                 overviewMap: null,
             }],
@@ -836,7 +858,18 @@ test.describe('Request Lizmap GetProjectConfig - admin - @requests @readonly', (
 
         expect(body.tooltipLayers).toEqual({});
 
-        expect(body.formFilterLayers).toEqual({});
+        // The form filter is configured to test the filter service
+        expect(body.formFilterLayers).toEqual({
+            '0': {
+                layerId: 'filter_layer_by_user_8bd3128f_2cad_4121_b5f9_0b6f6118e2f0',
+                provider: 'postgres',
+                title: 'User',
+                type: 'uniquevalues',
+                field: 'user',
+                format: 'checkboxes',
+                order: 0,
+            },
+        });
 
         expect(body.datavizLayers.locale).not.toEqual('');
         expect(body.datavizLayers.layers).toEqual([]);
@@ -906,7 +939,18 @@ test.describe('Request Lizmap GetProjectConfig - admin - @requests @readonly', (
 
         expect(body.tooltipLayers).toEqual({});
 
-        expect(body.formFilterLayers).toEqual({});
+        // The form filter is configured to test the filter service
+        expect(body.formFilterLayers).toEqual({
+            '0': {
+                layerId: 'shop_bakery_pg_403084fe_041d_4ede_a2dc_cd9866a53623',
+                provider: 'postgres',
+                title: 'Name',
+                type: 'uniquevalues',
+                field: 'name',
+                format: 'checkboxes',
+                order: 0,
+            },
+        });
 
         expect(body.datavizLayers.locale).not.toEqual('');
         expect(body.datavizLayers.layers).toEqual([]);
@@ -964,8 +1008,8 @@ test.describe('Request Lizmap GetProjectConfig - admin - @requests @readonly', (
             height: 210,
             maps: [{
                 id: 'map0',
-                width: 227,
-                height: 150,
+                width: 227.427,
+                height: 150.174,
                 grid: false,
                 overviewMap: null,
             }],
@@ -988,14 +1032,14 @@ test.describe('Request Lizmap GetProjectConfig - admin - @requests @readonly', (
             height: 210,
             maps: [{
                 id: 'map0',
-                width: 46,
-                height: 44,
+                width: 46.6875,
+                height: 44.4101,
                 grid: false,
                 overviewMap: body.printTemplates[1].maps[1].uuid,
             },{
                 id: 'map1',
-                width: 253,
-                height: 171,
+                width: 253.649,
+                height: 171.946,
                 grid: false,
                 overviewMap: null,
             }],
@@ -1010,8 +1054,8 @@ test.describe('Request Lizmap GetProjectConfig - admin - @requests @readonly', (
             height: 210,
             maps: [{
                 id: 'map0',
-                width: 98,
-                height: 152,
+                width: 98.1905,
+                height: 152.34,
                 grid: false,
                 overviewMap: null,
             }],
@@ -1026,8 +1070,8 @@ test.describe('Request Lizmap GetProjectConfig - admin - @requests @readonly', (
             height: 210,
             maps: [{
                 id: 'map0',
-                width: 236,
-                height: 156,
+                width: 236.09,
+                height: 156.671,
                 grid: false,
                 overviewMap: null,
             }],
@@ -1043,8 +1087,8 @@ test.describe('Request Lizmap GetProjectConfig - admin - @requests @readonly', (
             height: 210,
             maps: [{
                 id: 'map0',
-                width: 230,
-                height: 147,
+                width: 230.314,
+                height: 147.285,
                 grid: false,
                 overviewMap: null,
             }],

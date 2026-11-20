@@ -2,14 +2,14 @@
 
 use Lizmap\Project\Repository;
 use Lizmap\Request\WFSRequest;
+use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
  * @internal
- *
- * @coversNothing
  */
+#[CoversNothing]
 class WFSRequestTest extends TestCase
 {
     public function testParameters(): void
@@ -30,6 +30,14 @@ class WFSRequestTest extends TestCase
         $this->assertEquals($expectedParameters, $parameters);
     }
 
+    /**
+     * Provide the request parameters and the filters by login.
+     *
+     * The filter by login is not added to the parameters sent to QGIS Server:
+     * it is applied by the lizmap_server plugin.
+     *
+     * @return array the parameters, the filters by login and the expected parameters
+     */
     public static function getParametersWithFiltersData()
     {
         $params1 = array(
@@ -52,7 +60,6 @@ class WFSRequestTest extends TestCase
             'map' => null,
             'Lizmap_User' => '',
             'Lizmap_User_Groups' => '',
-            'exp_filter' => '( filter ) AND ( test )',
         );
 
         $params2 = array(
@@ -67,8 +74,8 @@ class WFSRequestTest extends TestCase
             'map' => null,
             'Lizmap_User' => '',
             'Lizmap_User_Groups' => '',
-            'exp_filter' => '( testParam ) AND ( filter ) AND ( test )',
-            'propertyname' => 'prop,test attr',
+            'exp_filter' => 'testParam',
+            'propertyname' => 'prop  ',
         );
 
         return array(
@@ -78,8 +85,6 @@ class WFSRequestTest extends TestCase
     }
 
     /**
-     * @dataProvider getParametersWithFiltersData
-     *
      * @param mixed $params
      * @param mixed $loginFilters
      * @param mixed $expectedParameters
@@ -118,8 +123,6 @@ class WFSRequestTest extends TestCase
     }
 
     /**
-     * @dataProvider getGetFeatureIdFilterExpData
-     *
      * @param mixed $featureid
      * @param mixed $typename
      * @param mixed $expectedExpFilter
@@ -166,8 +169,6 @@ class WFSRequestTest extends TestCase
     }
 
     /**
-     * @dataProvider getBuildQueryBaseData
-     *
      * @param mixed $params
      * @param mixed $wfsFields
      * @param mixed $expectedSelectFields
@@ -217,8 +218,6 @@ class WFSRequestTest extends TestCase
     }
 
     /**
-     * @dataProvider getGetBboxSqlData
-     *
      * @param mixed $geocol
      * @param mixed $params
      * @param mixed $expectedSql
@@ -262,8 +261,6 @@ class WFSRequestTest extends TestCase
      * geometry in ST_Transform(…, $outputSrid) so that WFS responses are returned in
      * the CRS requested by the client.
      *
-     * @dataProvider getSetGeojsonSqlOutputCrsData
-     *
      * @param mixed $outputSrid
      * @param mixed $expectedGeomSql
      * @param mixed $expectedBboxSql
@@ -305,16 +302,33 @@ class WFSRequestTest extends TestCase
     {
         return array(
             array(array(), '', ''),
+            // Forbidden term
             array(array('exp_filter' => 'select'), '', false),
-            array(array('exp_filter' => 'filter for test'), '', ' AND ( filter for test ) '),
-            array(array('exp_filter' => 'filter for test with $id = 5'), 'key', ' AND ( filter for test with "key" = 5 ) '),
+            // Correct syntax
+            array(array('exp_filter' => '"filter" IN (3, 56, 12)'), '', ' AND ( "filter" IN (3, 56, 12) )'),
+            // Check $id is replaced by the primary key field with double quotes
+            array(array('exp_filter' => '1 < 2 AND $id = 5'), 'key', ' AND ( 1 < 2 AND "key" = 5 )'),
+            // Check we allow negative numbers (not only integers)
+            array(array('exp_filter' => '"a_field" BETWEEN -5678 AND 5.01'), '', ' AND ( "a_field" BETWEEN -5678 AND 5.01 )'),
+            array(array('exp_filter' => '$id IN ( -9999999 )'), 'key', ' AND ( "key" IN ( -9999999 ) )'),
+            // In the case of a multiple primary key, the expression is not valid
             array(array('exp_filter' => 'filter for test with $id = 5'), 'key,otherKey', false),
+            // missing closing parenthesis
+            array(array('exp_filter' => '"field" = 50 ('), '', false),
+            // field names must be double-quoted
+            array(array('exp_filter' => 'other_field > 3'), '', false),
+            // Complex query with forbidden words and comments
+            array(array('exp_filter' => '"id" = 1 ) GROUP BY "v" UNION SELECT 99 AS "v" , 1 AS "c" --'), '', false),
+            // Doubled single quote inside a string literal must be preserved
+            array(array('exp_filter' => "\"label\" IN ( 'O''Brian' )"), '', " AND ( \"label\" IN ( 'O''Brian' ) )"),
+            // Doubled double quote inside a field name must be preserved
+            array(array('exp_filter' => '"bad""label" = \'OK\''), '', ' AND ( "bad""label" = \'OK\' )'),
+            // We must accept any UTF-8 character in a string literal, including non-ASCII characters
+            array(array('exp_filter' => '"label" = \'Œuvres, Café, crème brûlée, jalapeño, résumé\''), '', ' AND ( "label" = \'Œuvres, Café, crème brûlée, jalapeño, résumé\' )'),
         );
     }
 
     /**
-     * @dataProvider getParseExpFilterData
-     *
      * @param mixed $params
      * @param mixed $key
      * @param mixed $expectedSql
@@ -329,25 +343,93 @@ class WFSRequestTest extends TestCase
         $this->assertEquals($expectedSql, $result);
     }
 
-    public static function getParseFeatureData()
+    /**
+     * Provide client filters merged with a filter by login.
+     *
+     * @return array the client filter, the merged filter and the expected SQL
+     */
+    public static function getParseMergedExpFilterData()
     {
+        $loginFilter = '( "user" = \'admin\' )';
+
         return array(
-            array('', '', '', ''),
-            array('type', 'type.test@@55', 'key,otherKey', ' AND ("key" = \'test\' AND "otherKey" = 55)'),
-            array('type', 'type.test@@55,you shall not pass,type.name@@42', 'key,otherKey', ' AND ("key" = \'test\' AND "otherKey" = 55) OR ("key" = \'name\' AND "otherKey" = 42)'),
-            array('', 'type.test@@55', 'key,otherKey', ' AND ("key" = \'test\' AND "otherKey" = 55)'),
+            // Valid client filter
+            array(
+                '"id" > 0',
+                '( "id" > 0 ) AND '.$loginFilter,
+                ' AND ( ( "id" > 0 ) AND '.$loginFilter.' )',
+            ),
+            // The client filter must not get out of its parenthesis
+            array(
+                '1=1 ) OR ( 1=1',
+                '( 1=1 ) OR ( 1=1 ) AND '.$loginFilter,
+                false,
+            ),
+            // A final comment must not hide the closing parenthesis
+            array(
+                '"id" > 0 --',
+                '( "id" > 0 -- ) AND '.$loginFilter,
+                false,
+            ),
         );
     }
 
     /**
-     * @dataProvider getParseFeatureData
+     * Test the client filter is validated alone, before being merged with the filter by login.
      *
+     * @param string       $clientFilter the EXP_FILTER parameter sent by the client
+     * @param string       $mergedFilter the EXP_FILTER merged with the filter by login
+     * @param false|string $expectedSql  the expected SQL, false if the filter is not valid
+     */
+    #[DataProvider('getParseMergedExpFilterData')]
+    public function testParseMergedExpFilter($clientFilter, $mergedFilter, $expectedSql): void
+    {
+        $wfs = new WFSRequestForTests();
+        $wfs->appContext = new ContextForTests();
+        $wfs->datasource = (object) array('key' => 'id', 'geocol' => 'geom');
+        $result = $wfs->parseMergedExpFilterForTests(
+            new jDbConnectionForTests(),
+            $clientFilter,
+            array('exp_filter' => $mergedFilter)
+        );
+        $this->assertEquals($expectedSql, $result);
+    }
+
+    public static function getParseFeatureIdData()
+    {
+        return array(
+            // No Feature ID
+            array('', '', '', ''),
+            array('type', '', '', ''),
+            array('type', '', 'key', ''),
+            array('type', '', 'key,otherKey', ''),
+            // Single column for feature ID
+            array('type', 'type.42', 'key', '"key" IN (42)'),
+            array('type', 'type.42,type.43,type.44', 'key', '"key" IN (42, 43, 44)'),
+            array('type', 'type.abc,you shall not pass,type.def', 'key', '"key" IN (\'abc\', \'def\')'),
+            array('', 'type.42', 'key', '"key" IN (42)'),
+            // Multi columns for feature ID
+            array('type', 'type.test@@55', 'key,otherKey', '("key" = \'test\' AND "otherKey" = 55)'),
+            array('type', 'type.test@@55,you shall not pass,type.name@@42', 'key,otherKey', '("key" = \'test\' AND "otherKey" = 55) OR ("key" = \'name\' AND "otherKey" = 42)'),
+            array('', 'type.test@@55', 'key,otherKey', '("key" = \'test\' AND "otherKey" = 55)'),
+            // A FEATUREID matching no feature must not widen the result set
+            array('type', 'otherType', 'key', 'FALSE'),
+            array('type', 'otherType-42', 'key', 'FALSE'),
+            array('type', 'otherType.', 'key', 'FALSE'),
+            array('type', 'otherType.42', 'key', 'FALSE'),
+            array('type', 'otherType', 'key,otherKey', 'FALSE'),
+            array('type', 'otherType.test@@55', 'key,otherKey', 'FALSE'),
+
+        );
+    }
+
+    /**
      * @param mixed $typename
      * @param mixed $featureId
      * @param mixed $keys
      * @param mixed $expectedSql
      */
-    #[DataProvider('getParseFeatureData')]
+    #[DataProvider('getParseFeatureIdData')]
     public function testParseFeatureId($typename, $featureId, $keys, $expectedSql): void
     {
         $params = array(
@@ -358,6 +440,97 @@ class WFSRequestTest extends TestCase
         $wfs->datasource = (object) array('key' => $keys);
         $sql = $wfs->parseFeatureIdForTests(new jDbConnectionForTests(), $params);
         $this->assertEquals($expectedSql, $sql);
+    }
+
+    public static function getWhereClauseData()
+    {
+        return array(
+            array(array(), ' WHERE True'),
+            // BBOX
+            array(array('bbox' => '-5,-2,5,2'), ' WHERE True AND ST_Intersects("geom", ST_MakeEnvelope(-5,-2,5,2, SRID))'),
+            // EXP_FILTER
+            array(array('exp_filter' => '"filter" IN (3, 56, 12)'), ' WHERE True AND ( "filter" IN (3, 56, 12) )'),
+            // Feature ID
+            array(array('featureid' => 'type.42'), ' WHERE True AND ( "key" IN (42) )'),
+            array(array('featureid' => 'type.42,type.43'), ' WHERE True AND ( "key" IN (42, 43) )'),
+            // Combinations
+            array(
+                array('bbox' => '-5,-2,5,2', 'exp_filter' => '"filter" IN (3, 56, 12)'),
+                ' WHERE True AND ST_Intersects("geom", ST_MakeEnvelope(-5,-2,5,2, SRID)) AND ( "filter" IN (3, 56, 12) )',
+            ),
+            array(
+                array('bbox' => '-5,-2,5,2', 'featureid' => 'type.42'),
+                ' WHERE True AND ST_Intersects("geom", ST_MakeEnvelope(-5,-2,5,2, SRID)) AND ( "key" IN (42) )',
+            ),
+            array(
+                array('exp_filter' => '"filter" IN (3, 56, 12)', 'featureid' => 'type.42'),
+                ' WHERE True AND ( "filter" IN (3, 56, 12) ) AND ( "key" IN (42) )',
+            ),
+            array(
+                array('bbox' => '-5,-2,5,2', 'exp_filter' => '"filter" IN (3, 56, 12)', 'featureid' => 'type.42'),
+                ' WHERE True AND ST_Intersects("geom", ST_MakeEnvelope(-5,-2,5,2, SRID)) AND ( "filter" IN (3, 56, 12) ) AND ( "key" IN (42) )',
+            ),
+        );
+    }
+
+    /**
+     * @param mixed $params
+     * @param mixed $expectedSql
+     */
+    #[DataProvider('getWhereClauseData')]
+    public function testgetWhereClause($params, $expectedSql): void
+    {
+        $wfs = new WFSRequestForTests();
+        $wfs->datasource = (object) array(
+            'key' => 'key',
+            'geocol' => 'geom',
+            'sql' => '',
+        );
+        $wfs->qgisLayer = new LayerWFSForTests();
+        // Needed for the invalid-SRSNAME code path which calls logMessage.
+        $wfs->appContext = new ContextForTests();
+        $result = '';
+        $result = $wfs->getWhereClauseForTests(new jDbConnectionForTests(), $params);
+        $this->assertEquals($expectedSql, $result);
+    }
+
+    /**
+     * Test the filter by login is added to the WHERE clause as a separate SQL filter.
+     *
+     * The client EXP_FILTER is used without the filter by login merged for QGIS Server.
+     */
+    public function testGetWhereClauseWithLoginFilter(): void
+    {
+        $wfs = new WFSRequestForTests();
+        $wfs->datasource = (object) array(
+            'key' => 'key',
+            'geocol' => 'geom',
+            'sql' => '',
+        );
+        $wfs->qgisLayer = new LayerWFSForTests();
+        $wfs->appContext = new ContextForTests();
+        $loginFilter = '( string_to_array("user", \',\') && ARRAY[\'admin\', \'all\'] )';
+        $wfs->loginFiltersForTests = array(
+            'layer' => array('filter' => $loginFilter),
+        );
+
+        // Without client filter
+        $result = $wfs->getWhereClauseForTests(new jDbConnectionForTests(), array());
+        $this->assertEquals(' WHERE True AND '.$loginFilter, $result);
+
+        // With a client filter
+        $result = $wfs->getWhereClauseForTests(
+            new jDbConnectionForTests(),
+            array('exp_filter' => '"filter" IN (3, 56, 12)')
+        );
+        $this->assertEquals(' WHERE True AND ( "filter" IN (3, 56, 12) ) AND '.$loginFilter, $result);
+
+        // A client filter getting out of its parenthesis is refused
+        $result = $wfs->getWhereClauseForTests(
+            new jDbConnectionForTests(),
+            array('exp_filter' => '1=1 ) OR ( 1=1')
+        );
+        $this->assertFalse($result);
     }
 
     public static function getGetQueryOrderData()
@@ -391,8 +564,6 @@ class WFSRequestTest extends TestCase
     }
 
     /**
-     * @dataProvider getGetQueryOrderData
-     *
      * @param mixed $params
      * @param mixed $wfsFields
      * @param mixed $expectedSql
@@ -406,12 +577,136 @@ class WFSRequestTest extends TestCase
         $this->assertEquals($expectedSql, $result);
     }
 
+    /**
+     * Data for testGetSortFields.
+     *
+     * @return array[] The request parameters, the WFS fields and the expected sort fields
+     */
+    public static function getGetSortFieldsData()
+    {
+        return array(
+            // No SORTBY
+            array(array(), array('id', 'name'), array()),
+            array(array('sortby' => ''), array('id', 'name'), array()),
+            // Ascending by default, unknown fields ignored
+            array(array('sortby' => 'name,unknown d'), array('id', 'name'), array('name' => 'ASC')),
+            // Explicit directions
+            array(array('sortby' => 'name d,id a'), array('id', 'name'), array('name' => 'DESC', 'id' => 'ASC')),
+            // Field names with spaces, with and without direction
+            array(array('sortby' => 'Sewer type'), array('id', 'Sewer type'), array('Sewer type' => 'ASC')),
+            array(array('sortby' => 'Sewer type d,id'), array('id', 'Sewer type'), array('Sewer type' => 'DESC', 'id' => 'ASC')),
+            array(array('sortby' => 'Sewer kind'), array('id', 'Sewer type'), array()),
+            // Quoted field names, with doubled inner quotes, a comma and a final " A"
+            array(array('sortby' => '"Sewer type" d,"id"'), array('id', 'Sewer type'), array('Sewer type' => 'DESC', 'id' => 'ASC')),
+            array(array('sortby' => '"say ""hi"", A"'), array('say "hi", A'), array('say "hi", A' => 'ASC')),
+            array(array('sortby' => '"Zone A" desc'), array('Zone', 'Zone A'), array('Zone A' => 'DESC')),
+            // Unknown quoted field, and SQL injection attempts
+            array(array('sortby' => '"unknown"'), array('id'), array()),
+            array(array('sortby' => '"id"; DROP TABLE t'), array('id'), array('id' => 'ASC')),
+            array(array('sortby' => 'id"; DROP TABLE t; --'), array('id'), array()),
+        );
+    }
+
+    /**
+     * Check the fields and directions read from the SORTBY parameter.
+     *
+     * @dataProvider getGetSortFieldsData
+     *
+     * @param array $params    The request parameters
+     * @param array $wfsFields The WFS fields of the layer
+     * @param array $expected  The expected sort direction by field name
+     */
+    #[DataProvider('getGetSortFieldsData')]
+    public function testGetSortFields($params, $wfsFields, $expected): void
+    {
+        $wfs = new WFSRequestForTests();
+        $this->assertSame($expected, $wfs->getSortFieldsForTests($params, $wfsFields));
+    }
+
+    /**
+     * Data for testGetSelectedFields.
+     *
+     * @return array[] The request parameters, the WFS fields and the expected selected fields
+     */
+    public static function getGetSelectedFieldsData()
+    {
+        $wfsFields = array('id', 'name', 'virtual');
+
+        return array(
+            // No PROPERTYNAME: every WFS field
+            array(array(), $wfsFields, array('id', 'name', 'virtual')),
+            array(array('propertyname' => ''), $wfsFields, array('id', 'name', 'virtual')),
+            // Requested order kept, unknown fields ignored
+            array(array('propertyname' => 'name,unknown,id'), $wfsFields, array('name', 'id')),
+        );
+    }
+
+    /**
+     * Check the fields selected by the PROPERTYNAME parameter.
+     *
+     * @dataProvider getGetSelectedFieldsData
+     *
+     * @param array $params    The request parameters
+     * @param array $wfsFields The WFS fields of the layer
+     * @param array $expected  The expected selected fields
+     */
+    #[DataProvider('getGetSelectedFieldsData')]
+    public function testGetSelectedFields($params, $wfsFields, $expected): void
+    {
+        $wfs = new WFSRequestForTests();
+        $this->assertSame($expected, $wfs->getSelectedFieldsForTests($params, $wfsFields));
+    }
+
+    /**
+     * Data for testGetQueryFields.
+     *
+     * The layer publishes a virtual field, named "virtual", which is not a database field.
+     *
+     * @return array[] The request parameters, the hits flag and the expected query fields
+     */
+    public static function getGetQueryFieldsData()
+    {
+        return array(
+            // No PROPERTYNAME: every WFS field, the virtual field included
+            array(array(), false, array('id', 'name', 'virtual')),
+            // Virtual field not requested
+            array(array('propertyname' => 'id,name'), false, array('id', 'name')),
+            // Virtual field requested
+            array(array('propertyname' => 'id,virtual'), false, array('id', 'virtual')),
+            // Virtual field used to sort
+            array(array('propertyname' => 'id', 'sortby' => 'virtual d'), false, array('id', 'virtual')),
+            // Virtual field cited by the expression filter
+            array(array('propertyname' => 'id', 'exp_filter' => '"virtual" = 1'), false, array('id', 'virtual')),
+            // Field names inside other words are not cited
+            array(array('propertyname' => 'id', 'exp_filter' => '"virtual_2" = 1 AND "my_name" = 2'), false, array('id')),
+            // Hits request: only the fields of the expression filter
+            array(array('sortby' => 'virtual'), true, array()),
+            array(array('exp_filter' => 'name = \'a\''), true, array('name')),
+        );
+    }
+
+    /**
+     * Check the WFS fields the direct SQL query depends on.
+     *
+     * @dataProvider getGetQueryFieldsData
+     *
+     * @param array $params        The request parameters
+     * @param bool  $isHitsRequest True if the request only counts the features
+     * @param array $expected      The expected query fields
+     */
+    #[DataProvider('getGetQueryFieldsData')]
+    public function testGetQueryFields($params, $isHitsRequest, $expected): void
+    {
+        $wfs = new WFSRequestForTests();
+        $wfsFields = array('id', 'name', 'virtual');
+        $this->assertSame($expected, $wfs->getQueryFieldsForTests($params, $wfsFields, $isHitsRequest));
+    }
+
     public static function getValidateFilterData()
     {
         return array(
             array('select', false),
             array('selectoioio', false),
-            array('test geom_from_gml other test', 'test ST_GeomFromGML other test'),
             // Every geometry predicate offered by the selection tool must be
             // translated to its PostGIS ST_* equivalent, not only "intersects".
             array('intersects($geometry, geom_from_gml(\'g\'))', 'ST_Intersects("column", ST_GeomFromGML(\'g\'))'),
@@ -431,8 +726,6 @@ class WFSRequestTest extends TestCase
     }
 
     /**
-     * @dataProvider getValidateFilterData
-     *
      * @param mixed $filter
      * @param mixed $expectedFilter
      */
@@ -457,8 +750,6 @@ class WFSRequestTest extends TestCase
     }
 
     /**
-     * @dataProvider getParseDatasourceSqlData
-     *
      * @param mixed $sql
      * @param mixed $expectedSql
      */
@@ -485,8 +776,6 @@ class WFSRequestTest extends TestCase
     }
 
     /**
-     * @dataProvider getSetGeojsonSqlOutputSridData
-     *
      * @param mixed $outputSrid
      * @param mixed $expectedGeomTransform
      * @param mixed $expectedBboxTransform
@@ -543,8 +832,6 @@ class WFSRequestTest extends TestCase
     }
 
     /**
-     * @dataProvider getParseSrsnameSridData
-     *
      * @param mixed $srsname
      * @param mixed $expected
      */

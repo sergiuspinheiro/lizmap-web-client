@@ -67,8 +67,10 @@ cp -aR lizmap/var/config.dist/* lizmap/var/config
 
 # Copy configuration file in their initial states if they do no exists
 [ ! -f lizmap/var/config/lizmapConfig.ini.php ] && cp lizmap/var/config/lizmapConfig.ini.php.dist lizmap/var/config/lizmapConfig.ini.php
+[ ! -f lizmap/var/config/lizmapLogConfig.ini.php ] && cp lizmap/var/config/lizmapLogConfig.ini.php.dist lizmap/var/config/lizmapLogConfig.ini.php
 [ ! -f lizmap/var/config/localconfig.ini.php  ] && cp lizmap/var/config/localconfig.ini.php.dist  lizmap/var/config/localconfig.ini.php
 [ ! -f lizmap/var/config/profiles.ini.php     ] && cp lizmap/var/config/profiles.ini.php.dist     lizmap/var/config/profiles.ini.php
+[ ! -f lizmap/var/config/lizmapLogConfig.ini.php ] && cp lizmap/var/config/lizmapLogConfig.ini.php.dist     lizmap/var/config/lizmapLogConfig.ini.php
 
 # Copy static files
 # Note: static files needs to be resolved by external web server
@@ -127,13 +129,13 @@ sed -i "/^;clear_env =/c\clear_env = no" $PHP_INI_DIR/php-fpm.d/www.conf
 
 # first arg is `-f` or `--some-option`
 if [ "${1#-}" != "$1" ]; then
-	set -- php-fpm83 -F -O "$@"
+	set -- php-fpm85 -F -O "$@"
 fi
 
 # For compatibility
 if [ $1 == "php-fpm" ]; then
     shift
-    set -- php-fpm83 -F -O "$@"
+    set -- php-fpm85 -F -O "$@"
 fi
 
 echo "Create the account for $LIZMAP_ADMIN_LOGIN"
