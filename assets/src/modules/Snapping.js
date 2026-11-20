@@ -653,6 +653,21 @@ export default class Snapping {
         if (!this._edition.drawFeatureActivated || !drawControl?.handler?.line || typeof drawControl.undo !== 'function') {
             return false;
         }
+        const handler = drawControl.handler;
+        const components = handler.line.geometry?.components || [];
+        // the ring of a polygon has a closing point, the last point follows the cursor
+        const isPolygon = typeof OpenLayers !== 'undefined' && handler instanceof OpenLayers.Handler.Polygon;
+        const vertices = components.length - (isPolygon ? 1 : 0) - 1;
+        if (vertices <= 1) {
+            // Only the first vertex: cancel the drawing, an undo would leave the handler
+            // without vertex but still drawing, and the map would follow the mouse
+            if (typeof drawControl.cancel === 'function') {
+                drawControl.cancel();
+            } else {
+                handler.cancel();
+            }
+            return true;
+        }
         return !!drawControl.undo();
     }
 
