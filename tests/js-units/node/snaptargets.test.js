@@ -1,12 +1,12 @@
 import { expect } from 'chai';
-import { computeSnapPoints, snapCandidateLayers, SnapModes } from 'assets/src/modules/SnapTargets.js';
+import { computeSnapPoints, snapCandidateLayers, SnapModes, tracePath } from 'assets/src/modules/SnapTargets.js';
 
 const feature = (geometry) => ({ type: 'Feature', properties: {}, geometry: geometry });
 
 describe('SnapTargets', function () {
 
     it('Modes', function () {
-        expect(SnapModes).to.deep.equal(['vertices', 'segments', 'midpoints', 'intersections']);
+        expect(SnapModes).to.deep.equal(['vertices', 'segments', 'midpoints', 'intersections', 'tracing']);
     });
 
     it('Vertices and midpoints', function () {
@@ -73,5 +73,37 @@ describe('SnapTargets', function () {
             { Name: 'roads' }, { Name: 'table' }, { Name: 'buildings' }, { Name: 'unknown' },
         ]);
         expect(layers.map(l => l.id)).to.deep.equal(['buildings_id', 'roads_id']);
+    });
+});
+
+describe('SnapTargets tracing', function () {
+    const line = feature({ type: 'LineString', coordinates: [[0, 0], [10, 0], [10, 10], [20, 10], [20, 20]] });
+    const square = feature({ type: 'Polygon', coordinates: [[[100, 0], [110, 0], [110, 10], [100, 10], [100, 0]]] });
+
+    it('Follows a line forward and backward', function () {
+        expect(tracePath([line], [0, 0], [20, 10], 0.1)).to.deep.equal([[10, 0], [10, 10]]);
+        expect(tracePath([line], [20, 10], [0, 0], 0.1)).to.deep.equal([[10, 10], [10, 0]]);
+        // from the middle of segments
+        expect(tracePath([line], [5, 0], [15, 10], 0.1)).to.deep.equal([[10, 0], [10, 10]]);
+        // consecutive vertices: nothing to insert
+        expect(tracePath([line], [10, 0], [10, 10], 0.1)).to.deep.equal([]);
+    });
+
+    it('Takes the shorter way around a polygon', function () {
+        // from (100,0) to (100,10): direct way is the left side, nothing between
+        expect(tracePath([square], [100, 0], [100, 10], 0.1)).to.deep.equal([]);
+        // from (105,0) to (100,5): through the corner (100,0)
+        expect(tracePath([square], [105, 0], [100, 5], 0.1)).to.deep.equal([[100, 0]]);
+        // from (100,5) to (105,0): through the corner (100,0)
+        expect(tracePath([square], [100, 5], [105, 0], 0.1)).to.deep.equal([[100, 0]]);
+        // from (105,0) to (110,5): through (110,0)
+        expect(tracePath([square], [105, 0], [110, 5], 0.1)).to.deep.equal([[110, 0]]);
+        // from (105,0) to (105,10): two corners, either way
+        expect(tracePath([square], [105, 0], [105, 10], 0.1)).to.have.length(2);
+    });
+
+    it('Nothing when the points are not on the same line', function () {
+        expect(tracePath([line, square], [0, 0], [100, 0], 0.1)).to.deep.equal([]);
+        expect(tracePath([line], [0, 5], [20, 10], 0.1)).to.deep.equal([]);
     });
 });

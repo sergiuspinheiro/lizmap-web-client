@@ -94,5 +94,7 @@ export const snapModeIcons = {
     vertices: SVG_START + '<path d="M2 14 L8 4 L14 10" fill="none" stroke="#888" stroke-width="1.2"/><rect x="5" y="1" width="6" height="6" fill="none" stroke="#f0f" stroke-width="1.8"/></svg>',
     segments: SVG_START + '<path d="M1 13 L15 3" fill="none" stroke="#f0f" stroke-width="2.5"/><circle cx="8" cy="8" r="2.6" fill="#fff" stroke="#f0f" stroke-width="1.5"/></svg>',
     midpoints: SVG_START + '<path d="M1 13 L15 13" fill="none" stroke="#888" stroke-width="1.2"/><path d="M8 5 L12.5 12 L3.5 12 Z" fill="none" stroke="#f0f" stroke-width="1.8"/></svg>',
+    tracing: SVG_START + '<path d="M1 12 L5 5 L10 9 L15 3" fill="none" stroke="#888" stroke-width="1.2"/><path d="M1 12 L5 5 L10 9" fill="none" stroke="#f0f" stroke-width="2.4"/>'
+        + '<rect x="0" y="10.5" width="3" height="3" fill="#f0f"/><rect x="8.5" y="7.5" width="3" height="3" fill="#f0f"/></svg>',
     intersections: SVG_START + '<path d="M1 3 L15 13 M1 13 L15 3" fill="none" stroke="#888" stroke-width="1.2"/><path d="M4.5 4.5 L11.5 11.5 M4.5 11.5 L11.5 4.5" fill="none" stroke="#f0f" stroke-width="2.2"/></svg>',
 };

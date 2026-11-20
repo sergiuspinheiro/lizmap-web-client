@@ -298,6 +298,14 @@ export class Digitizing {
 
         this._drawSource = new VectorSource({ wrapX: false });
 
+        // Features to follow when tracing, filled by the draw snapping
+        this._traceSource = new VectorSource({ wrapX: false });
+        /**
+         * Is tracing active for a click? Set by the draw snapping
+         * @type {Function}
+         */
+        this.traceCondition = () => false;
+
         // Listener for color
         this._addFeatureColorListener = (event) => {
             // Set main color if feature does not have one
@@ -634,12 +642,17 @@ export class Digitizing {
                         drawOptions.geometryFunction = (coords, geom) => {
                             return this._contraintsHandler(coords, geom, drawOptions.type);
                         }
+                        // Tracing: follow the features between two clicks
+                        drawOptions.trace = (event) => this.traceCondition(event);
+                        drawOptions.traceSource = this._traceSource;
                         break;
                     case this._tools[3]:
                         drawOptions.type = 'Polygon';
                         drawOptions.geometryFunction = (coords, geom) => {
                             return this._contraintsHandler(coords, geom, drawOptions.type);
                         }
+                        drawOptions.trace = (event) => this.traceCondition(event);
+                        drawOptions.traceSource = this._traceSource;
                         break;
                     case this._tools[4]:
                         drawOptions.type = 'Circle';

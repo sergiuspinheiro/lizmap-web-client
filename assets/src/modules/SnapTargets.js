@@ -12,10 +12,10 @@
 import WFS from './WFS.js';
 
 /**
- * Snap modes
+ * Snap modes; tracing follows the lines between two snapped vertices
  * @type {string[]}
  */
-export const SnapModes = ['vertices', 'segments', 'midpoints', 'intersections'];
+export const SnapModes = ['vertices', 'segments', 'midpoints', 'intersections', 'tracing'];
 
 /**
  * Maximum number of segments used to compute the intersections
@@ -361,4 +361,139 @@ function computeIntersections(segments) {
         }
     }
     return result;
+}
+
+/**
+ * Position of a point on a line: index of the segment, ratio on it, and distance
+ * @param {number[][]} line  - the line coordinates
+ * @param {number[]}   point - the point
+ * @returns {{index: number, t: number, distance: number}} the closest position
+ */
+function locateOnLine(line, point) {
+    let best = {index: -1, t: 0, distance: Infinity};
+    for (let i = 1; i < line.length; i++) {
+        const a = line[i - 1];
+        const b = line[i];
+        const dx = b[0] - a[0];
+        const dy = b[1] - a[1];
+        const len2 = dx * dx + dy * dy;
+        let t = 0;
+        if (len2 > 0) {
+            t = ((point[0] - a[0]) * dx + (point[1] - a[1]) * dy) / len2;
+            t = Math.max(0, Math.min(1, t));
+        }
+        const x = a[0] + t * dx;
+        const y = a[1] + t * dy;
+        const distance = Math.hypot(point[0] - x, point[1] - y);
+        if (distance < best.distance) {
+            best = {index: i - 1, t: t, distance: distance};
+        }
+    }
+    return best;
+}
+
+/**
+ * Length of a path
+ * @param {number[][]} path - coordinates
+ * @returns {number} the length
+ */
+function pathLength(path) {
+    let length = 0;
+    for (let i = 1; i < path.length; i++) {
+        length += Math.hypot(path[i][0] - path[i - 1][0], path[i][1] - path[i - 1][1]);
+    }
+    return length;
+}
+
+/**
+ * Tracing: the vertices of a line (or ring) between two points lying on it, like the tracing of QGIS.
+ *
+ * The line is the one where both points are the closest (within the tolerance). For a ring
+ * (polygon boundary) the shorter way around is used.
+ * @param {object[]} features  - GeoJSON features (map projection)
+ * @param {number[]} start     - the first point
+ * @param {number[]} end       - the second point
+ * @param {number}   tolerance - maximum distance of the points to the line, in map units
+ * @returns {number[][]} the vertices to insert between start and end (empty when no line links them)
+ */
+export function tracePath(features, start, end, tolerance) {
+    const lines = [];
+    const points = [];
+    for (const feature of features) {
+        collectLines(feature?.geometry, lines, points);
+    }
+
+    let best = null;
+    for (const line of lines) {
+        if (line.length < 2) {
+            continue;
+        }
+        const a = locateOnLine(line, start);
+        if (a.distance > tolerance) {
+            continue;
+        }
+        const b = locateOnLine(line, end);
+        if (b.distance > tolerance) {
+            continue;
+        }
+        const score = a.distance + b.distance;
+        if (!best || score < best.score) {
+            best = {line, a, b, score};
+        }
+    }
+    if (!best) {
+        return [];
+    }
+
+    const {line, a, b} = best;
+    const pos = (p) => p.index + p.t;
+    // vertices of the line strictly between two positions, going forward
+    const forward = (from, to) => {
+        const result = [];
+        for (let i = Math.max(0, Math.ceil(from)); i <= Math.min(line.length - 1, Math.floor(to)); i++) {
+            if (i > from + 1e-9 && i < to - 1e-9) {
+                result.push(line[i].slice(0, 2));
+            }
+        }
+        return result;
+    };
+
+    const first = line[0];
+    const last = line[line.length - 1];
+    const isRing = line.length > 3 && first[0] === last[0] && first[1] === last[1];
+
+    let path;
+    if (pos(a) <= pos(b)) {
+        path = forward(pos(a), pos(b));
+    } else {
+        path = forward(pos(b), pos(a)).reverse();
+    }
+
+    if (isRing) {
+        // the other way around the ring
+        const n = line.length - 1; // number of distinct vertices
+        let other;
+        if (pos(a) <= pos(b)) {
+            // backward from a to vertex 0, then from the end of the ring back to b
+            other = forward(0, pos(a)).reverse();
+            if (pos(a) > 1e-9) {
+                other.push(line[0].slice(0, 2));
+            }
+            other = other.concat(forward(pos(b), n).reverse());
+        } else {
+            other = forward(pos(a), n);
+            if (pos(b) > 1e-9) {
+                other.push(line[0].slice(0, 2));
+            }
+            other = other.concat(forward(0, pos(b)));
+        }
+        // remove duplicates of the closing vertex
+        other = other.filter((p, i) => i === 0 || p[0] !== other[i - 1][0] || p[1] !== other[i - 1][1]);
+        if (pathLength([start, ...other, end]) < pathLength([start, ...path, end])) {
+            path = other;
+        }
+    }
+
+    // no vertex identical to the start or the end
+    return path.filter(p => !(p[0] === start[0] && p[1] === start[1]) && !(p[0] === end[0] && p[1] === end[1]));
 }

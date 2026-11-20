@@ -10,7 +10,7 @@ import Edition from './Edition.js';
 import { MapLayerLoadStatus, MapRootState } from './state/MapLayer.js';
 import { TreeRootState } from './state/LayerTree.js';
 import {
-    SnapModes, snapCandidateLayers, fetchSnapFeatures, computeSnapPoints,
+    SnapModes, snapCandidateLayers, fetchSnapFeatures, computeSnapPoints, tracePath,
     readSnapSettings, saveSnapSettings,
 } from './SnapTargets.js';
 
@@ -165,6 +165,12 @@ export default class Snapping {
             // dispatch an event, it might be useful to know when the list of visible layer for snap changed
             mainEventDispatcher.dispatch('snapping.layer.visibility.changed');
         }
+
+        // Tracing: when a vertex is added, follow the snapped feature from the previous vertex
+        mainEventDispatcher.addListener(
+            () => this._installTracing(),
+            'edition.drawFeatureActivated'
+        );
 
         // Activate snap when a layer is edited
         mainEventDispatcher.addListener(
@@ -385,6 +391,59 @@ export default class Snapping {
         if (features.length) {
             this._snapPointsLayer.addFeatures(features);
         }
+    }
+
+    /**
+     * Add the tracing to the drawing control of the edition: when a vertex is added,
+     * the vertices of the feature between it and the previous vertex are inserted
+     * @private
+     */
+    _installTracing() {
+        const drawControl = this._edition.drawControl;
+        const handler = drawControl?.handler;
+        if (!this._edition.drawFeatureActivated || !handler || !handler.callbacks || handler._lizmapTracing) {
+            return;
+        }
+        handler._lizmapTracing = true;
+        const originalPoint = handler.callbacks.point;
+        handler.callbacks.point = (...args) => {
+            try {
+                this._traceLastVertex(handler);
+            } catch (error) {
+                console.warn('Snapping: tracing failed', error);
+            }
+            if (typeof originalPoint === 'function') {
+                return originalPoint.apply(drawControl, args);
+            }
+        };
+    }
+
+    /**
+     * Insert the traced vertices between the two last vertices of the drawing
+     * @param {object} handler - the OpenLayers 2 path or polygon handler
+     * @private
+     */
+    _traceLastVertex(handler) {
+        if (!this._active || !this._modes.tracing || !handler.line || !handler.point) {
+            return;
+        }
+        const components = handler.line.geometry.components;
+        // the last point added is the one following the mouse, the clicked vertex is before it
+        const index = components.indexOf(handler.point.geometry);
+        if (index < 2) {
+            return;
+        }
+        const start = components[index - 2];
+        const end = components[index - 1];
+        const tolerance = this._lizmap3.map.getResolution();
+        const path = tracePath(this._fetchedFeatures, [start.x, start.y], [end.x, end.y], tolerance);
+        if (path.length === 0) {
+            return;
+        }
+        path.forEach(([x, y], i) => {
+            handler.line.geometry.addComponent(new OpenLayers.Geometry.Point(x, y), index - 1 + i);
+        });
+        handler.drawFeature();
     }
 
     /**
