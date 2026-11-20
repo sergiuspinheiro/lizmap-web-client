@@ -125,4 +125,34 @@ class DocumentStoreTest extends TestCase
         $this->assertNull($store->collection($id));
         $this->assertFalse(is_file($this->dir.$id.'.json'));
     }
+
+    public function testEditAndDeleteSeveral(): void
+    {
+        $store = new DocumentStore($this->dir);
+        $id = $store->saveCollection(array('title' => 'Relatórios', 'type' => 'documents'));
+        $kept = $store->addDocument($id, $this->file("# Um\nTexto um."), 'um.txt', 'Um', '2020-01-01');
+        $first = $store->addDocument($id, $this->file("# Dois\nTexto dois."), 'dois.txt', 'Dois', '2021-01-01');
+        $second = $store->addDocument($id, $this->file("# Três\nTexto três."), 'tres.txt', 'Três', '2022-01-01');
+
+        // Edit the collection: same id
+        $this->assertEquals($id, $store->saveCollection(array('id' => $id, 'title' => 'Relatórios técnicos', 'type' => 'regulation', 'description' => 'Notas')));
+        $collection = $store->collection($id);
+        $this->assertEquals('Relatórios técnicos', $collection['title']);
+        $this->assertEquals('regulation', $collection['type']);
+        $this->assertCount(3, $collection['documents']);
+
+        // Delete two documents at once, an unknown id is ignored
+        $this->assertEquals(2, $store->deleteDocuments($id, array($first['id'], $second['id'], 'unknown')));
+        $collection = $store->collection($id);
+        $this->assertCount(1, $collection['documents']);
+        $this->assertEquals($kept['id'], $collection['documents'][0]['id']);
+        $this->assertFileDoesNotExist($store->documentFile($id, $first));
+        $this->assertFileExists($store->documentFile($id, $kept));
+
+        // Delete several collections
+        $other = $store->saveCollection(array('title' => 'Outro'));
+        $store->deleteCollection($id);
+        $store->deleteCollection($other);
+        $this->assertCount(0, $store->collections());
+    }
 }
