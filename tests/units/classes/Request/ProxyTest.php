@@ -1,14 +1,14 @@
 <?php
 
 use Lizmap\Request;
+use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
  * @internal
- *
- * @coversNothing
  */
+#[CoversNothing]
 class ProxyTest extends TestCase
 {
     public function setUp(): void
@@ -44,8 +44,6 @@ class ProxyTest extends TestCase
     }
 
     /**
-     * @dataProvider getBuildData
-     *
      * @param mixed $params
      * @param mixed $requestXml
      * @param mixed $expectedClass
@@ -97,8 +95,6 @@ class ProxyTest extends TestCase
     }
 
     /**
-     * @dataProvider getNormalizeParamsData
-     *
      * @param mixed $params
      * @param mixed $expectedData
      */
@@ -132,8 +128,6 @@ class ProxyTest extends TestCase
     }
 
     /**
-     * @dataProvider getConstructUrlData
-     *
      * @param mixed $params
      * @param mixed $expectedUrl
      * @param mixed $url
@@ -146,6 +140,40 @@ class ProxyTest extends TestCase
         );
         $result = Request\Proxy::constructUrl($params, $services, $url);
         $this->assertEquals($expectedUrl, $result);
+    }
+
+    public static function getIsAllowedRemoteUrlData()
+    {
+        return array(
+            // Allowed: public and private (RFC1918) hosts over http(s).
+            // Private ranges stay allowed because internal WMS servers are legitimate.
+            array('https://8.8.8.8/wms', true),
+            array('http://10.0.0.5/wms', true),
+            array('https://192.168.1.10/ows', true),
+            array('http://172.16.5.5/', true),
+            // Refused scheme
+            array('file:///etc/passwd', false),
+            array('ftp://8.8.8.8/', false),
+            array('gopher://8.8.8.8/', false),
+            // Refused: loopback, link-local (cloud metadata), unspecified
+            array('http://127.0.0.1/', false),
+            array('http://[::1]/', false),
+            array('http://169.254.169.254/latest/meta-data/', false),
+            array('http://0.0.0.0/', false),
+            // Malformed input
+            array('not a url', false),
+            array('', false),
+        );
+    }
+
+    /**
+     * @param mixed $url
+     * @param mixed $expected
+     */
+    #[DataProvider('getIsAllowedRemoteUrlData')]
+    public function testIsAllowedRemoteUrl($url, $expected): void
+    {
+        $this->assertSame($expected, Request\Proxy::isAllowedRemoteUrl($url));
     }
 
     public static function getBuildOptionsData()
@@ -188,8 +216,6 @@ class ProxyTest extends TestCase
     }
 
     /**
-     * @dataProvider getBuildOptionsData
-     *
      * @param mixed $options
      * @param mixed $method
      * @param mixed $debug
@@ -250,17 +276,47 @@ class ProxyTest extends TestCase
             'X-Lizmap-User' => '',
             'X-Lizmap-User-Groups' => '',
         );
+        $options4 = array(
+            'method' => 'post',
+            'headers' => array(),
+            'body' => 'not empty',
+            'loginFilteredOverride' => true,
+        );
+        $expectedHeaders4 = array(
+            'Connection' => 'close',
+            'User-Agent' => ini_get('user_agent') ?: 'Lizmap',
+            'Accept' => '*/*',
+            'Content-type' => 'application/x-www-form-urlencoded',
+            'X-Lizmap-Override-Filter' => 'true',
+            'X-Lizmap-User' => '',
+            'X-Lizmap-User-Groups' => '',
+        );
+        $options5 = array(
+            'method' => 'post',
+            'headers' => array(),
+            'body' => 'not empty',
+            'loginFilteredOverride' => 0,
+        );
+        $expectedHeaders5 = array(
+            'Connection' => 'close',
+            'User-Agent' => ini_get('user_agent') ?: 'Lizmap',
+            'Accept' => '*/*',
+            'Content-type' => 'application/x-www-form-urlencoded',
+            'X-Lizmap-Override-Filter' => '0',
+            'X-Lizmap-User' => '',
+            'X-Lizmap-User-Groups' => '',
+        );
 
         return array(
             array($options1, $expectedHeaders1, ''),
             array($options2, $expectedHeaders2, 'test=test', 'http://localhost'),
             array($options3, $expectedHeaders3, 'not empty'),
+            array($options4, $expectedHeaders4, 'not empty'),
+            array($options5, $expectedHeaders5, 'not empty'),
         );
     }
 
     /**
-     * @dataProvider getBuildHeadersData
-     *
      * @param mixed      $options
      * @param mixed      $expectedHeaders
      * @param mixed      $expectedBody
@@ -293,8 +349,6 @@ class ProxyTest extends TestCase
     }
 
     /**
-     * @dataProvider getUserHttpHeadersData
-     *
      * @param mixed $connected
      * @param mixed $userSession
      * @param mixed $userGroups

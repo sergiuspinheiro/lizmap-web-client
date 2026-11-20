@@ -8,11 +8,59 @@ with some extra keywords: backend, tests, test, translation, funders, important
 
 ## Unreleased
 
+### Security
+
+* Clean WMS Abstract and title provided by qgs #7329
+* Service - WFS FEATUREID: parenthesize the OR chain - #7403
+* Fix: allow .. for media only on beginning of path #7413
+* Several security fixes: log content must be escaped for HTML output,
+  admin: the HTTP method to send the form for addgroup must be the POST method,
+  admin: some acl2 plugin parameters on controllers was not set correctly, so some rights were not check correctly
+  and admin_api: web API to create a repository must check the repository key⁠ #7440
+* FIX PHP logout after HTTP Basic authentication #7226
+
+### Fixed
+
+* Fix lizmapLogConfig init on docker #7328
+* Login fails with HTTP 500 because lizmapLogConfig.ini.php is missing #7388
+* XmlTools: do not treat an empty root element as a parsing error - #7442
+* PHP: PHP_AUTH_PW variable can miss #7454
+* Popup - Fix undefined featureId warnings for raster layers - #7464
+
+### Backend
+
+* Upgrade JavaScript dependencies
+* Upgrade Jelix to version 1.8.29
+
+## 3.8.21 - 2026-10-23
+
+### Fixed
+
+* PHP: request's headers has to be string - partial #7034
+
+### Security
+
+* Return error if selection token is unknown or expired - #7131
+* fix a security issue related to the html editor (ckeditor) used in some administration pages: malicious PHP files
+  disguised as image files could be uploaded and then executed #7126
+* html editor (ckeditor): strengthens the validation of uploaded images to prevent security issues caused by improper
+  configuration of web servers and PHP (for example web configuration allowing foo.php.jpg to be sent to PHP, or allowing
+  foo.jpg having php code into its content). #7155
+
+### Tests
+
+* PHP Unit: Enhancing Proxy::buildHeader for checking X-Lizmap-Override-Filter #7277
+
+### Backend
+
+* Upgrade Jelix to version 1.8.28
+
 ## 3.8.20 - 2026-09-09
 
 ### Security
 
-* ckeditor: improve the validation of uploaded images
+* fix a security issue related to the html editor (ckeditor) used in some administration pages: malicious PHP files
+  disguised as image files could be uploaded and then executed
 
 
 ### Backend

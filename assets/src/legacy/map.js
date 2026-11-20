@@ -12,7 +12,7 @@ import { extend } from 'ol/extent.js';
 import GeoJSON from 'ol/format/GeoJSON.js';
 
 import WFS from '../modules/WFS.js';
-import WMS from '../modules/WMS.js';
+import { WMS } from '../modules/WMS.js';
 import { Utils } from '../modules/Utils.js';
 
 import DataTable from 'datatables.net-bs5';
@@ -2000,7 +2000,7 @@ window.lizMap = function() {
      */
     function mAddMessage( aMessage, aType, aClose, aTimeout ) {
         var mType = 'info';
-        var mTypeList = ['info', 'error', 'danger', 'success'];
+        var mTypeList = ['info', 'warning', 'error', 'danger', 'success'];
         var mClose = false;
 
         if ( mTypeList.includes(aType) ){

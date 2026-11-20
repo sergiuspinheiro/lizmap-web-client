@@ -16,6 +16,14 @@ SET client_min_messages = warning;
 SET row_security = off;
 
 --
+-- Data for Name: BAD designed table; Type: TABLE DATA; Schema: tests_projects; Owner: -
+--
+
+COPY tests_projects."BAD designed table" (id, "BAD column name is'nt it ?", action, geom) FROM stdin;
+\.
+
+
+--
 -- Data for Name: attribute_table; Type: TABLE DATA; Schema: tests_projects; Owner: -
 --
 
@@ -460,11 +468,11 @@ COPY tests_projects.form_edition_vr_point (id, code_without_exp, code_with_simpl
 -- Data for Name: form_filter; Type: TABLE DATA; Schema: tests_projects; Owner: -
 --
 
-COPY tests_projects.form_filter (id, label, geom) FROM stdin;
-1	simple label	01010000206A080000ABDA509923FA8340CA9A3B72843672C0
-2	Œuvres d'art et monuments de l'espace urbain	01010000206A0800000000000000B0844000000000004885C0
-3	monuments	01010000206A080000BC144539B49A9040D88E7FA8F0C072C0
-4	monuments 2	01010000206A080000BA9926EC46DC9140DD5B3AA4A0AD80C0
+COPY tests_projects.form_filter (id, label, category, event_date, geom) FROM stdin;
+1	simple label	moderne	2020-01-15	01010000206A080000ABDA509923FA8340CA9A3B72843672C0
+2	Œuvres d'art et monuments de l'espace urbain	moderne	2020-06-20	01010000206A0800000000000000B0844000000000004885C0
+3	monuments	heritage	1980-03-10	01010000206A080000BC144539B49A9040D88E7FA8F0C072C0
+4	monuments 2	heritage	1990-11-30	01010000206A080000BA9926EC46DC9140DD5B3AA4A0AD80C0
 \.
 
 
@@ -5916,8 +5924,8 @@ COPY tests_projects.sousquartiers (id, quartmno, squartmno, libsquart, quartiers
 -- Data for Name: table_for_form; Type: TABLE DATA; Schema: tests_projects; Owner: -
 --
 
-COPY tests_projects.table_for_form (gid, titre, test, test_not_null_only, test_empty_value_only, geom) FROM stdin;
-1	test	{A06}	{A07}	{A08}	01010000206A080000BF599997AB39254116EA7038651D5841
+COPY tests_projects.table_for_form (gid, titre, test, test_not_null_only, test_empty_value_only, test_readonly, geom) FROM stdin;
+1	test	{A06}	{A07}	{A08}	{A06}	01010000206A080000BF599997AB39254116EA7038651D5841
 \.
 
 
@@ -6030,6 +6038,13 @@ COPY tests_projects.xss (id, geom, description) FROM stdin;
 1	01010000206A0800000D9D9921FD822741B3C56B7B4DF45741	<script>alert('XSS')</script>
 2	01010000206A0800003C971843589327416B44F41A5BF45741	<iframe width="300" height="200" src="https://www.openstreetmap.org/export/embed.html?bbox=-0.004017949104309083%2C51.47612752641776%2C0.00030577182769775396%2C51.478569861898606&layer=mapnik"></iframe>
 \.
+
+
+--
+-- Name: BAD designed table_id_seq; Type: SEQUENCE SET; Schema: tests_projects; Owner: -
+--
+
+SELECT pg_catalog.setval('tests_projects."BAD designed table_id_seq"', 1, false);
 
 
 --

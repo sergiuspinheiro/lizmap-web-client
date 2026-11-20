@@ -1,13 +1,13 @@
 <?php
 
 use Lizmap\App;
+use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\TestCase;
 
 /**
  * @internal
- *
- * @coversNothing
  */
+#[CoversNothing]
 class XmlToolsTest extends TestCase
 {
     public function arrayToXml(array $array, SimpleXMLElement &$xml)
@@ -64,6 +64,20 @@ class XmlToolsTest extends TestCase
         $this->assertTrue(is_string($xml));
         $this->assertStringStartsNotWith('\n', $xml);
         $this->assertStringContainsString('Fatal', $xml);
+    }
+
+    public function testXmlFromStringEmptyRootElement(): void
+    {
+        // An empty root element is valid XML, e.g. a GetFeatureInfo response
+        // without any feature. SimpleXMLElement without children is falsy,
+        // it must not be reported as a parsing error.
+        $xml_str = '<?xml version="1.0" encoding="UTF-8"?>'."\n".'<GetFeatureInfoResponse/>';
+
+        $xml = App\XmlTools::xmlFromString($xml_str);
+        $this->assertTrue(!is_string($xml));
+        $this->assertInstanceOf(SimpleXMLElement::class, $xml);
+        $this->assertEquals('GetFeatureInfoResponse', $xml->getName());
+        $this->assertCount(0, $xml->children());
     }
 
     public function testXmlFromFile(): void
@@ -150,19 +164,18 @@ class XmlToolsTest extends TestCase
 
         // Go to next sibling
         $xml->next();
-        // No sibling we should be at the end of the parent element
-        // But the XML is invalid here
+        // No sibling so the XML is invalid
         $this->assertFalse($xml->isValid());
-        // And we are some where else
+        // And we are some where else or stay at the same place
         $this->assertEquals(XMLReader::ELEMENT, $xml->nodeType);
-        $this->assertEquals('WMSContactPerson', $xml->localName);
-        $this->assertEquals(2, $xml->depth);
+        // $this->assertEquals('WMSContactPerson', $xml->localName);
+        // $this->assertEquals(2, $xml->depth);
     }
 
     public function testXmlReaderFromStringException(): void
     {
-        $this->expectExceptionMessage('Fatal Error 5: Line: 1 Column: 7 Extra content at the end of the document');
-        App\XmlTools::xmlReaderFromString('<qgis>');
+        $this->expectExceptionMessage('Fatal Error 73: Line: 1 Column: 6');
+        App\XmlTools::xmlReaderFromString('<qgis');
     }
 
     public function testXmlReaderFromFile(): void

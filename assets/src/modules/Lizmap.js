@@ -18,7 +18,7 @@ import Snapping from './Snapping.js';
 import DrawSnapping from './DrawSnapping.js';
 import Layers from './Layers.js';
 import WFS from './WFS.js';
-import WMS from './WMS.js';
+import { WMS } from './WMS.js';
 import { Utils } from './Utils.js';
 import Action from './Action.js';
 import FeatureStorage from './FeatureStorage.js';
@@ -178,7 +178,7 @@ export default class Lizmap {
                     this.geolocation = new Geolocation(this.map, this.initialConfig.options, this.lizmap3);
                     this.geolocationSurvey = new GeolocationSurvey(this.geolocation, this.edition);
                     this.digitizing = new Digitizing(this.map, this.lizmap3);
-                    this.selectionTool = new SelectionTool(this.map, this.digitizing, this.initialConfig, this.lizmap3);
+                    this.selectionTool = new SelectionTool(this.map, this.digitizing, this.initialConfig, this.state, this.lizmap3);
                     this.snapping = new Snapping(
                         this.edition, this.state.rootMapGroup, this.state.layerTree, this.lizmap3,
                         this.initialConfig.vectorLayerFeatureTypeList
@@ -216,29 +216,36 @@ export default class Lizmap {
                     eventDispatcher.dispatch('lizmap.modules.initialized');
                 }
             };
-            const visibleLayers = this.state.rootMapGroup.findMapLayers().filter(layer => layer.visibility);
-            if (visibleLayers.length == 0) {
-                if (this.state.map.isReady) {
+            const waitForLoadingLayers = () => {
+                const scaleDenominator = this.state.map.pointScaleDenominator;
+                const visibleLayers = this.state.rootMapGroup.findMapLayers()
+                    .filter(layer => layer.isVisible(scaleDenominator));
+                if (visibleLayers.length == 0) {
                     initOtherModules();
                 } else {
-                    this.state.map.addListener(initOtherModules, 'map.state.ready');
+                    const waitingLayers = visibleLayers.filter(layer => {
+                        return (
+                            layer.loadStatus == MapLayerLoadStatus.Loading ||
+                            layer.loadStatus == MapLayerLoadStatus.Undefined
+                        )
+                    });
+                    if (waitingLayers.length == 0) {
+                        initOtherModules();
+                    } else {
+                        this.state.rootMapGroup.addListener(
+                            evt => {
+                                if (evt.loadStatus != MapLayerLoadStatus.Loading) {
+                                    initOtherModules();
+                                }
+                            },
+                            'layer.load.status.changed');
+                    }
                 }
+            };
+            if (this.state.map.isReady) {
+                waitForLoadingLayers();
             } else {
-                const waitingLayers = visibleLayers.filter(layer => {
-                    return ( layer.loadStatus == MapLayerLoadStatus.Loading ||
-                        layer.loadStatus == MapLayerLoadStatus.Undefined)
-                });
-                if (waitingLayers.length == 0) {
-                    initOtherModules();
-                } else {
-                    this.state.rootMapGroup.addListener(
-                        evt => {
-                            if (evt.loadStatus != MapLayerLoadStatus.Loading) {
-                                initOtherModules();
-                            }
-                        },
-                        'layer.load.status.changed');
-                }
+                this.state.map.addListener(waitForLoadingLayers, 'map.state.ready');
             }
 
             // Removed unusable button

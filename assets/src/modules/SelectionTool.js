@@ -6,7 +6,9 @@
  */
 import { mainEventDispatcher } from '../modules/Globals.js';
 import Digitizing from './Digitizing.js';
-import {Config} from './Config.js';
+import { Config } from './Config.js';
+import { State } from './State.js';
+import { LayerSymbolsSymbology } from './state/Symbology.js';
 
 import {
     LinearRing,
@@ -39,13 +41,15 @@ export default class SelectionTool {
      * @param {Map}        map        - OpenLayers map
      * @param {Digitizing} digitizing - The digitizing module
      * @param {Config}     initialConfig - The Lizmap initial config
+     * @param {State}      lizmapState - The Lizmap global state
      * @param {object}     lizmap3    - The old lizmap object
      */
-    constructor(map, digitizing, initialConfig, lizmap3) {
+    constructor(map, digitizing, initialConfig, lizmapState, lizmap3) {
 
         this._map = map;
         this._digitizing = digitizing;
         this._initialConfig = initialConfig;
+        this._lizmapState = lizmapState;
         this._lizmap3 = lizmap3;
 
         this._layers = [];
@@ -198,6 +202,8 @@ export default class SelectionTool {
                 if (event.id === 'selectiontool'){
                     this._digitizing.toolSelected = 'deactivate';
                     this._digitizing.toggleVisibility(false);
+                    let previousMessage = document.getElementById('lizmap-selection-message');
+                    if (previousMessage) previousMessage.remove();
                 }
             }
         });
@@ -243,16 +249,54 @@ export default class SelectionTool {
 
     // List of WFS format
     get exportFormats() {
-        return this._initialConfig.vectorLayerResultFormat.filter(
-            format => !['GML2', 'GML3', 'GEOJSON'].includes(format.toUpperCase())
-        );
+        if (this.isExportable) {
+            const layerName = this._allFeatureTypeSelected[0];
+            const layerConfig = this._initialConfig.layers.getLayerConfigByLayerName(layerName);
+            const attrLayerConfig = this._initialConfig.attributeLayers.layerConfigs.find(
+                layer => layer.id === layerConfig.id
+            );
+            if (attrLayerConfig !== undefined) {
+                return attrLayerConfig.getEffectiveExportFormats(
+                    this._initialConfig.vectorLayerResultFormat
+                );
+            }
+        }
+        return ['GeoJSON', 'GML'].concat(
+            this._initialConfig.vectorLayerResultFormat.filter(format => {
+                return ['gml2', 'gml3', 'geojson'].indexOf(format.toLowerCase()) == -1;
+            })
+        )
     }
 
     // Selection is exportable if :
     // - one single feature type is selected in list
     // - there is at least one feature selected
     get isExportable(){
-        return (this._allFeatureTypeSelected.length === 1 && this.selectedFeaturesCount);
+        const exportEnabled = (this._allFeatureTypeSelected.length === 1 && this.selectedFeaturesCount);
+        if (!exportEnabled) {
+            // export is not enabled
+            return exportEnabled;
+        }
+        // export is enabled
+        // checks if something disabled export
+        if (this._initialConfig.hasAttributeLayers) {
+            const layerName = this._allFeatureTypeSelected[0];
+            const layerConfig = this._initialConfig.layers.getLayerConfigByLayerName(layerName);
+            const attrLayersConfig = this._initialConfig.attributeLayers;
+            const attrLayerConfigs = attrLayersConfig.layerConfigs;
+            const attrLayerConfig = attrLayerConfigs.find(
+                layer => layer.id === layerConfig.id
+            );
+            // If the layer has not attribute layer config or if the attribute layer config has export disabled, export is disabled
+            if (attrLayerConfig === undefined || !attrLayerConfig.exportEnabled) {
+                return false;
+            }
+            // If the layer has limited export, we have to check if the current selection is under the max features exportable
+            if (attrLayerConfig.exportLimited && this.selectedFeaturesCount > attrLayerConfig.exportMaxFeatures) {
+                return false;
+            }
+        }
+        return exportEnabled;
     }
 
     get selectedFeaturesCount() {
@@ -300,12 +344,7 @@ export default class SelectionTool {
                 this._allFeatureTypeSelected = this.layers.map(layer => layer.name);
             } else if (featureType === 'selectable-visible-layers') {
                 this._allFeatureTypeSelected = this.layers.map(layer => layer.name).filter(layerName => {
-                    for (let index = 0; index < this._lizmap3.map.layers.length; index++) {
-                        if (this._lizmap3.map.layers[index].visibility
-                          && this._lizmap3.map.layers[index].name === layerName) {
-                            return true;
-                        }
-                    }
+                    return this._lizmapState.layersAndGroupsCollection.getLayerByName(layerName).visibility;
                 });
             } else {
                 this._allFeatureTypeSelected = [featureType];
@@ -488,6 +527,13 @@ export default class SelectionTool {
         let eFilter = lConfig?.request_params?.exp_filter;
         if( eFilter ){
             spatialFilter = eFilter +' AND '+ spatialFilter;
+        }
+
+        // Restrict to the features drawn on the map when some symbology
+        // categories or rules are unchecked in the legend
+        const symbology = this._lizmapState.layersAndGroupsCollection.getLayerByName(targetFeatureType)?.symbology;
+        if (symbology instanceof LayerSymbolsSymbology && symbology.expressionFilter) {
+            spatialFilter = '( ' + symbology.expressionFilter + ' ) AND ' + spatialFilter;
         }
 
         const wfs = new WFS();

@@ -4,7 +4,9 @@ import { MapLayerLoadStatus, MapLayerState } from '../modules/state/MapLayer.js'
 import ImageWMS from 'ol/source/ImageWMS.js';
 import {Image as ImageLayer, Tile as TileLayer} from 'ol/layer.js';
 import TileWMS from 'ol/source/TileWMS.js';
+import TileState from 'ol/TileState.js';
 import { BaseLayerState } from './state/BaseLayer.js';
+import { StaticWmsGetMapParamList } from './WMS.js';
 import { ValidationError } from './Errors.js';
 
 /**
@@ -256,28 +258,55 @@ export default class SingleWMSLayer {
         this._layer.setZIndex(0);
 
         // manage the spinners
-        this._layer.getSource().on('imageloadstart', () => {
+        const source = this._layer.getSource();
+        const setLoading = () => {
+            // add spinners on visible layers
             for (const name of this._layersName) {
-                //add spinners on visible layers
                 const mapLayer = mainLizmap.state.rootMapGroup.getMapLayerByName(name);
                 mapLayer.loadStatus = MapLayerLoadStatus.Loading;
             }
-
-        });
-        this._layer.getSource().on('imageloadend', () => {
-            //remove spinners
+        };
+        const setLoaded = (status) => {
+            // remove spinners
             for (const name of this._mapLayers) {
                 const mapLayer = mainLizmap.state.rootMapGroup.getMapLayerByName(name);
-                mapLayer.loadStatus = MapLayerLoadStatus.Ready;
+                mapLayer.loadStatus = status;
             }
-        });
+        };
 
-        this._layer.getSource().on('imageloaderror', () => {
-            for (const name of this._mapLayers) {
-                const mapLayer = mainLizmap.state.rootMapGroup.getMapLayerByName(name);
-                mapLayer.loadStatus = MapLayerLoadStatus.Error;
-            }
-        });
+        if (source instanceof TileWMS) {
+            // A TileWMS source fires one tileload* event per tile, never imageload*.
+            // Without these listeners the layers keep an undefined load status and
+            // the modules waiting for the first loaded layer (popup, legend,
+            // overview map, scale line...) are never initialized.
+            const loadingTiles = new Set();
+            let hasErrors = false;
+            const onTileDone = (event, failed) => {
+                hasErrors = hasErrors || failed;
+                loadingTiles.delete(event.tile);
+                // OpenLayers fires no end event for a tile released while loading
+                // (LOADING -> EMPTY or ABORT), drop those tiles instead of waiting forever
+                for (const tile of loadingTiles) {
+                    if (tile.getState() !== TileState.LOADING) {
+                        loadingTiles.delete(tile);
+                    }
+                }
+                if (loadingTiles.size === 0) {
+                    setLoaded(hasErrors ? MapLayerLoadStatus.Error : MapLayerLoadStatus.Ready);
+                    hasErrors = false;
+                }
+            };
+            source.on('tileloadstart', event => {
+                loadingTiles.add(event.tile);
+                setLoading();
+            });
+            source.on('tileloadend', event => onTileDone(event, false));
+            source.on('tileloaderror', event => onTileDone(event, true));
+        } else {
+            source.on('imageloadstart', setLoading);
+            source.on('imageloadend', () => setLoaded(MapLayerLoadStatus.Ready));
+            source.on('imageloaderror', () => setLoaded(MapLayerLoadStatus.Error));
+        }
 
         // get the first image to display
         this.updateMap();
@@ -291,33 +320,34 @@ export default class SingleWMSLayer {
 
         this.prepareWMSParams()
 
-        const wmsParams = this._layer.getSource().getParams();
-        let param = {
+        const source = this._layer.getSource();
+        const wmsParams = source.getParams();
+        let params = {
             LAYERS: this._layersWmsName.join(","),
-            FORMAT: this._format,
             STYLES: this._layerStyles.join(","),
-            DPI: 96
         }
         // Only send OPACITIES when at least one layer has non-full opacity
         if (this._layerOpacities.some(o => o !== 255))
-            param["OPACITIES"] = this._layerOpacities.join(",");
+            params["OPACITIES"] = this._layerOpacities.join(",");
         if (this._selectionTokens.join("").split("").length > 0)
-            param["SELECTIONTOKEN"] = this._selectionTokens.join(";");
+            params["SELECTIONTOKEN"] = this._selectionTokens.join(";");
         if (this._filterTokens.join("").split("").length > 0)
-            param["FILTERTOKEN"] = this._filterTokens.join(";");
+            params["FILTERTOKEN"] = this._filterTokens.join(";");
         if  (this._legendOn.join("").split("").length > 0)
-            param["LEGEND_ON"] = this._legendOn.join(";");
+            params["LEGEND_ON"] = this._legendOn.join(";");
         if  (this._legendOff.join("").split("").length > 0)
-            param["LEGEND_OFF"] = this._legendOff.join(";");
+            params["LEGEND_OFF"] = this._legendOff.join(";");
 
         // updateParams merges the object, need to manually remove object keys
         // that aren't in the current param object
         for (const key of Object.keys(wmsParams)) {
-            if(!Object.hasOwn(param, key)){
+            // Do not removed static WMS GetMap parameters from the list of parameters
+            if(StaticWmsGetMapParamList.indexOf(key.toLowerCase()) !== -1) continue;
+            if(!Object.hasOwn(params, key)){
                 delete wmsParams[key];
             }
         }
-        Object.assign(wmsParams, param);
+        Object.assign(wmsParams, params);
 
         // update the map
         if (this._layersWmsName.length == 0) {
@@ -328,6 +358,7 @@ export default class SingleWMSLayer {
             this._layer.setVisible(true)
         }
     }
+
     /**
      * update class properties to construct the wms parameters used to get the single image
      * @memberof SingleWMSLayer

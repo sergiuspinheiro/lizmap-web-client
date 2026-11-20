@@ -64,8 +64,8 @@ export class DrawPage extends ProjectPage {
     }
 
     /**
-     * openDrawPanel function
-     * Opens the draw panel
+     * closeDrawPanel function
+     * Closes the draw panel
      */
     async closeDrawPanel() {
         if (await this.drawPanel.isVisible()) {
@@ -197,6 +197,18 @@ export class DrawPage extends ProjectPage {
      */
     async setMeasureConstraint(type, value) {
         await this.drawPanel.locator(`.digitizing-constraint-${type} input.${type}`).fill(value);
+    }
+
+    /**
+     * Checks if the specific constraint DOM input is visible or not
+     * @param {string} type - the constraint type
+     * @param {boolean} visible - if the constraint should be visible or not
+     * @return {Promise<void>}
+     */
+    async checkMeasureConstraintVisibility(type, visible) {
+        const constraint = this.drawPanel.locator(`.digitizing-constraint-${type} input.${type}`)
+
+        await expect(constraint).toBeVisible({visible:visible})
     }
 
     /**

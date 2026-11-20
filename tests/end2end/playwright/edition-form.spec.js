@@ -558,6 +558,19 @@ test.describe(
     }, () =>
     {
 
+        const LAYER_ID = 'text_widget_point_edit_87ab8b55_b3f5_4bf5_ad25_5c540dcd5a97';
+        const TEXT_WIDGETS = ['Constant', 'Geometry X', 'id check', 'Wrong expression', 'Name check'];
+
+        /**
+         * Text widget values of an evaluateDefaultExpressions response, without the template indentation
+         * @param {import('@playwright/test').Response|null} response The evaluateDefaultExpressions response
+         * @returns {Promise<{[key: string]: string}>} The text widget values
+         */
+        const textWidgetValues = async (response) => Object.fromEntries(
+            Object.entries(await response?.json() ?? {})
+                .map(([name, value]) => [name, String(value).replace(/\s+/g, ' ').trim()])
+        );
+
         test('Edit form with text widget in it', async ({ page }) => {
 
             const project = new ProjectPage(page, 'text_widget');
@@ -639,20 +652,53 @@ test.describe(
             await expect(project.editionForm.locator('div.tab-pane').nth(0).locator('div.form-group')).toHaveCount(5);
             await project.checkEditionFormTextField('id', '1', 'id');
             await project.checkEditionFormTextField('Constant', 'text string', 'Constant', true);
-            await project.checkEditionFormTextField('Geometry X', '3.860212606866182', 'Geometry X', true);
+            await project.checkEditionFormTextField('Geometry X', '3.8602126068661824', 'Geometry X', true);
             await project.checkEditionFormTextField('id check', '1', 'id check', true);
             await project.checkEditionFormTextField('point_name', 'Widget_test', 'Name');
 
             // second tab
             await expect(project.editionForm.locator('div.tab-pane').nth(2).locator('div.form-group')).toHaveCount(1);
-            await project.checkEditionFormTextField('Wrong expression', '[%kk[% "ids" %]%]', 'Wrong expression', true);
+            let wrongExpressionValue = await project.getEditionFormTextFieldValue('Wrong expression', 'Wrong expression', true);
+            expect(['[%kk[% "ids" %]%]', '']).toEqual(expect.arrayContaining([wrongExpressionValue]));
 
             // third tab
             await expect(project.editionForm.locator('div.tab-pane').nth(1).locator('div.form-group')).toHaveCount(1);
             await project.checkEditionFormTextField('Name check', 'Widget_test', 'Name check', true);
 
-            // fill and save the form
+            // change the name: the text widgets are refreshed
+            let evaluateRequestPromise = project.waitForEvaluateDefaultExpressionsRequest('text modified');
             await project.fillEditionFormTextInput('point_name', 'text modified');
+            await project.editionForm.locator('#jforms_view_edition_point_name').blur();
+            let evaluateRequest = await evaluateRequestPromise;
+            requestExpect(evaluateRequest).toContainParametersInPostData({
+                'repository': 'testsrepository',
+                'project': 'text_widget',
+                'layerId': LAYER_ID,
+                'geometry': /^POINT ?\(3\.86021260686618\d* 43\.\d+\)$/,
+                'fields': '[]',
+            });
+            let evaluateParams = new URLSearchParams(evaluateRequest.postData() ?? '');
+            expect(JSON.parse(evaluateParams.get('texts') ?? '')).toEqual(TEXT_WIDGETS);
+            expect(JSON.parse(evaluateParams.get('values') ?? '')).toMatchObject({
+                'id': '1',
+                'point_name': 'text modified',
+            });
+
+            let evaluateResponse = await evaluateRequest.response();
+            responseExpect(evaluateResponse).toBeJson();
+            expect(await textWidgetValues(evaluateResponse)).toMatchObject({
+                'Constant': 'text string',
+                'Geometry X': '3.8602126068661824',
+                'id check': '1',
+                'Name check': 'text modified',
+            });
+
+            // the text widgets are updated before saving
+            await project.checkEditionFormTextField('Name check', 'text modified', 'Name check', true);
+            await project.checkEditionFormTextField('Geometry X', '3.8602126068661824', 'Geometry X', true);
+            await project.checkEditionFormTextField('id check', '1', 'id check', true);
+
+            // save the form
             let editFeatureRequestPromiseUpdate = page.waitForResponse(response => response.url().includes('editFeature'));
             await project.editingSubmitForm('edit');
             await editFeatureRequestPromiseUpdate;
@@ -663,13 +709,61 @@ test.describe(
 
             await project.checkEditionFormTextField('id', '1', 'id');
             await project.checkEditionFormTextField('Constant', 'text string', 'Constant', true);
-            await project.checkEditionFormTextField('Geometry X', '3.860212606866182', 'Geometry X', true);
+            await project.checkEditionFormTextField('Geometry X', '3.8602126068661824', 'Geometry X', true);
             await project.checkEditionFormTextField('id check', '1', 'id check', true);
             await project.checkEditionFormTextField('point_name', 'text modified', 'Name');
-
-            await project.checkEditionFormTextField('Wrong expression', '[%kk[% "ids" %]%]', 'Wrong expression', true);
+            wrongExpressionValue = await project.getEditionFormTextFieldValue('Wrong expression', 'Wrong expression', true);
+            expect(['[%kk[% "ids" %]%]', '']).toEqual(expect.arrayContaining([wrongExpressionValue]));
 
             await project.checkEditionFormTextField('Name check', 'text modified', 'Name check', true);
+        })
+
+        test('Errors of the text widgets are shown in the form', async ({ page }) => {
+
+            const project = new ProjectPage(page, 'text_widget');
+            await project.open();
+
+            // The errors of the text widgets evaluation are mocked, to not depend
+            // on the lizmap_server plugin version
+            let mockedErrors = {'Name check': 'Mocked error of "Name check"'};
+            await page.route(/evaluateDefaultExpressions/, async (route) => {
+                const response = await route.fetch();
+                const json = await response.json();
+                // Since Lizmap 3.10.x, the errors are sent with the values
+                expect(json).toHaveProperty('liz_textWidgetErrors');
+                json['liz_textWidgetErrors'] = mockedErrors;
+                await route.fulfill({response, json});
+            });
+
+            const formRequest = await project.openEditingFormWithLayer('Point edit');
+            await formRequest.response();
+            project.editionForm = page.locator('#jforms_view_edition');
+            const errorList = page.locator('#jforms_view_edition_errors');
+            const nameCheckLabel = project.editionForm.locator('label', {hasText: 'Name check'});
+            const wrongExpressionLabel = project.editionForm.locator('label', {hasText: 'Wrong expression'});
+
+            // The text widgets are evaluated again with the new geometry: the mocked error is shown
+            let evaluateRequestPromise = project.waitForEvaluateDefaultExpressionsRequest();
+            await project.clickOnMapLegacy(488, 331);
+            await (await evaluateRequestPromise).response();
+
+            await expect(errorList).toBeVisible();
+            await expect(errorList.locator('p')).toHaveCount(1);
+            await expect(errorList).toContainText('Mocked error of "Name check"');
+            await expect(nameCheckLabel).toHaveClass(/jforms-error/);
+            // The error of the "Wrong expression" widget, if any, has been replaced
+            await expect(wrongExpressionLabel).not.toHaveClass(/jforms-error/);
+
+            // Without error, the message is removed and the error list is hidden
+            mockedErrors = {};
+            evaluateRequestPromise = project.waitForEvaluateDefaultExpressionsRequest('text modified');
+            await project.editionForm.locator('#jforms_view_edition_point_name').fill('text modified');
+            await project.editionForm.locator('#jforms_view_edition_point_name').blur();
+            await (await evaluateRequestPromise).response();
+
+            await expect(errorList).not.toBeVisible();
+            await expect(errorList.locator('p')).toHaveCount(0);
+            await expect(nameCheckLabel).not.toHaveClass(/jforms-error/);
         })
 
         test('Insert new feature', async ({ page }) => {
@@ -699,16 +793,52 @@ test.describe(
 
             // second tab
             await expect(project.editionForm.locator('div.tab-pane').nth(2).locator('div.form-group')).toHaveCount(1);
-            await project.checkEditionFormTextField('Wrong expression', '[%kk[% "ids" %]%]', 'Wrong expression', true);
+            let wrongExpressionValue = await project.getEditionFormTextFieldValue('Wrong expression', 'Wrong expression', true);
+            expect(['[%kk[% "ids" %]%]', '']).toEqual(expect.arrayContaining([wrongExpressionValue]));
 
             // third tab
             await expect(project.editionForm.locator('div.tab-pane').nth(1).locator('div.form-group')).toHaveCount(1);
             await project.checkEditionFormTextField('Name check', '', 'Name check', true);
 
-            // insert a point feature
+            // insert a point feature: the text widgets are refreshed with the new geometry
+            let evaluateRequestPromise = project.waitForEvaluateDefaultExpressionsRequest();
             await project.clickOnMapLegacy(488, 331);
-            // fill the form
+            let evaluateRequest = await evaluateRequestPromise;
+            let evaluateParams = new URLSearchParams(evaluateRequest.postData() ?? '');
+            const drawnGeometry = evaluateParams.get('geometry') ?? '';
+            expect(drawnGeometry).toMatch(/^POINT ?\(\S+ \S+\)$/);
+            expect(JSON.parse(evaluateParams.get('texts') ?? '')).toEqual(TEXT_WIDGETS);
+            expect(JSON.parse(evaluateParams.get('values') ?? '')).toMatchObject({
+                'id': '',
+                'point_name': '',
+            });
+
+            let evaluateResponse = await evaluateRequest.response();
+            responseExpect(evaluateResponse).toBeJson();
+            const drawnX = (await textWidgetValues(evaluateResponse))['Geometry X'];
+            expect(parseFloat(drawnX)).toBeCloseTo(parseFloat(drawnGeometry.replace(/^POINT ?\(/, '')), 10);
+            await project.checkEditionFormTextField('Geometry X', drawnX, 'Geometry X', true);
+            await project.checkEditionFormTextField('id check', '', 'id check', true);
+            await project.checkEditionFormTextField('Name check', '', 'Name check', true);
+
+            // fill the form: the text widgets are refreshed with the new name
+            evaluateRequestPromise = project.waitForEvaluateDefaultExpressionsRequest('text insert');
             await project.fillEditionFormTextInput('point_name', 'text insert');
+            await project.editionForm.locator('#jforms_view_edition_point_name').blur();
+            evaluateRequest = await evaluateRequestPromise;
+            requestExpect(evaluateRequest).toContainParametersInPostData({
+                'layerId': LAYER_ID,
+                'geometry': drawnGeometry,
+            });
+            evaluateResponse = await evaluateRequest.response();
+            responseExpect(evaluateResponse).toBeJson();
+            expect(await textWidgetValues(evaluateResponse)).toMatchObject({
+                'Geometry X': drawnX,
+                'Name check': 'text insert',
+            });
+            await project.checkEditionFormTextField('Name check', 'text insert', 'Name check', true);
+
+            // save the form
             let editFeatureRequestPromiseUpdate = page.waitForResponse(response => response.url().includes('editFeature'));
             await project.editingSubmitForm('edit');
             await editFeatureRequestPromiseUpdate;
@@ -738,11 +868,74 @@ test.describe(
 
             // second tab
             await expect(project.editionForm.locator('div.tab-pane').nth(2).locator('div.form-group')).toHaveCount(1);
-            await project.checkEditionFormTextField('Wrong expression', '[%kk[% "ids" %]%]', 'Wrong expression', true);
+            wrongExpressionValue = await project.getEditionFormTextFieldValue('Wrong expression', 'Wrong expression', true);
+            expect(['[%kk[% "ids" %]%]', '']).toEqual(expect.arrayContaining([wrongExpressionValue]));
 
             // third tab
             await expect(project.editionForm.locator('div.tab-pane').nth(1).locator('div.form-group')).toHaveCount(1);
             await project.checkEditionFormTextField('Name check', 'text insert', 'Name check', true);
+        });
+
+        test('Text widgets follow geometry changes', async ({ page }) => {
+
+            const project = new ProjectPage(page, 'text_widget');
+            await project.open();
+
+            const formRequest = await project.openEditingFormWithLayer('Point edit');
+            await formRequest.response();
+            project.editionForm = page.locator('#jforms_view_edition');
+            await project.checkEditionFormTextField('Geometry X', '', 'Geometry X', true);
+
+            const digitizationTab = page.locator('.edition-tabs button[data-bs-target="#tabdigitization"]');
+            const formTab = page.locator('.edition-tabs button[data-bs-target="#tabform"]');
+
+            /**
+             * Type the point coordinates in the layer CRS, then check the refresh request and the text widget
+             * @param {number} x The X coordinate
+             * @param {number} y The Y coordinate
+             */
+            const typePoint = async (x, y) => {
+                await digitizationTab.click();
+                await page.locator('#edition-point-coord-crs').selectOption('4326');
+                await page.locator('#edition-point-coord-x').fill(String(x));
+                await page.locator('#edition-point-coord-y').fill(String(y));
+                // the point is moved on key up
+                await page.locator('#edition-point-coord-y').press('End');
+
+                const evaluateRequestPromise = project.waitForEvaluateDefaultExpressionsRequest();
+                await page.locator('#edition-point-coord-submit').click();
+                const evaluateRequest = await evaluateRequestPromise;
+                requestExpect(evaluateRequest).toContainParametersInPostData({
+                    'layerId': LAYER_ID,
+                    'geometry': /^POINT ?\(\S+ \S+\)$/,
+                });
+                const evaluateParams = new URLSearchParams(evaluateRequest.postData() ?? '');
+                const coords = (evaluateParams.get('geometry') ?? '').replace(/^POINT ?\(|\)$/g, '').split(' ');
+                expect(parseFloat(coords[0])).toBeCloseTo(x, 6);
+                expect(parseFloat(coords[1])).toBeCloseTo(y, 6);
+
+                const evaluateResponse = await evaluateRequest.response();
+                responseExpect(evaluateResponse).toBeJson();
+                const geometryX = (await textWidgetValues(evaluateResponse))['Geometry X'];
+                expect(parseFloat(geometryX)).toBeCloseTo(x, 6);
+
+                await formTab.click();
+                await project.checkEditionFormTextField('Geometry X', geometryX, 'Geometry X', true);
+            };
+
+            // draw the point
+            await typePoint(3.85, 43.62);
+
+            // draw it again elsewhere: the text widget follows
+            await digitizationTab.click();
+            page.once('dialog', dialog => dialog.accept());
+            await page.locator('#edition-geomtool-restart-drawing').click();
+            await typePoint(3.9, 43.6);
+
+            // the other text widgets are unchanged
+            await project.checkEditionFormTextField('Constant', 'text string', 'Constant', true);
+            await project.checkEditionFormTextField('id check', '', 'id check', true);
+            await project.checkEditionFormTextField('Name check', '', 'Name check', true);
         });
     });
 

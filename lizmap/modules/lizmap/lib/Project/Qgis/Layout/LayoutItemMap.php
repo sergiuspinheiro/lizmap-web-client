@@ -20,13 +20,14 @@ use Lizmap\Project\Qgis;
  *
  * @property int         $type
  * @property string      $typeName
- * @property int         $width
- * @property int         $height
- * @property int         $x
- * @property int         $y
+ * @property float       $width
+ * @property float       $height
+ * @property float       $x
+ * @property float       $y
  * @property string      $uuid
  * @property bool        $grid
  * @property null|string $overviewMap
+ * @property null|array  $extent
  */
 class LayoutItemMap extends Qgis\BaseQgisObject
 {
@@ -41,6 +42,7 @@ class LayoutItemMap extends Qgis\BaseQgisObject
         'uuid',
         'grid',
         'overviewMap',
+        'extent',
     );
 
     /** @var array<string> The not null properties */

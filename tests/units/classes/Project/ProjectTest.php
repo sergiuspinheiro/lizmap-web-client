@@ -2,14 +2,14 @@
 
 use Lizmap\Project;
 use Lizmap\Project\ProjectFilesFinder;
+use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
  * @internal
- *
- * @coversNothing
  */
+#[CoversNothing]
 class ProjectTest extends TestCase
 {
     public function testReadProject(): void
@@ -40,6 +40,34 @@ class ProjectTest extends TestCase
 
     }
 
+    public function testGetPrintTemplate(): void
+    {
+        $proj = new ProjectForTests();
+        $proj->setPrintCapabilities(array(
+            array('title' => 'Landscape A4'),
+            array(
+                'title' => "Owner's card",
+                'atlas' => array(
+                    'enabled' => true,
+                    'coverageLayer' => 'parcels_id',
+                    'filenamePattern' => "'parcel_'||@atlas_pagename",
+                    'pageNameExpression' => '"label"',
+                ),
+            ),
+        ));
+
+        $this->assertNull($proj->getPrintTemplate('Unknown'));
+        $this->assertNull($proj->getPrintTemplate('landscape a4'));
+
+        $printTemplate = $proj->getPrintTemplate('Landscape A4');
+        $this->assertEquals('Landscape A4', $printTemplate['title']);
+        $this->assertArrayNotHasKey('atlas', $printTemplate);
+
+        $printTemplate = $proj->getPrintTemplate("Owner's card");
+        $this->assertEquals("'parcel_'||@atlas_pagename", $printTemplate['atlas']['filenamePattern']);
+        $this->assertEquals('"label"', $printTemplate['atlas']['pageNameExpression']);
+    }
+
     public static function getQgisPathData()
     {
         return array(
@@ -50,8 +78,6 @@ class ProjectTest extends TestCase
     }
 
     /**
-     * @dataProvider getQgisPathData
-     *
      * @param mixed $repPath
      * @param mixed $key
      * @param mixed $expectedPath
@@ -76,8 +102,6 @@ class ProjectTest extends TestCase
     }
 
     /**
-     * @dataProvider getRelativeQgisPathData
-     *
      * @param mixed $relative
      * @param mixed $root
      * @param mixed $file
@@ -134,8 +158,6 @@ class ProjectTest extends TestCase
     }
 
     /**
-     * @dataProvider getAttributeLayersData
-     *
      * @param mixed $only
      * @param mixed $attributeLayers
      * @param mixed $expectedReturn
@@ -203,8 +225,6 @@ class ProjectTest extends TestCase
     }
 
     /**
-     * @dataProvider getEditionLayersData
-     *
      * @param mixed $editionLayers
      * @param mixed $acl
      * @param mixed $unset
@@ -255,8 +275,6 @@ class ProjectTest extends TestCase
     }
 
     /**
-     * @dataProvider getLoginFilteredData
-     *
      * @param mixed $lfLayers
      * @param mixed $layers
      * @param mixed $ln
@@ -295,15 +313,29 @@ class ProjectTest extends TestCase
         // $filter2 = '"Group" = \'all\'';
         $filter2 = '( "descr" = \'all\' OR "descr" LIKE \'all,%\' OR "descr" LIKE \'%,all\' OR "descr" LIKE \'%,all,%\' )';
 
+        // QGIS expression: the LIKE wildcards are escaped, the backslashes
+        // and the single quotes are escaped as in QgsExpression::quotedString()
+        $aclData3 = array(
+            'userIsConnected' => true,
+            'userSession' => (object) array('login' => 'admin'),
+            'groups' => array('group_a', '%', 'o\'neil\\'),
+        );
+        $filter3 = '( "descr" = \'group_a\' OR "descr" LIKE \'group\\\_a,%\' OR "descr" LIKE \'%,group\\\_a\' OR "descr" LIKE \'%,group\\\_a,%\'';
+        $filter3 .= ' OR ';
+        $filter3 .= '"descr" = \'%\' OR "descr" LIKE \'\\\%,%\' OR "descr" LIKE \'%,\\\%\' OR "descr" LIKE \'%,\\\%,%\'';
+        $filter3 .= ' OR ';
+        $filter3 .= '"descr" = \'o\'\'neil\\\\\' OR "descr" LIKE \'o\'\'neil\\\\\\\,%\' OR "descr" LIKE \'%,o\'\'neil\\\\\\\\\' OR "descr" LIKE \'%,o\'\'neil\\\\\\\,%\'';
+        $filter3 .= ' OR ';
+        $filter3 .= '"descr" = \'all\' OR "descr" LIKE \'all,%\' OR "descr" LIKE \'%,all\' OR "descr" LIKE \'%,all,%\' )';
+
         return array(
             array($aclData1, $filter1),
             array($aclData2, $filter2),
+            array($aclData3, $filter3),
         );
     }
 
     /**
-     * @dataProvider getFiltersData
-     *
      * @param mixed $aclData
      * @param mixed $expectedFilters
      */
@@ -343,6 +375,69 @@ class ProjectTest extends TestCase
 
     }
 
+    /**
+     * Provide the users and the expected SQL filters by login run by Lizmap.
+     *
+     * @return array the ACL data and the expected filter
+     */
+    public static function getFiltersForSqlData()
+    {
+        $aclData1 = array(
+            'userIsConnected' => true,
+            'userSession' => (object) array('login' => 'admin'),
+            'groups' => array('admin', 'groups', 'lizmap'),
+        );
+        $aclData2 = array(
+            'userIsConnected' => false,
+        );
+        // The LIKE wildcards are values like the others
+        $aclData3 = array(
+            'userIsConnected' => true,
+            'userSession' => (object) array('login' => 'admin'),
+            'groups' => array('group_a', '%'),
+        );
+
+        return array(
+            array($aclData1, '( string_to_array("descr", \',\') && ARRAY[\'admin\', \'groups\', \'lizmap\', \'all\'] )'),
+            array($aclData2, '( string_to_array("descr", \',\') && ARRAY[\'all\'] )'),
+            array($aclData3, '( string_to_array("descr", \',\') && ARRAY[\'group_a\', \'%\', \'all\'] )'),
+        );
+    }
+
+    /**
+     * Test the SQL filters by login run by Lizmap compare the multiple values as arrays.
+     *
+     * @param array  $aclData        the user and its groups
+     * @param string $expectedFilter the expected SQL filter
+     */
+    #[DataProvider('getFiltersForSqlData')]
+    public function testGetLoginFiltersForSql($aclData, $expectedFilter): void
+    {
+        $data = array(
+            'WMSInformation' => array(),
+            'layers' => array(),
+        );
+        $file = __DIR__.'/Ressources/embed_parent.qgs';
+        $context = new ContextForTests();
+        $context->setResult($aclData);
+        $proj = new ProjectForTests($context);
+        $testQgis = new QgisProjectForTests($data);
+        $rep = new Project\Repository('key', array(), null, null, null);
+        $testQgis->setPath($file);
+        $testQgis->readXMLProjectTest($file);
+
+        $cfg = json_decode(file_get_contents(__DIR__.'/Ressources/embed_parent_filtered.qgs.cfg'));
+        $config = new Project\ProjectConfig($cfg);
+        $proj->setCfg($config);
+        $proj->setQgis($testQgis);
+        $proj->setRepo($rep);
+        $proj->setKey('test');
+
+        // The SQL filter of the layer with multiple values
+        $filters = $proj->getLoginFilters(array('edition_layer_embed_point'), false, true);
+        $this->assertEquals($expectedFilter, $filters['edition_layer_embed_point']['filter']);
+    }
+
     public static function getFiltersDataNotMultiple()
     {
         $aclData1 = array(
@@ -363,8 +458,6 @@ class ProjectTest extends TestCase
     }
 
     /**
-     * @dataProvider getFiltersDataNotMultiple
-     *
      * @param mixed $aclData
      * @param mixed $expectedFilters
      */
@@ -441,8 +534,6 @@ class ProjectTest extends TestCase
     }
 
     /**
-     * @dataProvider getGoogleData
-     *
      * @param mixed $options
      * @param mixed $needGoogle
      * @param mixed $gKey
@@ -496,8 +587,6 @@ class ProjectTest extends TestCase
     }
 
     /**
-     * @dataProvider getCheckAclData
-     *
      * @param mixed $aclData
      * @param mixed $options
      * @param mixed $expectedRet
@@ -553,8 +642,6 @@ class ProjectTest extends TestCase
     }
 
     /**
-     * @dataProvider userFiles4Projets
-     *
      * @param mixed $repoName
      */
     #[DataProvider('userFiles4Projets')]
@@ -744,8 +831,6 @@ class ProjectTest extends TestCase
     }
 
     /**
-     * @dataProvider getAttributeLayersForExport
-     *
      * @param mixed $aclData
      * @param mixed $groups
      * @param mixed $attributeLayers

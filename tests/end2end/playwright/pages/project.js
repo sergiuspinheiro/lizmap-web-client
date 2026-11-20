@@ -189,6 +189,15 @@ export class ProjectPage extends BasePage {
         this.page.locator(`#attribute-layer-${name} .attribute-layer-action-bar`);
 
     /**
+     * Attribute table export group for the given layer name
+     * it contains the export dropdown button with available formats
+     * @param {string} name Name of the layer
+     * @returns {Locator} Locator for attribute table export group
+     */
+    attributeTableExportGroup = (name) =>
+        this.page.locator(`#attribute-layer-${name} .export-formats`);
+
+    /**
      * Editing field for the given field in the panel
      * @param {string} name Name of the field
      * @returns {Locator} Locator for the field (input, select, textarea)
@@ -320,25 +329,29 @@ export class ProjectPage extends BasePage {
 
     /**
      * Waits for a GetSelectionToken request
+     * @param {undefined|string} typename Optional TYPENAME to filter on
      * @returns {Promise<Request>} The GetSelectionToken request
      */
-    async waitForGetSelectionTokenRequest() {
+    async waitForGetSelectionTokenRequest(typename = undefined) {
         return this.page.waitForRequest(
             request => request.method() === 'POST' &&
             request.postData()?.includes('WMS') === true &&
-            request.postData()?.includes('GETSELECTIONTOKEN') === true
+            request.postData()?.includes('GETSELECTIONTOKEN') === true &&
+            (typename === undefined || request.postData()?.includes(typename) === true)
         );
     }
 
     /**
      * Waits for a GetFilterToken request
+     * @param {undefined|string} featureType Optional TYPENAME to filter on
      * @returns {Promise<Request>} The GetFilterToken request
      */
-    async waitForGetFilterTokenRequest() {
+    async waitForGetFilterTokenRequest(featureType = undefined) {
         return this.page.waitForRequest(
             request => request.method() === 'POST' &&
             request.postData()?.includes('WMS') === true &&
-            request.postData()?.includes('GETFILTERTOKEN') === true
+            request.postData()?.includes('GETFILTERTOKEN') === true &&
+            (featureType === undefined || request.postData()?.includes(featureType) === true)
         );
     }
 
@@ -386,6 +399,21 @@ export class ProjectPage extends BasePage {
             request => request.method() === 'POST' &&
             request.url().includes('editableFeatures') === true &&
             request.postData()?.includes('features') === true
+        );
+    }
+
+    /**
+     * Waits for a request evaluating default values and text widgets of the edition form
+     * @param {string|undefined} value A form value the request should contain, optional
+     * @returns {Promise<Request>} The evaluateDefaultExpressions request
+     */
+    async waitForEvaluateDefaultExpressionsRequest(value = undefined) {
+        return this.page.waitForRequest(
+            request => request.method() === 'POST' &&
+            request.url().includes('evaluateDefaultExpressions') === true &&
+            (value === undefined || Object.values(
+                JSON.parse(new URLSearchParams(request.postData() ?? '').get('values') ?? '{}')
+            ).includes(value))
         );
     }
 
@@ -530,7 +558,7 @@ export class ProjectPage extends BasePage {
      */
     async openAttributeTable(layer, maximise = false){
         if (!await this.page.locator('#attributeLayers').isVisible()) {
-            await this.page.locator('a#button-attributeLayers').click();
+            await this.page.locator('#button-attributeLayers').click();
             if (maximise) {
                 await this.page.getByRole('button', { name: 'Maximize' }).click();
             }
@@ -541,6 +569,19 @@ export class ProjectPage extends BasePage {
         const datatablesPromise = this.waitForDatatablesRequest();
         await this.page.locator('#attribute-layer-list-table').locator(`button[value=${layer}]`).click();
         return await datatablesPromise;
+    }
+
+    /**
+     * closeLayerAttributeTable function
+     * Close the layer attribute table panel
+     * @param {string} layer Name of the layer
+     */
+    async closeLayerAttributeTable(layer){
+        const attributeLayerDock = this.page.locator('#attributeLayers');
+        const closeButton = attributeLayerDock.locator(`#nav-tab-attribute-layer-${layer} .btn-close-attribute-tab`);
+        if (await closeButton.isVisible()) {
+            await closeButton.click();
+        }
     }
 
     /**
@@ -820,6 +861,31 @@ export class ProjectPage extends BasePage {
     }
 
     /**
+     * getEditionFormTextFieldValue function
+     * get the given text input or text widget value
+     * @param {string} fieldName The name of the input/text widget field
+     * @param {null|string} labelText The label text, optional if only input value should be checked
+     * @param {boolean} trim trim the text widget value (only for text widget checks)
+     *
+     * @returns {Promise<string>} The input value
+     */
+    async getEditionFormTextFieldValue(fieldName, labelText = null, trim = false){
+        if (labelText !== null) {
+            await expect(this.editionForm.locator(`label[id='jforms_view_edition_${fieldName}_label']`))
+                .toHaveText(labelText);
+        }
+        const input = this.editionForm.locator(`input[id='jforms_view_edition_${fieldName}']`);
+        let value;
+        if (trim) {
+            value = (await input.inputValue()).replace(/\s+/g,' ').trim();
+        } else {
+            value = await input.inputValue();
+        }
+
+        return value;
+    }
+
+    /**
      * checkEditionFormTextField function
      * check the given text input or text widget value
      * @param {string} fieldName The name of the input/text widget field
@@ -833,14 +899,11 @@ export class ProjectPage extends BasePage {
                 .toHaveText(labelText);
         }
         const input = this.editionForm.locator(`input[id='jforms_view_edition_${fieldName}']`);
-        let value;
-        if (trim) {
-            value = (await input.inputValue()).replace(/\s+/g,' ').trim();
-        } else {
-            value = await input.inputValue();
-        }
-
-        expect(value).toBe(fieldValue);
+        // Retry: text widgets are refreshed asynchronously after the form is displayed
+        await expect.poll(async () => {
+            const value = await input.inputValue();
+            return trim ? value.replace(/\s+/g,' ').trim() : value;
+        }).toBe(fieldValue);
     }
 
     /**
@@ -1166,7 +1229,7 @@ export class ProjectPage extends BasePage {
      */
     async clearPermalinkHistory(){
         this.page.once('dialog', dialog => {
-            expect(dialog.message()).toBe("Remove all permalink from cache?");
+            expect(dialog.message()).toBe("Remove all permalinks from cache?");
             return dialog.accept();
         });
         await this.page.locator(`#permalink-clear-history`).click();
