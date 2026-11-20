@@ -16,8 +16,8 @@ import GeoJSON from 'ol/format/GeoJSON.js';
 import { Vector as VectorSource } from 'ol/source.js';
 import { Vector as VectorLayer } from 'ol/layer.js';
 import { Feature } from 'ol';
-import { Point } from 'ol/geom.js';
-import { Circle, Fill, Stroke, Style } from 'ol/style.js';
+import { LineString, Point } from 'ol/geom.js';
+import { snapMarkerStyle, snapIndicatorStyle, snapSegmentStyle } from './SnapStyles.js';
 
 /**
  * Id of the drawings in the layer list
@@ -81,27 +81,35 @@ export default class DrawSnapping {
         this._edgesSource = new VectorSource({ wrapX: false });
         this._pointsSource = new VectorSource({ wrapX: false });
 
-        const pointStyle = new Style({
-            image: new Circle({
-                radius: 3,
-                fill: new Fill({ color: 'rgba(224, 0, 224, 0.7)' }),
-                stroke: new Stroke({ color: '#fff', width: 1 }),
-            }),
-        });
-        // Show the computed points only (midpoints and intersections), the vertices are visible on the layers
+        // Show the snap points with symbols like QGIS: vertices, midpoints and intersections
         this._pointsLayer = new VectorLayer({
             source: this._pointsSource,
-            style: (feature) => feature.get('kind') === 'vertex' ? null : pointStyle,
+            style: (feature) => snapMarkerStyle(feature.get('kind')),
             visible: false,
         });
         this._pointsLayer.setProperties({ name: 'LizmapDrawSnappingPointsLayer' });
         this._map.addToolLayer(this._pointsLayer);
+
+        // Indicator following the cursor when it snaps
+        this._indicatorPoint = new Feature(new Point([0, 0]));
+        this._indicatorSegment = new Feature(new LineString([[0, 0], [0, 0]]));
+        this._indicatorSegment.setStyle(snapSegmentStyle);
+        this._indicatorSource = new VectorSource({ wrapX: false });
+        this._indicatorLayer = new VectorLayer({
+            source: this._indicatorSource,
+            visible: false,
+            zIndex: 1000,
+        });
+        this._indicatorLayer.setProperties({ name: 'LizmapDrawSnappingIndicatorLayer' });
+        this._map.addToolLayer(this._indicatorLayer);
+        this._map.getViewport().addEventListener('pointerleave', () => this._showIndicator(null));
 
         this._interaction = new MultiSnap({
             pointsSource: this._pointsSource,
             edgesSource: this._edgesSource,
             pixelTolerance: this._tolerance,
             edges: this._modes.segments,
+            onSnap: (result) => this._showIndicator(result),
         });
 
         // Keep the snap interaction the last one, so it is applied before the draw ones
@@ -168,6 +176,27 @@ export default class DrawSnapping {
         } catch {
             return false;
         }
+    }
+
+    /**
+     * Show where the cursor snaps
+     * @param {object|null} result - the snap result
+     */
+    _showIndicator(result) {
+        if (!result || !this._active) {
+            this._indicatorSource.clear(true);
+            this._indicatorLayer.changed();
+            return;
+        }
+        this._indicatorPoint.getGeometry().setCoordinates(result.coordinate);
+        this._indicatorPoint.setStyle(snapIndicatorStyle(result.kind));
+        const features = [this._indicatorPoint];
+        if (result.kind === 'segment' && result.segment) {
+            this._indicatorSegment.getGeometry().setCoordinates(result.segment);
+            features.unshift(this._indicatorSegment);
+        }
+        this._indicatorSource.clear(true);
+        this._indicatorSource.addFeatures(features);
     }
 
     _dispatch() {
@@ -242,12 +271,19 @@ export default class DrawSnapping {
 
         const points = computeSnapPoints(geojsonFeatures, this._modes);
         const pointFeatures = [];
+        const seen = new Set();
         for (const [kind, coordinates] of [
             ['vertex', points.vertices],
             ['midpoint', points.midpoints],
             ['intersection', points.intersections],
         ]) {
             for (const coordinate of coordinates) {
+                // a vertex keeps its kind when it is also a midpoint or an intersection
+                const key = coordinate[0] + ',' + coordinate[1];
+                if (seen.has(key)) {
+                    continue;
+                }
+                seen.add(key);
                 const feature = new Feature(new Point(coordinate.slice(0, 2)));
                 feature.set('kind', kind, true);
                 pointFeatures.push(feature);
@@ -306,10 +342,13 @@ export default class DrawSnapping {
         if (active) {
             this._map.addInteraction(this._interaction);
             this._pointsLayer.setVisible(true);
+            this._indicatorLayer.setVisible(true);
             this.refresh();
         } else {
             this._map.removeInteraction(this._interaction);
             this._pointsLayer.setVisible(false);
+            this._indicatorLayer.setVisible(false);
+            this._showIndicator(null);
             this._requestId++;
             this._edgesSource.clear(true);
             this._pointsSource.clear(true);

@@ -74,19 +74,42 @@ export default class Snapping {
         this._lizmap3.map.addLayer(snapLayer);
         this._snapLayer = snapLayer;
 
-        // Layer to store the computed points: segment midpoints and intersections
+        // Symbols like the snapping indicators of QGIS
+        const graphicNames = {vertex: 'square', midpoint: 'triangle', intersection: 'x', segment: 'circle'};
+        const kindStyle = (sizes) => new OpenLayers.Style({
+            graphicName: '${graphic}',
+            pointRadius: '${radius}',
+            strokeColor: '#ff00ff',
+            strokeWidth: '${strokeWidth}',
+            strokeOpacity: sizes.opacity,
+            fillColor: '${fillColor}',
+            fillOpacity: '${fillOpacity}',
+        }, {
+            context: {
+                graphic: f => graphicNames[f.attributes.kind] || 'circle',
+                radius: f => f.attributes.kind === 'vertex' ? sizes.vertex : sizes.other,
+                strokeWidth: f => f.attributes.kind === 'intersection' ? sizes.width / 2 : sizes.width,
+                fillColor: f => f.attributes.kind === 'intersection' ? '#ff00ff' : '#ffffff',
+                fillOpacity: f => f.attributes.kind === 'intersection' ? sizes.opacity : 0.35,
+            }
+        });
+
+        // Layer to store the snap points: vertices, segment midpoints and intersections
         const snapPointsLayer = new OpenLayers.Layer.Vector('snappointslayer', {
             visibility: false,
-            styleMap: new OpenLayers.StyleMap({
-                pointRadius: 2,
-                fill: true,
-                fillColor: '#e000e0',
-                fillOpacity: 0.6,
-                stroke: false,
-            })
+            styleMap: new OpenLayers.StyleMap(kindStyle({vertex: 3.5, other: 5, width: 1.2, opacity: 0.75}))
         });
         this._lizmap3.map.addLayer(snapPointsLayer);
         this._snapPointsLayer = snapPointsLayer;
+        this._pointKinds = new Map();
+
+        // Indicator following the cursor when it snaps
+        const indicatorLayer = new OpenLayers.Layer.Vector('snapindicatorlayer', {
+            visibility: false,
+            styleMap: new OpenLayers.StyleMap(kindStyle({vertex: 9, other: 10, width: 2.5, opacity: 1}))
+        });
+        this._lizmap3.map.addLayer(indicatorLayer);
+        this._indicatorLayer = indicatorLayer;
 
         const snapControl = new OpenLayers.Control.Snapping({
             layer: this._edition.editLayer,
@@ -101,6 +124,23 @@ export default class Snapping {
         });
         this._lizmap3.map.addControls([snapControl]);
         this._lizmap3.controls['snapControl'] = snapControl;
+
+        snapControl.events.on({
+            snap: (evt) => {
+                let kind = 'segment';
+                if (evt.layer === this._snapPointsLayer) {
+                    kind = this._pointKinds.get(evt.point.x + ',' + evt.point.y) || 'vertex';
+                } else if (evt.snapType !== 'edge') {
+                    kind = 'vertex';
+                }
+                this._indicatorLayer.destroyFeatures();
+                this._indicatorLayer.addFeatures([new OpenLayers.Feature.Vector(
+                    new OpenLayers.Geometry.Point(evt.point.x, evt.point.y), {kind: kind}
+                )]);
+            },
+            unsnap: () => this._indicatorLayer.destroyFeatures(),
+            deactivate: () => this._indicatorLayer.destroyFeatures(),
+        });
 
         this._setSnapLayersRefreshable = () => {
             if(this._active){
@@ -302,35 +342,46 @@ export default class Snapping {
     _applyModes() {
         const snapControl = this._lizmap3.controls.snapControl;
         const target = snapControl.targets[0];
-        target.node = this._modes.vertices;
-        target.vertex = this._modes.vertices;
+        // the vertices are in the points layer, to be shown
+        target.node = false;
+        target.vertex = false;
         target.edge = this._modes.segments;
         target.nodeTolerance = this._tolerance;
         target.vertexTolerance = this._tolerance;
         target.edgeTolerance = this._tolerance;
 
         const pointsTarget = snapControl.targets[1];
-        pointsTarget.node = this._modes.midpoints || this._modes.intersections;
+        pointsTarget.node = this._modes.vertices || this._modes.midpoints || this._modes.intersections;
         pointsTarget.nodeTolerance = this._tolerance;
     }
 
     /**
-     * Compute the midpoints and the intersections of the fetched features
+     * Compute the vertices, the midpoints and the intersections of the fetched features
      * @private
      */
     _updateSnapPoints() {
         this._snapPointsLayer.destroyFeatures();
-        if (!this._modes.midpoints && !this._modes.intersections) {
+        this._pointKinds = new Map();
+        if (!this._modes.vertices && !this._modes.midpoints && !this._modes.intersections) {
             return;
         }
-        const points = computeSnapPoints(this._fetchedFeatures, {
-            vertices: false,
-            midpoints: this._modes.midpoints,
-            intersections: this._modes.intersections,
-        });
-        const features = points.midpoints.concat(points.intersections).map(
-            ([x, y]) => new OpenLayers.Feature.Vector(new OpenLayers.Geometry.Point(x, y))
-        );
+        const points = computeSnapPoints(this._fetchedFeatures, this._modes);
+        const features = [];
+        for (const [kind, coordinates] of [
+            ['vertex', points.vertices],
+            ['midpoint', points.midpoints],
+            ['intersection', points.intersections],
+        ]) {
+            for (const [x, y] of coordinates) {
+                const key = x + ',' + y;
+                // a vertex keeps its kind when it is also a midpoint or an intersection
+                if (this._pointKinds.has(key)) {
+                    continue;
+                }
+                this._pointKinds.set(key, kind);
+                features.push(new OpenLayers.Feature.Vector(new OpenLayers.Geometry.Point(x, y), {kind: kind}));
+            }
+        }
         if (features.length) {
             this._snapPointsLayer.addFeatures(features);
         }
@@ -582,6 +633,10 @@ export default class Snapping {
         // Set snap layers visibility
         this._snapLayer.setVisibility(this._active);
         this._snapPointsLayer.setVisibility(this._active);
+        this._indicatorLayer.setVisibility(this._active);
+        if (!this._active) {
+            this._indicatorLayer.destroyFeatures();
+        }
 
         mainEventDispatcher.dispatch('snapping.active');
     }
