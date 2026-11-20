@@ -307,16 +307,20 @@ export class Digitizing {
         this._sketching = false;
         this._sketchVertexCount = 0;
         this._tracingVertex = false;
+        this._redoVertices = [];
 
         // Ctrl+Z or Backspace: remove the last vertex of the drawing being drawn
+        // Ctrl+Y or Ctrl+Shift+Z: add it again
         document.addEventListener('keydown', (event) => {
             const target = event.target;
             if (target && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable)) {
                 return;
             }
-            const undoKey = ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key?.toLowerCase() === 'z')
-                || event.key === 'Backspace';
-            if (undoKey && this.undoLastVertex()) {
+            const key = event.key?.toLowerCase();
+            const ctrl = event.ctrlKey || event.metaKey;
+            const undoKey = (ctrl && !event.shiftKey && key === 'z') || event.key === 'Backspace';
+            const redoKey = ctrl && ((event.shiftKey && key === 'z') || key === 'y');
+            if ((undoKey && this.undoLastVertex()) || (redoKey && this.redoLastVertex())) {
                 event.preventDefault();
                 event.stopPropagation();
             }
@@ -701,6 +705,7 @@ export class Digitizing {
                 this._drawInteraction.on('drawstart', event => {
                     this.createMeasureTooltips();
                     this._sketching = true;
+                    this._redoVertices = [];
                     this._sketchVertexCount = this._sketchCoordinates()?.length || 0;
                     this._listener = event.feature.getGeometry().on('change', evt => {
                         this._checkVertexAdded();
@@ -828,6 +833,10 @@ export class Digitizing {
         const count = coords.length;
         const previous = this._sketchVertexCount;
         this._sketchVertexCount = count;
+        if (count > previous) {
+            // a new vertex: nothing to redo
+            this._redoVertices = [];
+        }
         if (typeof this.traceVertices !== 'function' || count !== previous + 1 || count < 3) {
             return;
         }
@@ -865,9 +874,36 @@ export class Digitizing {
         if (!draw || !this._sketching || !this._map.getInteractions().getArray().includes(draw)) {
             return false;
         }
+        // the last coordinate follows the cursor, the one before is the last vertex
+        const coords = this._sketchCoordinates();
+        const vertex = coords && coords.length >= 2 ? coords[coords.length - 2].slice() : null;
         this._tracingVertex = true;
         try {
             draw.removeLastPoint();
+        } finally {
+            this._tracingVertex = false;
+        }
+        this._sketchVertexCount = this._sketchCoordinates()?.length || 0;
+        if (vertex && this._sketching) {
+            this._redoVertices.push(vertex);
+        }
+        return true;
+    }
+
+    /**
+     * Add again the last vertex removed by undoLastVertex
+     * @returns {boolean} true if a vertex was added
+     */
+    redoLastVertex() {
+        const draw = this._drawInteraction;
+        if (!draw || !this._sketching || this._redoVertices.length === 0
+            || !this._map.getInteractions().getArray().includes(draw)) {
+            return false;
+        }
+        const vertex = this._redoVertices.pop();
+        this._tracingVertex = true;
+        try {
+            draw.appendCoordinates([vertex]);
         } finally {
             this._tracingVertex = false;
         }

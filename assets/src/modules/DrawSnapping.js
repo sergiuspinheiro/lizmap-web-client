@@ -277,6 +277,13 @@ export default class DrawSnapping {
         this._digitizing.undoLastVertex?.();
     }
 
+    /**
+     * Add again the last vertex removed
+     */
+    redoVertex() {
+        this._digitizing.redoLastVertex?.();
+    }
+
     _dispatch() {
         mainEventDispatcher.dispatch('drawsnapping.changed');
     }

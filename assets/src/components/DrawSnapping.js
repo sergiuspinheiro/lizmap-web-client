@@ -6,8 +6,8 @@
  */
 
 import { mainLizmap, mainEventDispatcher } from '../modules/Globals.js';
-import { html, render } from 'lit-html';
-import { snapPanelTemplate } from './SnapPanel.js';
+import { render } from 'lit-html';
+import { snapSectionTemplate, snapPanelTooltips } from './SnapPanel.js';
 
 /**
  * Snapping panel of the draw tools
@@ -18,7 +18,7 @@ import { snapPanelTemplate } from './SnapPanel.js';
 export default class DrawSnapping extends HTMLElement {
     constructor() {
         super();
-        this._open = false;
+        this._open = true;
     }
 
     connectedCallback() {
@@ -26,18 +26,18 @@ export default class DrawSnapping extends HTMLElement {
         if (!snap) {
             return;
         }
-        const mainTemplate = () => html`
-        <details class="draw-snapping" ?open=${this._open}
-            @toggle=${(event) => { this._open = event.target.open; }}>
-            <summary>
-                ${lizDict['snapping.title'] || 'Snapping'}
-                ${snap.active ? html`<span class="badge bg-success">${lizDict['snapping.on'] || 'on'}</span>` : ''}
-            </summary>
-            ${snapPanelTemplate(snap, this.getAttribute('prefix') || 'draw')}
-        </details>`;
+        const mainTemplate = () => snapSectionTemplate(
+            snap,
+            this.getAttribute('prefix') || 'draw',
+            this._open,
+            (open) => { this._open = open; }
+        );
 
-        this._listener = () => render(mainTemplate(), this);
-        render(mainTemplate(), this);
+        this._listener = () => {
+            render(mainTemplate(), this);
+            snapPanelTooltips(this);
+        };
+        this._listener();
         mainEventDispatcher.addListener(this._listener, 'drawsnapping.changed');
     }
 
