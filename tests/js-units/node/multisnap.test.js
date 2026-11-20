@@ -21,9 +21,12 @@ describe('MultiSnap', function () {
         // close to the point
         let result = snap.snapTo([6, -1], [6, 1], map);
         expect(result.coordinate).to.deep.equal([5, 0]);
+        expect(result.kind).to.equal('vertex');
         // close to the segment only
         result = snap.snapTo([8, -2], [8, 2], map);
         expect(result.coordinate).to.deep.equal([8, 0]);
+        expect(result.kind).to.equal('segment');
+        expect(result.segment).to.deep.equal([[0, 0], [10, 0]]);
         // too far
         expect(snap.snapTo([8, -5], [8, 5], map)).to.be.null;
     });

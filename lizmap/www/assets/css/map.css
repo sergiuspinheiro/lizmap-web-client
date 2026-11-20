@@ -4268,6 +4268,12 @@ lizmap-message button {
     margin-top: 0;
 }
 
+.snap-panel-controls .snap-mode-icon {
+    display: inline-block;
+    vertical-align: -3px;
+    margin-right: 3px;
+}
+
 .snap-panel-controls .snap-tolerance {
     max-width: 220px;
     margin-top: 8px;

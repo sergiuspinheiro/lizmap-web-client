@@ -7,7 +7,9 @@
  */
 
 import { html } from 'lit-html';
+import { unsafeHTML } from 'lit-html/directives/unsafe-html.js';
 import { SnapModes } from '../modules/SnapTargets.js';
+import { snapModeIcons } from '../modules/SnapStyles.js';
 
 const modeLabels = {
     vertices: ['snapping.mode.vertices', 'Vertices'],
@@ -69,6 +71,7 @@ export function snapPanelTemplate(snap, prefix) {
                         @change=${(event) => snap.setMode(mode, event.target.checked)}
                         />
                     <label class="form-check-label" for="${prefix + '-snap-mode-' + mode}">
+                        <span class="snap-mode-icon">${unsafeHTML(snapModeIcons[mode])}</span>
                         ${t(modeLabels[mode][0], modeLabels[mode][1])}
                     </label>
                 </div>`)}

@@ -29,6 +29,7 @@ export default class MultiSnap extends Interaction {
      * @param {Function} options.dynamicEdges  - (extent) => array of segments [[x,y],[x,y]] computed on the fly
      * @param {number}   options.pixelTolerance - tolerance in pixels
      * @param {boolean}  options.edges - snap to the segments
+     * @param {Function} [options.onSnap] - called with the snap result (or null) on each pointer event
      */
     constructor(options) {
         super();
@@ -39,6 +40,7 @@ export default class MultiSnap extends Interaction {
         this.pixelTolerance = options.pixelTolerance || 10;
         this.edges = options.edges !== undefined ? options.edges : true;
         this.pointerDown = false;
+        this._onSnap = options.onSnap || (() => {});
     }
 
     /**
@@ -60,6 +62,9 @@ export default class MultiSnap extends Interaction {
             evt.coordinate = result.coordinate.slice(0, 2);
             evt.pixel = result.pixel;
         }
+        if (evt.type === 'pointermove' || evt.type === 'pointerdrag' || evt.type === 'click') {
+            this._onSnap(result);
+        }
         return true;
     }
 
@@ -68,7 +73,8 @@ export default class MultiSnap extends Interaction {
      * @param {number[]} pixel      - the event pixel
      * @param {number[]} coordinate - the event coordinate
      * @param {import('ol/Map.js').default} map - the map
-     * @returns {{coordinate: number[], pixel: number[]}|null} the snapped coordinate or null
+     * @returns {{coordinate: number[], pixel: number[], kind: string, segment: number[][]|null}|null}
+     * the snapped coordinate, its kind (vertex, midpoint, intersection or segment) and the segment, or null
      */
     snapTo(pixel, coordinate, map) {
         const resolution = map.getView().getResolution();
@@ -78,6 +84,8 @@ export default class MultiSnap extends Interaction {
         const box = buffer(boundingExtent([coordinate]), resolution * this.pixelTolerance);
         const squaredTolerance = this.pixelTolerance * this.pixelTolerance;
 
+        let closestKind = 'vertex';
+        let closestSegment = null;
         const toResult = (closest) => {
             if (!closest) {
                 return null;
@@ -89,24 +97,28 @@ export default class MultiSnap extends Interaction {
             return {
                 coordinate: closest,
                 pixel: [Math.round(closestPixel[0]), Math.round(closestPixel[1])],
+                kind: closestKind,
+                segment: closestSegment,
             };
         };
 
         // Points first
         let closest = null;
         let minDistance = Infinity;
-        const considerPoint = (point) => {
+        const considerPoint = (point, kind = 'vertex', segment = null) => {
             const d = squaredDistance(coordinate, point);
             if (d < minDistance) {
                 minDistance = d;
                 closest = point;
+                closestKind = kind;
+                closestSegment = segment;
             }
         };
         if (this._pointsSource) {
             this._pointsSource.forEachFeatureInExtent(box, (feature) => {
                 const geom = feature.getGeometry();
                 if (geom) {
-                    considerPoint(geom.getCoordinates());
+                    considerPoint(geom.getCoordinates(), feature.get('kind') || 'vertex');
                 }
             });
         }
@@ -131,7 +143,7 @@ export default class MultiSnap extends Interaction {
                 return;
             }
             const point = closestOnSegment(coordinate, [a, b]);
-            considerPoint(point);
+            considerPoint(point, 'segment', [a, b]);
         };
         if (this._edgesSource) {
             this._edgesSource.forEachFeatureInExtent(box, (feature) => {
