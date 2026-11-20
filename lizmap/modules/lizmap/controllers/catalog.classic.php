@@ -11,8 +11,6 @@
  *
  * @license Mozilla Public License : http://www.mozilla.org/MPL/
  */
-use GuzzleHttp\Psr7\StreamWrapper as Psr7StreamWrapper;
-use JsonMachine\Items as JsonMachineItems;
 use Lizmap\Ai\Assistant;
 use Lizmap\Ai\AssistantException;
 use Lizmap\Ai\FeatureLocator;
@@ -21,6 +19,7 @@ use Lizmap\Ai\LayerStatistics;
 use Lizmap\Documents\DocumentContext;
 use Lizmap\Documents\DocumentStore;
 use Lizmap\App\ModulesConfig;
+use Lizmap\Request\FeatureStream;
 use Lizmap\Request\WFSRequest;
 
 class catalogCtrl extends jController
@@ -642,11 +641,10 @@ class catalogCtrl extends jController
         try {
             $request = new WFSRequest($project, $params, lizmap::getServices());
             $result = $request->process();
-            if ($result->getCode() >= 400 || !str_contains(strtolower($result->getMime()), 'json')) {
+            if (!FeatureStream::isGeoJsonResponse($result)) {
                 return array(null, null);
             }
-            $stream = Psr7StreamWrapper::getResource($result->getBodyAsStream());
-            $features = JsonMachineItems::fromStream($stream, array('pointer' => '/features'));
+            $features = FeatureStream::fromResponse($result);
             $statistics = new LayerStatistics();
             $sample = new FeatureSample($question, $assistant->maxRows(), $maxLength);
             foreach ($features as $feature) {
@@ -691,11 +689,10 @@ class catalogCtrl extends jController
         try {
             $request = new WFSRequest($project, $params, lizmap::getServices());
             $result = $request->process();
-            if ($result->getCode() >= 400 || !str_contains(strtolower($result->getMime()), 'json')) {
+            if (!FeatureStream::isGeoJsonResponse($result)) {
                 return null;
             }
-            $stream = Psr7StreamWrapper::getResource($result->getBodyAsStream());
-            $features = JsonMachineItems::fromStream($stream, array('pointer' => '/features'));
+            $features = FeatureStream::fromResponse($result);
             $locator = new FeatureLocator($value);
             $locator->addFeatures($features, $maxFeatures);
 
@@ -763,11 +760,10 @@ class catalogCtrl extends jController
         try {
             $request = new WFSRequest($project, $params, lizmap::getServices());
             $result = $request->process();
-            if ($result->getCode() >= 400 || !str_contains(strtolower($result->getMime()), 'json')) {
+            if (!FeatureStream::isGeoJsonResponse($result)) {
                 return null;
             }
-            $stream = Psr7StreamWrapper::getResource($result->getBodyAsStream());
-            $features = JsonMachineItems::fromStream($stream, array('pointer' => '/features'));
+            $features = FeatureStream::fromResponse($result);
             $statistics = new LayerStatistics();
             $statistics->addFeatures($features, $maxFeatures);
 

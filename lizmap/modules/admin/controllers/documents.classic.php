@@ -13,11 +13,10 @@
  * @license Mozilla Public License : http://www.mozilla.org/MPL/
  */
 
-use GuzzleHttp\Psr7\StreamWrapper as Psr7StreamWrapper;
-use JsonMachine\Items as JsonMachineItems;
 use Lizmap\Documents\DocumentStore;
 use Lizmap\Documents\LayerValues;
 use Lizmap\Documents\PdfText;
+use Lizmap\Request\FeatureStream;
 use Lizmap\Request\WFSRequest;
 
 class documentsCtrl extends jController
@@ -483,12 +482,11 @@ class documentsCtrl extends jController
         try {
             $request = new WFSRequest($project, $params, lizmap::getServices());
             $result = $request->process();
-            if ($result->getCode() >= 400 || !str_contains(strtolower($result->getMime()), 'json')) {
+            if (!FeatureStream::isGeoJsonResponse($result)) {
                 throw new \RuntimeException('The features of the layer cannot be read');
             }
-            $stream = Psr7StreamWrapper::getResource($result->getBodyAsStream());
             $values = new LayerValues();
-            $values->addFeatures(JsonMachineItems::fromStream($stream, array('pointer' => '/features')), self::MAX_VALUE_FEATURES);
+            $values->addFeatures(FeatureStream::fromResponse($result), self::MAX_VALUE_FEATURES);
             $rep->data = $values->toArray() + array('maxFeatures' => self::MAX_VALUE_FEATURES);
         } catch (\Throwable $e) {
             jLog::logEx($e, 'error');
