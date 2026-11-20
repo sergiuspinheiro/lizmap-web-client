@@ -7,6 +7,11 @@
 
 var lizLayerActionButtons = function() {
 
+    let initialConfig = null;
+    let lizmapState = null;
+    let lizmapMap = null;
+    let lizmapAction = null;
+    let lizmapPermalink = null;
     var featureTypes = null;
 
     /**
@@ -42,7 +47,6 @@ var lizLayerActionButtons = function() {
                 // Open link in a new window
                 window.open(windowLink);
             });
-
         $('#hide-sub-dock').click(function(){
             var itemName = $(this).val();
             var itemConfig = lizMap.config.layers[itemName];
@@ -85,11 +89,14 @@ var lizLayerActionButtons = function() {
                 metadatas.styles = layerConfig.styles
 
             // Add actions
-            let layerActions = lizMap.mainLizmap.action.getActions('layer', layerConfig.id);
+            if (lizmapAction === null) {
+                lizmapAction = lizMap.mainLizmap.action;
+            }
+            let layerActions = lizmapAction.getActions('layer', layerConfig.id);
             if (layerActions.length) metadatas.actions = layerActions;
 
         }
-        if( lizMap.mainLizmap.map.getActiveBaseLayer()?.get("name") == aName ){
+        if( lizmapMap.getActiveBaseLayer()?.get("name") == aName ){
             metadatas.type = 'layer';
             metadatas.isBaselayer = true;
         }
@@ -126,9 +133,11 @@ var lizLayerActionButtons = function() {
                 isBaselayer = 'baselayer';
             }
 
+            let options = '';
+
             // Styles
             if( metadatas.styles ){
-                const layer = lizMap.mainLizmap.state.rootMapGroup.getMapLayerByName(aName);
+                const layer = lizmapState.rootMapGroup.getMapLayerByName(aName);
                 options = '';
                 for( var st in metadatas.styles ){
                     st = metadatas.styles[st];
@@ -153,8 +162,8 @@ var lizLayerActionButtons = function() {
             html+= '<input type="hidden" class="opacityLayer '+isBaselayer+'" value="'+aName+'">';
 
             const currentOpacity = metadatas.isBaselayer ?
-                lizMap.mainLizmap.state.baseLayers.getBaseLayerByName(aName).opacity :
-                lizMap.mainLizmap.state.layersAndGroupsCollection.getLayerOrGroupByName(aName).opacity;
+                lizmapState.baseLayers.getBaseLayerByName(aName).opacity :
+                lizmapState.layersAndGroupsCollection.getLayerOrGroupByName(aName).opacity;
             var opacities = lizMap.config.options.layersOpacities;
             if (typeof opacities === 'undefined') {
                 opacities = [0.2, 0.4, 0.6, 0.8, 1];
@@ -168,32 +177,45 @@ var lizLayerActionButtons = function() {
             html+= '</dd>';
 
             // Export
-            if ( 'exportLayers' in lizMap.config.options
-                && lizMap.config.options.exportLayers == 'True'
+            if ( initialConfig.options.exportLayers
                 && featureTypes != null
                 && featureTypes.length != 0
                 && layerConfig.typename != undefined) {
-                var exportFormats = lizMap.mainLizmap.initialConfig.vectorLayerResultFormat;
-                var options = '';
-                for ( const format of exportFormats ) {
-                    options += '<option value="'+format+'">'+format+'</option>';
-                }
+                options = '';
                 // Check export enabled
                 // By default, export is enabled for all layers with typename
                 let exportEnabled = true;
                 // If attribute layers is defined, we have to check if the publisher
                 // has disabled export in attribute table config
-                const attrLayersConfig = lizMap.mainLizmap.initialConfig.attributeLayers;
-                if (attrLayersConfig !== null) {
-                    const attrLayerConfigsLen = attrLayersConfig.layerConfigs.length;
-                    const exportLayersLen = attrLayersConfig.layerConfigs.filter(attr => attr.exportEnabled).length;
+                if (initialConfig.hasAttributeLayers) {
+                    const attrLayersConfig = initialConfig.attributeLayers;
+                    const attrLayerConfigs = attrLayersConfig.layerConfigs;
+                    const attrLayerConfig = attrLayerConfigs.find(layer => layer.id === layerConfig.id);
+                    const attrLayerConfigsWithExport = attrLayerConfigs.filter(attr => attr.exportEnabled);
                     // If some layers have export disabled, we have to check if the current layer is in the list
-                    if (attrLayerConfigsLen != exportLayersLen) {
-                        const attrLayerConfig = attrLayersConfig.layerConfigs.find(layer => layer.id === layerConfig.id);
+                    if (attrLayerConfigs.length != attrLayerConfigsWithExport.length) {
+                        const attrLayerConfigWithExport = attrLayerConfigsWithExport.find(layer => layer.id === layerConfig.id);
                         // If the layer is not in the list, export is disabled
                         // else export is available as definde in attribute layer config
-                        exportEnabled = (attrLayerConfig !== undefined && attrLayerConfig.exportEnabled);
+                        exportEnabled = (attrLayerConfigWithExport !== undefined);
                     }
+                    // Build export options
+                    if (exportEnabled && attrLayerConfig) {
+                        attrLayerConfig.getEffectiveExportFormats(
+                            initialConfig.vectorLayerResultFormat
+                        ).forEach(format => {
+                            options += `<option value="${format}">${format}</option>`;
+                        });
+                    }
+                }
+                if (exportEnabled && options == '') {
+                    ['GeoJSON', 'GML'].concat(
+                        initialConfig.vectorLayerResultFormat.filter(format => {
+                            return ['gml2', 'gml3', 'geojson'].indexOf(format.toLowerCase()) == -1;
+                        })
+                    ).forEach(format => {
+                        options += `<option value="${format}">${format}</option>`;
+                    });
                 }
                 // Export layer
                 if( options != '' && exportEnabled) {
@@ -247,10 +269,81 @@ var lizLayerActionButtons = function() {
      * @param selected
      */
     function toggleMetadataSubDock(layerName, selected){
+        // Layer config
+        const layerConfig = initialConfig.layers.getLayerConfigByLayerName(layerName);
+        // Layer state
+        const layerState = lizMap.mainLizmap.state.layersAndGroupsCollection.getLayerOrGroupByName(layerName);
+        // Find the attribute layer config, can be undefined
+        const attrLayerConfig = initialConfig.hasAttributeLayers ? initialConfig.attributeLayers.layerConfigs.find(
+            layer => layer.id === layerConfig.id
+        ) : null;
+
+        /**
+         * Listener for `layer.selection.changed` to enable/disable the export layer button
+         * @param {LayerSelectionChanged} evt
+         */
+        const layerSelectionChanged = (evt) => {
+            if (evt.selectedFeatures.length > 0 && evt.selectedFeatures.length <= attrLayerConfig.exportMaxFeatures) {
+                $('#sub-dock button.exportLayer').prop('disabled', false);
+            } else {
+                $('#sub-dock button.exportLayer').prop('disabled', true);
+            }
+        }
+
+        /**
+         * Listener for `layer.filter.changed` to enable/disable not the export layer button
+         * @param {LayerFilterChanged} evt
+         */
+        const layerFilterChanged = (evt) => {
+            if (layerState.isFiltered) {
+                const filteredFeaturesLength = lizMap.config.layers[lname]['filteredFeatures'].length;
+                if (filteredFeaturesLength > 0 && filteredFeaturesLength <= attrLayerConfig.exportMaxFeatures) {
+                    $('#sub-dock button.exportLayer').prop('disabled', false);
+                } else {
+                    $('#sub-dock button.exportLayer').prop('disabled', true);
+                }
+            }
+        }
+
         if( selected ){
+            // Build layer metadata HTML
             var html = getLayerMetadataHtml( layerName );
+            // append HTML to DOM in sub-dock
             fillSubDock( html );
-        }else{
+
+            // manage export layer button
+            if (initialConfig.options.exportLayers && initialConfig.hasAttributeLayers) {
+                // Check if layer has export limited
+                if (attrLayerConfig && attrLayerConfig.exportLimited) {
+                    // Disable by default the export layer button because export is limited to some features.
+                    $('#sub-dock button.exportLayer').prop('disabled', true);
+                    // Check if there are already selected features to enable the export button
+                    if (layerState.selectedFeatures.length > 0 && layerState.selectedFeatures.length <= attrLayerConfig.exportMaxFeatures) {
+                            $('#sub-dock button.exportLayer').prop('disabled', false);
+                    }
+                    // Check if there are already filtered features to enable the export button
+                    if (layerState.isFiltered) {
+                        const filteredFeaturesLength = config.layers[lname]['filteredFeatures'].length;
+                        if (filteredFeaturesLength > 0 && filteredFeaturesLength <= attrLayerConfig.exportMaxFeatures) {
+                            $('#sub-dock button.exportLayer').prop('disabled', false);
+                        }
+                    }
+                    // Add listeners
+                    layerState.addListener(layerSelectionChanged, 'layer.selection.changed');
+                    layerState.addListener(layerFilterChanged, 'layer.filter.changed');
+                }
+            }
+
+        } else {
+            // manage listeners added to enable/disable export layer button
+            if (initialConfig.options.exportLayers && initialConfig.hasAttributeLayers) {
+                // Check if layer has export limited
+                if (attrLayerConfig && attrLayerConfig.exportLimited) {
+                    // Remove listeners
+                    layerState.removeListener(layerSelectionChanged, 'layer.selection.changed');
+                    layerState.removeListener(layerFilterChanged, 'layer.filter.changed');
+                }
+            }
             $('#sub-dock').hide().html( '' );
             return;
         }
@@ -264,13 +357,17 @@ var lizLayerActionButtons = function() {
     lizMap.events.on({
 
         'uicreated': function(){
+            initialConfig = lizMap.mainLizmap.initialConfig;
+            lizmapState = lizMap.mainLizmap.state;
+            lizmapMap = lizMap.mainLizmap.map;
 
             // Display theme switcher if any
             if ('themes' in lizMap.config){
                 var themes = lizMap.config.themes;
                 var themeSelector = '<div id="theme-selector" class="btn-group">';
-                themeSelector += '<button class="btn btn-sm dropdown-toggle" data-bs-toggle="dropdown" type="button" aria-expanded="false" title="' + lizDict['switcherLayersActions.themeSelector.title'] +'"><i class="icon-none qgis_sprite mActionShowAllLayers"></i></button>';
-                themeSelector += '<ul class="dropdown-menu">';
+                // data-bs-display="static": Popper shifts the menu off its button, see #7223
+                themeSelector += '<button class="btn btn-sm dropdown-toggle" data-bs-toggle="dropdown" data-bs-display="static" type="button" aria-expanded="false" title="' + lizDict['switcherLayersActions.themeSelector.title'] +'"><i class="icon-none qgis_sprite mActionShowAllLayers"></i></button>';
+                themeSelector += '<ul class="dropdown-menu dropdown-menu-end">';
 
                 for (var themeName in themes) {
                     themeSelector += '<li><button class="dropdown-item" type="button" data-theme="' + themeName + '">' + themeName + '</button></li>';
@@ -298,16 +395,18 @@ var lizLayerActionButtons = function() {
                         const expandedLegendNodes = themeSelected?.expandedLegendNode || [];
                         const checkedLegendNodes = themeSelected?.checkedLegendNodes || {};
 
-                        const allItems = lizMap.mainLizmap.state.layerTree.findTreeLayersAndGroups();
+                        const allItems = lizmapState.layerTree.findTreeLayersAndGroups();
 
                         // Suspend permalink updates during theme application
                         // This prevents "Too many Location/History API calls" error
-                        const permalink = lizMap.mainLizmap.permalink;
-                        if (permalink) {
+                        if (lizmapPermalink === null) {
+                            lizmapPermalink = lizMap.mainLizmap.permalink;
+                        }
+                        if (lizmapPermalink) {
                             // Save original _writeURLFragment method
-                            permalink._originalWriteURLFragment = permalink._writeURLFragment;
+                            lizmapPermalink._originalWriteURLFragment = lizmapPermalink._writeURLFragment;
                             // Replace with no-op function during theme application
-                            permalink._writeURLFragment = () => {};
+                            lizmapPermalink._writeURLFragment = () => {};
                         }
 
                         // STEP 1: Set ALL layers (ON if in theme, OFF if not)
@@ -447,28 +546,28 @@ var lizLayerActionButtons = function() {
                         }
 
                         // Resume permalink updates after theme application
-                        if (permalink && permalink._originalWriteURLFragment) {
+                        if (lizmapPermalink && lizmapPermalink._originalWriteURLFragment) {
                             // Restore original _writeURLFragment method
-                            permalink._writeURLFragment = permalink._originalWriteURLFragment;
-                            delete permalink._originalWriteURLFragment;
+                            lizmapPermalink._writeURLFragment = lizmapPermalink._originalWriteURLFragment;
+                            delete lizmapPermalink._originalWriteURLFragment;
                             // Clear the suspend flag if this is the initial theme activation
-                            if (permalink._suspendInitialWrite) {
-                                delete permalink._suspendInitialWrite;
+                            if (lizmapPermalink._suspendInitialWrite) {
+                                delete lizmapPermalink._suspendInitialWrite;
                             }
                             // Manually trigger one permalink update now that all changes are done
-                            permalink._writeURLFragment();
+                            lizmapPermalink._writeURLFragment();
                         }
 
                         // Set baseLayers checked state
                         if (themeSelected?.checkedGroupNode?.includes("baselayers/project-background-color")) {
-                            lizMap.mainLizmap.state.baseLayers.selectedBaseLayerName = "project-background-color";
+                            lizmapState.baseLayers.selectedBaseLayerName = "project-background-color";
                         } else {
-                            for (const baseLayer of lizMap.mainLizmap.state.baseLayers.getBaseLayers()) {
+                            for (const baseLayer of lizmapState.baseLayers.getBaseLayers()) {
                                 if (!baseLayer.layerConfig) {
                                     continue;
                                 }
                                 if (themeSelected?.layers?.[baseLayer.layerConfig.id]) {
-                                    lizMap.mainLizmap.state.baseLayers.selectedBaseLayerName = baseLayer.name;
+                                    lizmapState.baseLayers.selectedBaseLayerName = baseLayer.name;
                                     break;
                                 }
                             }
@@ -492,11 +591,13 @@ var lizLayerActionButtons = function() {
                 );
 
                 // Activate first map theme on load
-                if (lizMap.mainLizmap.initialConfig.options.activateFirstMapTheme) {
+                if (initialConfig.options.activateFirstMapTheme) {
                     // Prevent permalink from writing until after first theme is applied
-                    const permalink = lizMap.mainLizmap.permalink;
-                    if (permalink) {
-                        permalink._suspendInitialWrite = true;
+                    if (lizmapPermalink === null) {
+                        lizmapPermalink = lizMap.mainLizmap.permalink;
+                    }
+                    if (lizmapPermalink) {
+                        lizmapPermalink._suspendInitialWrite = true;
                     }
                     document.querySelector('#theme-selector .dropdown-menu button:nth-child(1)').click();
                 }
@@ -507,7 +608,7 @@ var lizLayerActionButtons = function() {
                 }
             }
 
-            featureTypes = lizMap.mainLizmap.initialConfig.vectorLayerFeatureTypeList;
+            featureTypes = initialConfig.vectorLayerFeatureTypeList;
 
             // Expand all or unfold all
             document.getElementById('layers-unfold-all').addEventListener('click', () => {
@@ -522,7 +623,7 @@ var lizLayerActionButtons = function() {
 
                 $('#hide-sub-dock').click();
 
-                const activeBaseLayerName = lizMap.mainLizmap.map.getActiveBaseLayer().get("name");
+                const activeBaseLayerName = lizmapMap.getActiveBaseLayer().get("name");
                 if( !activeBaseLayerName ){
                     return false;
                 }
@@ -584,7 +685,7 @@ var lizLayerActionButtons = function() {
                 if (isBaselayer) {
                     layer = lizMap.map.baseLayer;
                 } else {
-                    layer = lizMap.mainLizmap.state.rootMapGroup.getMapLayerByName(name);
+                    layer = lizmapState.rootMapGroup.getMapLayerByName(name);
                 }
 
                 // Set style
@@ -605,12 +706,12 @@ var lizLayerActionButtons = function() {
                     return false;
                 }
 
-                const isBaselayer = lizMap.mainLizmap.map.getActiveBaseLayer()?.get("name") == eName;
+                const isBaselayer = lizmapMap.getActiveBaseLayer()?.get("name") == eName;
 
                 // Get layer
                 const layer = isBaselayer ?
-                    lizMap.mainLizmap.state.baseLayers.getBaseLayerByName(eName) :
-                    lizMap.mainLizmap.state.layersAndGroupsCollection.getLayerOrGroupByName(eName);
+                    lizmapState.baseLayers.getBaseLayerByName(eName) :
+                    lizmapState.layersAndGroupsCollection.getLayerOrGroupByName(eName);
 
                 // Set opacity
                 if( layer ) {
@@ -690,16 +791,20 @@ var lizLayerActionButtons = function() {
             var btValue = itemName;
             if( !itemSelected )
                 btValue = '';
-            $('#switcher-layers-actions button').val( btValue );
 
-            // Toggle buttons depending on itemType
+            const oldValue = $('#switcher-layers-actions button').val();
+            if (oldValue !== btValue) {
+                $('#switcher-layers-actions button').val( btValue );
 
-            // Zoom to layer
-            var zoomStatus = (!itemSelected || !('bbox' in itemConfig) );
-            $('button.layerActionZoom').attr( 'disable', zoomStatus ).toggleClass( 'disabled', zoomStatus );
+                // Toggle buttons depending on itemType
 
-            // Refresh sub-dock content
-            toggleMetadataSubDock(itemName, itemSelected);
+                // Zoom to layer
+                var zoomStatus = (!itemSelected || !('bbox' in itemConfig) );
+                $('button.layerActionZoom').attr( 'disable', zoomStatus ).toggleClass( 'disabled', zoomStatus );
+
+                // Refresh sub-dock content
+                toggleMetadataSubDock(itemName, itemSelected);
+            }
         }
     });
 }();

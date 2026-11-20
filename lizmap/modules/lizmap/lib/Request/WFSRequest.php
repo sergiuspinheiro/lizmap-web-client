@@ -136,77 +136,42 @@ class WFSRequest extends OGCRequest
      *
      * Lizmap_User, Lizmap_User_Groups, Lizmap_Override_Filter
      * have been added to the OGC request parameters.
-     * Filter data by login if necessary as configured in the plugin for login filtered layers.
+     * The filter by login is not added to the EXP_FILTER parameter: it is applied
+     * by the lizmap_server plugin of QGIS Server, and added as a SQL filter
+     * when the data is queried directly in the database, see getWhereClause().
      *
      * @return array<string, string> the WFS request parameters with Lizmap extra parameters for filtering request
      */
     public function parameters(): array
     {
-        $params = parent::parameters();
+        return parent::parameters();
+    }
 
-        // Filter data by login if necessary
-        // as configured in the plugin for login filtered layers.
-
-        // Filter data by login for request: getfeature
-        if (strtolower($this->param('request')) !== 'getfeature') {
-            return $params;
-        }
-
+    /**
+     * Get the SQL filters by login of the requested layers.
+     *
+     * They are used when the data is queried directly in the database.
+     * Otherwise, the filter by login is applied by the lizmap_server plugin of QGIS Server.
+     *
+     * @return array the filters by login, by layer name, empty if the user can override them
+     */
+    protected function getRequestLoginFilters(): array
+    {
         // No filter data by login rights
         if ($this->appContext->aclCheck('lizmap.tools.loginFilteredLayers.override', $this->repository->getKey())) {
-            return $params;
+            return array();
         }
 
-        // filter data by login
+        // Requested layers
         $typenames = $this->requestedTypename();
         if (is_string($typenames) && $typenames !== '') {
             $typenames = explode(',', $typenames);
         }
-
-        // get login filters
-        $loginFilters = array();
-
-        if (is_array($typenames)) {
-            $loginFilters = $this->project->getLoginFilters($typenames, $this->editingContext);
+        if (!is_array($typenames)) {
+            return array();
         }
 
-        // login filters array is empty
-        if (empty($loginFilters)) {
-            return $params;
-        }
-
-        // filter by polygon: no need to add the expression here as it is done QGIS Server side
-        // or in the method getfeaturePostgres
-        // filter by polygon is compatible for
-        // QGIS >= 3.10 and LWC >= 3.5 and Lizmap plugin >= 3.6.x
-
-        // Initialize the list of filters to add
-        $expFilters = array();
-
-        // Get client exp_filter parameter
-        $clientExpFilter = $this->param('exp_filter', '');
-        if (!empty($clientExpFilter)) {
-            $expFilters[] = '( '.$clientExpFilter.' )';
-        }
-
-        // Merge login filter
-        $attribute = '';
-        foreach ($loginFilters as $lfilter) {
-            $expFilters[] = '( '.$lfilter['filter'].' )';
-            $attribute = $lfilter['filterAttribute'];
-        }
-
-        // Update exp_filter parameter
-        $params['exp_filter'] = implode(' AND ', $expFilters);
-
-        // Update propertyname parameter
-        $propertyName = $this->param('propertyname', '');
-        if (!empty($propertyName)) {
-            $propertyName = trim($propertyName).",{$attribute}";
-            $params['propertyname'] = $propertyName;
-        }
-
-        return $params;
+        return $this->project->getLoginFilters($typenames, $this->editingContext, true);
     }
 
     /**
@@ -399,10 +364,10 @@ class WFSRequest extends OGCRequest
                     }
                 }
 
-                /** @var \qgisVectorLayer $layer The QGIS vector layer instance */
-                $layer = $this->project->getLayer($layer->id);
-                $jsonData['aliases'] = (object) $layer->getAliasFields();
-                $jsonData['defaults'] = (object) $layer->getDefaultValues();
+                /** @var \qgisVectorLayer $qgisLayer The QGIS vector layer instance */
+                $qgisLayer = $this->project->getLayer($layer->id);
+                $jsonData['aliases'] = (object) $qgisLayer->getAliasFields();
+                $jsonData['defaults'] = (object) $qgisLayer->getDefaultValues();
             }
             $data = json_encode((object) $jsonData);
             $mime = 'application/json; charset=utf-8';
@@ -642,12 +607,12 @@ class WFSRequest extends OGCRequest
         if (!$expFilter) {
             return '';
         }
-        [$validFilter, $block_items] = SqlTools::validateExpressionFilter($expFilter);
-        if (!$validFilter) {
-            $this->appContext->logMessage(
-                'The EXP_FILTER param contains dangerous chars : '.implode(', ', $block_items),
-                'lizmapadmin'
-            );
+
+        // Validate the SQL filter
+        try {
+            SqlTools::parseAndValidateSQLString($expFilter);
+        } catch (\Exception $e) {
+            $this->appContext->logException($e, 'lizmapadmin');
 
             return '';
         }
@@ -671,21 +636,8 @@ class WFSRequest extends OGCRequest
         }
 
         $sql = ' SELECT ';
-        $propertyname = '';
-        if (array_key_exists('propertyname', $params)) {
-            $propertyname = $params['propertyname'];
-        }
-        if (!empty($propertyname)) {
-            $sfields = array();
-            $pfields = explode(',', $propertyname);
-            foreach ($pfields as $pfield) {
-                if (in_array($pfield, $wfsFields)) {
-                    $sfields[] = $pfield;
-                }
-            }
-        } else {
-            $sfields = $wfsFields;
-        }
+        // Fields requested by PROPERTYNAME, or every WFS field
+        $sfields = $this->getSelectedFields($params, $wfsFields);
         // Add key if not present ( WFS need to export id = typename.id for each feature)
         $key = $this->datasource->key;
         $keys = explode(',', $key);
@@ -846,107 +798,341 @@ class WFSRequest extends OGCRequest
         return '';
     }
 
+    /**
+     * Parse the expression filter parameter.
+     *
+     * @param \jDbConnection $cnx    The database connection
+     * @param array          $params The request parameters
+     *
+     * @return false|string The SQL filter enclosed with parenthesis if the expression filter is valid, false otherwise
+     */
     protected function parseExpFilter($cnx, $params): false|string
     {
-        $exp_filter = '';
-        if (array_key_exists('exp_filter', $params)) {
-            $exp_filter = $params['exp_filter'];
+        if (!array_key_exists('exp_filter', $params)) {
+            return '';
         }
-        if (!empty($exp_filter)) {
-            $validFilter = $this->validateFilter($exp_filter);
-            if (!$validFilter) {
-                return false;
-            }
-            if (strpos($validFilter, '$id') !== false) {
-                $key = $this->datasource->key;
-                if (count(explode(',', $key)) == 1) {
-                    return ' AND ( '.str_replace('$id ', $cnx->encloseName($key).' ', $validFilter).' ) ';
-                }
-
-                return false;
-            }
-
-            return ' AND ( '.$validFilter.' ) ';
+        $exp_filter = $params['exp_filter'];
+        if (empty($exp_filter)) {
+            return '';
         }
 
-        return '';
+        // The client filter is put between parenthesis and combined with the other filters:
+        // it must be valid on its own, so that it cannot get out of its parenthesis
+        if (!$this->validateClientExpFilter()) {
+            return false;
+        }
+
+        $validFilter = $this->validateFilter($exp_filter);
+        if (!$validFilter) {
+            return false;
+        }
+        if (strpos($validFilter, '$id') !== false) {
+            $key = $this->datasource->key;
+            if (count(explode(',', $key)) == 1) {
+                return ' AND ( '.str_replace('$id ', $cnx->encloseName($key).' ', $validFilter).' )';
+            }
+
+            return false;
+        }
+
+        return ' AND ( '.$validFilter.' )';
     }
 
+    /**
+     * Build the SQL condition matching the FEATUREID parameter.
+     *
+     * The returned condition is not a single self contained block, it has to be
+     * put under paranthesis with an AND operator before being used in a WHERE clause.
+     *
+     * @param \jDbConnection $cnx    The database connection
+     * @param array          $params The request parameters
+     *
+     * @return string The SQL condition or an empty string
+     */
     protected function parseFeatureId($cnx, $params): string
     {
-        $featureid = '';
-        $sql = '';
+        // No FEATUREID parameter
+        if (!array_key_exists('featureid', $params)) {
+            return '';
+        }
+
+        $featureid = $params['featureid'];
+        // No FEATUREID value
+        if (empty($featureid)) {
+            return '';
+        }
+
         $typename = $this->requestedTypename();
         $keys = explode(',', $this->datasource->key);
-        if (array_key_exists('featureid', $params)) {
-            $featureid = $params['featureid'];
-        }
-        if (!empty($featureid)) {
-            $fids = explode(',', $featureid);
-            $fidsSql = array();
+        $fids = explode(',', $featureid);
+
+        // Single column primary key: use one IN () clause.
+        // A chain of "key = a OR key = b OR ..." forces PostgreSQL to evaluate one
+        // expression per feature id and per row, which does not scale when a large
+        // selection is exported.
+        if (count($keys) == 1) {
+            $values = array();
             foreach ($fids as $fid) {
                 $exp = explode('.', $fid);
                 if (count($exp) == 2 and $exp[0] == $typename) {
-                    $fidSql = '(';
-                    $pks = explode('@@', $exp[1]);
-                    $i = 0;
-                    $v = '';
-                    foreach ($keys as $key) {
-                        $fidSql .= $v.$cnx->encloseName($key).' = ';
-                        if (ctype_digit($pks[$i])) {
-                            $fidSql .= $pks[$i];
-                        } else {
-                            $fidSql .= $cnx->quote($pks[$i]);
-                        }
-                        $v = ' AND ';
-                        ++$i;
+                    $pk = explode('@@', $exp[1])[0];
+                    $values[] = ctype_digit($pk) ? $pk : $cnx->quote($pk);
+                }
+            }
+
+            // A FEATUREID matching no feature must not widen the result set
+            if (count($values) == 0) {
+                return 'FALSE';
+            }
+
+            return $cnx->encloseName($keys[0]).' IN ('.implode(', ', $values).')';
+        }
+        // Multiple columns primary key: one parenthesized block per feature id
+        $fidsSql = array();
+        foreach ($fids as $fid) {
+            $exp = explode('.', $fid);
+            if (count($exp) == 2 and $exp[0] == $typename) {
+                $fidSql = '';
+                $pks = explode('@@', $exp[1]);
+                $i = 0;
+                $v = '';
+                foreach ($keys as $key) {
+                    $fidSql .= $v.$cnx->encloseName($key).' = ';
+                    if (ctype_digit($pks[$i])) {
+                        $fidSql .= $pks[$i];
+                    } else {
+                        $fidSql .= $cnx->quote($pks[$i]);
                     }
-                    $fidSql .= ')';
+                    $v = ' AND ';
+                    ++$i;
+                }
+                if ($i !== 1) {
+                    $fidsSql[] = '('.$fidSql.')';
+                } else {
                     $fidsSql[] = $fidSql;
                 }
             }
-            // $this->appContext->logMessage(implode(' OR ', $fidsSql), 'error');
-            $sql .= ' AND '.implode(' OR ', $fidsSql);
+        }
+        // A FEATUREID matching no feature must not widen the result set
+        if (count($fidsSql) == 0) {
+            return 'FALSE';
+        }
+
+        // The OR chain must be parenthesized as a whole, otherwise its members would
+        // escape every other AND condition of the WHERE clause: datasource filter,
+        // BBOX, EXP_FILTER, filter by login and filter by polygon.
+        if (count($fidsSql) == 1) {
+            return $fidsSql[0];
+        }
+
+        return implode(' OR ', $fidsSql);
+    }
+
+    /**
+     * Build the SQL WHERE clause for the request.
+     *
+     * It combines the datasource SQL filter, the BBOX parameter, the EXP_FILTER parameter,
+     * and the FEATUREID parameter
+     *
+     * @param \jDbConnection $cnx    The database connection
+     * @param array          $params The request parameters
+     *
+     * @return false|string The SQL Where clause if the expression filter is valid, false otherwise
+     */
+    protected function getWhereClause($cnx, $params): false|string
+    {
+        // WHERE
+        $sql = ' WHERE True';
+
+        // Add datasource SQL filter
+        $sql .= $this->getDatasourceSql();
+
+        // BBOX
+        $sql .= $this->getbboxSql($params);
+
+        // EXP_FILTER sent by the client
+        $expFilterSql = $this->parseExpFilter($cnx, $params);
+        if ($expFilterSql === false) {
+            // Do not use direct SQL query to PostgreSQL but a request to QGIS Server
+            return false;
+        }
+        $sql .= $expFilterSql;
+
+        // Filter by login, as a SQL filter matching exactly the multiple values of the field
+        foreach ($this->getRequestLoginFilters() as $loginFilter) {
+            $sql .= ' AND '.$loginFilter['filter'];
+        }
+
+        // Filter by polygon
+        $polygonFilter = $this->qgisLayer->getPolygonFilter($this->editingContext, 5);
+        if ($polygonFilter) {
+            $sql .= ' AND ( '.$polygonFilter.' )';
+        }
+
+        // FEATUREID
+        $featureIdsFilter = $this->parseFeatureId($cnx, $params);
+        if ($featureIdsFilter) {
+            $sql .= ' AND ( '.$featureIdsFilter.' )';
         }
 
         return $sql;
     }
 
+    /**
+     * Build the SQL ORDER BY clause for the request.
+     *
+     * @param \jDbConnection $cnx       The database connection
+     * @param array          $params    The request parameters
+     * @param array          $wfsFields The WFS fields
+     *
+     * @return string The SQL ORDER BY clause
+     */
     protected function getQueryOrder($cnx, $params, $wfsFields): string
     {
-        // séparé par virgule, et fini par espace + a ou d
-        // si pas de a ou d , c'est a
-        // SortBY=id a,name d
-        $sortby = '';
-        $sql = '';
-        if (array_key_exists('sortby', $params)) {
-            $sortby = $params['sortby'];
+        $sortItems = $this->getSortFields($params, $wfsFields);
+        if (count($sortItems) == 0) {
+            return '';
         }
-        if (!empty($sortby)) {
-            $sort_items = array();
-            $items = explode(',', $sortby);
-            foreach ($items as $item) {
-                // !!! Validate on fields to avoid injection !!!
-                $exp = explode(' ', $item);
-                $field = $exp[0];
-                if (in_array($field, $wfsFields)) {
-                    $sort_items[$field] = 'ASC';
-                    if (count($exp) == 2 && in_array(strtolower($exp[1]), array('d', '+d', 'desc', '+desc'))) {
-                        $sort_items[$field] = 'DESC';
-                    }
+
+        // Build the ORDER BY clause with the validated fields
+        $sql = ' ORDER BY ';
+        $sep = '';
+        foreach ($sortItems as $f => $o) {
+            $sql .= $sep.$cnx->encloseName($f).' '.$o;
+            $sep = ', ';
+        }
+
+        return $sql;
+    }
+
+    /**
+     * Get the sort fields and directions requested by the SORTBY parameter.
+     *
+     * SORTBY is a comma separated list of fields, each one optionally followed
+     * by a space and a direction, for example `id a,name d`. The direction is
+     * ascending by default. Fields which are not WFS fields are ignored.
+     *
+     * A field name can be enclosed in double quotes, with inner double quotes
+     * doubled, as in QGIS expressions: `"Sewer type" d`. Without quotes, a name
+     * with spaces is accepted if the whole item is a WFS field.
+     *
+     * @param array    $params    The request parameters
+     * @param string[] $wfsFields The WFS fields of the layer
+     *
+     * @return array<string, string> The sort direction, ASC or DESC, by field name
+     */
+    protected function getSortFields($params, $wfsFields): array
+    {
+        $sortItems = array();
+        if (!array_key_exists('sortby', $params) || empty($params['sortby'])) {
+            return $sortItems;
+        }
+
+        // Each item: a quoted field name and the rest, or an unquoted item
+        preg_match_all('/\s*(?:"((?:[^"]|"")*)"([^,]*)|([^,]+))(?:,|$)/', $params['sortby'], $matches, PREG_SET_ORDER);
+        foreach ($matches as $match) {
+            if (isset($match[3])) {
+                // Unquoted: the whole item is a field, or the direction follows the last space
+                $field = trim($match[3]);
+                $direction = '';
+                $space = strrpos($field, ' ');
+                if (!in_array($field, $wfsFields) && $space !== false) {
+                    $direction = substr($field, $space + 1);
+                    $field = rtrim(substr($field, 0, $space));
                 }
+            } else {
+                // Quoted: the direction follows the closing quote
+                $field = str_replace('""', '"', $match[1]);
+                $direction = trim($match[2]);
             }
-            if (count($sort_items) > 0) {
-                $sql .= ' ORDER BY ';
-                $sep = '';
-                foreach ($sort_items as $f => $o) {
-                    $sql .= $sep.$cnx->encloseName($f).' '.$o;
-                    $sep = ', ';
+
+            // !!! Validate on fields to avoid injection !!!
+            if (!in_array($field, $wfsFields)) {
+                continue;
+            }
+            // Ascending by default, descending only with an explicit direction
+            $sortItems[$field] = 'ASC';
+            if (in_array(strtolower($direction), array('d', '+d', 'desc', '+desc'))) {
+                $sortItems[$field] = 'DESC';
+            }
+        }
+
+        return $sortItems;
+    }
+
+    /**
+     * Get the WFS fields selected by the PROPERTYNAME parameter.
+     *
+     * Requested fields which are not WFS fields are ignored. Without
+     * PROPERTYNAME, every WFS field is selected. The primary keys are not added.
+     *
+     * @param array    $params    The request parameters
+     * @param string[] $wfsFields The WFS fields of the layer
+     *
+     * @return string[] The selected WFS fields
+     */
+    protected function getSelectedFields($params, $wfsFields): array
+    {
+        $propertyname = '';
+        if (array_key_exists('propertyname', $params)) {
+            $propertyname = $params['propertyname'];
+        }
+        if (empty($propertyname)) {
+            return array_values($wfsFields);
+        }
+
+        // Keep only the requested fields published in WFS, in the requested order
+        $sfields = array();
+        foreach (explode(',', $propertyname) as $pfield) {
+            if (in_array($pfield, $wfsFields)) {
+                $sfields[] = $pfield;
+            }
+        }
+
+        return $sfields;
+    }
+
+    /**
+     * Get the WFS fields the direct SQL query depends on.
+     *
+     * The query reads the fields selected by PROPERTYNAME (except for a hits request),
+     * sorts on the fields of SORTBY and filters on the fields cited in EXP_FILTER.
+     * A field is considered cited in EXP_FILTER when its name appears as a whole word,
+     * so a name inside a string literal is also returned: the request is then
+     * sent to QGIS Server, which is always correct.
+     *
+     * @param array    $params        The request parameters
+     * @param string[] $wfsFields     The WFS fields of the layer
+     * @param bool     $isHitsRequest True if the request only counts the features
+     *
+     * @return string[] The WFS fields used by the SQL query, without duplicates
+     */
+    protected function getQueryFields($params, $wfsFields, bool $isHitsRequest = false): array
+    {
+        $fields = array();
+
+        // Fields read by the SELECT clause
+        if (!$isHitsRequest) {
+            $fields = $this->getSelectedFields($params, $wfsFields);
+            // Fields used by the ORDER BY clause
+            $fields = array_merge($fields, array_keys($this->getSortFields($params, $wfsFields)));
+        }
+
+        // Fields cited by the expression filter, which includes the filter by login
+        $expFilter = '';
+        if (array_key_exists('exp_filter', $params)) {
+            $expFilter = $params['exp_filter'];
+        }
+        if (!empty($expFilter)) {
+            foreach ($wfsFields as $field) {
+                $pattern = '/(?<![\p{L}\p{N}_])'.preg_quote($field, '/').'(?![\p{L}\p{N}_])/u';
+                if (preg_match($pattern, $expFilter)) {
+                    $fields[] = $field;
                 }
             }
         }
 
-        return $sql;
+        return array_values(array_unique($fields));
     }
 
     /**
@@ -985,45 +1171,24 @@ class WFSRequest extends OGCRequest
         // Get WFS fields
         $wfsFields = $this->qgisLayer->getWfsFields();
 
-        // Verifying that every wfs fields are db fields
-        // if not return getfeatureQgis
-        if (!$isHitsRequest) {
-            foreach ($wfsFields as $field) {
-                if (!array_key_exists($field, $dbFields)) {
-                    return $this->getfeatureQgis();
-                }
+        // Verifying that the WFS fields used by the query are db fields
+        // if not return getfeatureQgis. Other WFS fields, like virtual fields,
+        // do not prevent the direct SQL query when they are not requested.
+        foreach ($this->getQueryFields($params, $wfsFields, $isHitsRequest) as $field) {
+            if (!array_key_exists($field, $dbFields)) {
+                return $this->getfeatureQgis();
             }
         }
 
         // Build SQL
         $sql = $this->buildQueryBase($cnx, $params, $wfsFields, $isHitsRequest);
 
-        // WHERE
-        $sql .= ' WHERE True';
-
-        // Add datasource SQL filter
-        $sql .= $this->getDatasourceSql();
-
-        // BBOX
-        $sql .= $this->getbboxSql($params);
-
-        // EXP_FILTER
-        // This also include the filter by login, as done above in the function "parameters"
-        $expFilterSql = $this->parseExpFilter($cnx, $params);
-        if ($expFilterSql === false) {
-            // Do not use direct SQL query to PostgreSQL but a request to QGIS Server
+        // WHERE clause
+        $whereClause = $this->getWhereClause($cnx, $params);
+        if ($whereClause === false) {
             return $this->getfeatureQgis();
         }
-        $sql .= $expFilterSql;
-
-        // Filter by polygon
-        $polygonFilter = $this->qgisLayer->getPolygonFilter($this->editingContext, 5);
-        if ($polygonFilter) {
-            $sql .= ' AND ( '.$polygonFilter.' ) ';
-        }
-
-        // FEATUREID
-        $sql .= $this->parseFeatureId($cnx, $params);
+        $sql .= $whereClause;
 
         // ORDER BY
         $sql .= $this->getQueryOrder($cnx, $params, $wfsFields);
@@ -1139,6 +1304,39 @@ class WFSRequest extends OGCRequest
     }
 
     /**
+     * Validate the EXP_FILTER parameter sent by the client, before any combination.
+     *
+     * The client filter is put between parenthesis and combined with the other
+     * filters, e.g. the filter by login. Validating only a combined filter is not
+     * enough: a client filter like `1=1 ) OR ( 1=1` would get out of its parenthesis.
+     * The client filter is therefore validated alone, so that its parenthesis are
+     * balanced, and between parenthesis, so that a final comment cannot hide the
+     * closing parenthesis.
+     *
+     * @return bool true if there is no client filter or if it is valid
+     */
+    protected function validateClientExpFilter(): bool
+    {
+        // No client filter
+        $clientExpFilter = $this->param('exp_filter', '');
+        if (empty($clientExpFilter)) {
+            return true;
+        }
+
+        // Validate the filter alone, then between parenthesis as when merged
+        try {
+            SqlTools::parseAndValidateSQLString($clientExpFilter);
+            SqlTools::parseAndValidateSQLString('( '.$clientExpFilter.' )');
+        } catch (\Exception $e) {
+            $this->appContext->logException($e, 'lizmapadmin');
+
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
      * Parses and validate a filter for postgresql.
      *
      * @param string $filter The filter to parse
@@ -1147,12 +1345,10 @@ class WFSRequest extends OGCRequest
      */
     protected function validateFilter(string $filter): false|string
     {
-        [$validFilter, $block_items] = SqlTools::validateExpressionFilter($filter);
-        if (!$validFilter) {
-            $this->appContext->logMessage(
-                'The EXP_FILTER param contains dangerous chars : '.implode(', ', $block_items),
-                'lizmapadmin'
-            );
+        try {
+            SqlTools::parseAndValidateSQLString($filter);
+        } catch (\Exception $e) {
+            $this->appContext->logException($e, 'lizmapadmin');
 
             return false;
         }

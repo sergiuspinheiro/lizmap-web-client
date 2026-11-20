@@ -187,6 +187,23 @@ class mediaCtrl extends jController
             );
         }
 
+        $rep = $this->processGetMedia($rep);
+        Checker::logoutCredentials($_SERVER);
+
+        return $rep;
+    }
+
+    /**
+     * Process get a media file (image, html, csv, pdf, etc.) store in the repository.
+     * Used to display media in the popup, via the information icon, etc.
+     *
+     * @param jResponseBinary $rep The prepared response
+     *
+     * @return jResponseBinary|jResponseJson object The media
+     */
+    protected function processGetMedia($rep)
+    {
+
         // Get repository data
         $repository = $this->param('repository');
 
@@ -256,6 +273,18 @@ class mediaCtrl extends jController
                 return $this->error404('Unable to get media');
             }
         } else {
+            // Only allow '..' at the beginning of the path
+            $hasFolderNameSegment = false;
+            foreach (preg_split('#[/\\\]#', $path) as $segment) {
+                if ($segment === '..') {
+                    if ($hasFolderNameSegment) {
+                        return $this->error404('No media file in the specified path: '.$path);
+                    }
+                } elseif ($segment !== '' && $segment !== '.') {
+                    $hasFolderNameSegment = true;
+                }
+            }
+
             // Get the file
             $repositoryPath = realpath($lrep->getPath());
             $abspath = realpath($repositoryPath.'/'.$path);

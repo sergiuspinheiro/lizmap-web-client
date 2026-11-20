@@ -26,6 +26,7 @@ assets/dist/
 # Config
 lizmap/var/config/lizmapConfig.ini.php
 lizmap/var/config/localconfig.ini.php
+lizmap/var/config/lizmapLogConfig.ini.php
 lizmap/var/config/liveconfig.ini.php
 lizmap/var/config/localframework.ini.php
 lizmap/var/config/lizmapModules.ini.php
@@ -121,6 +122,7 @@ tests/qgis-projects/tests/media/js/*
 !tests/qgis-projects/tests/media/js/external_javascript_test/
 tests/qgis-projects/tests/media/js/external_javascript_test/*
 !tests/qgis-projects/tests/media/js/external_javascript_test/subscribe_uicreated.js
+!tests/qgis-projects/tests/media/js/external_javascript_test/legacy_events.js
 !tests/qgis-projects/tests/media/js/javascript_error/
 tests/qgis-projects/tests/media/js/javascript_error/*
 !tests/qgis-projects/tests/media/js/javascript_error/invalid_javascript.js

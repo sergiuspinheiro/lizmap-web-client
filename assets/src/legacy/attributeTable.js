@@ -41,6 +41,7 @@ var lizAttributeTable = function() {
         'uicreated':function(){
 
             // Attributes
+            const initialConfig = lizMap.mainLizmap.initialConfig;
             var config = lizMap.config;
             var layers = lizMap.layers;
             var hasAttributeTableLayers = false;
@@ -205,13 +206,16 @@ var lizAttributeTable = function() {
                             const layerFilter = ( 'request_params' in config.layers[layerName] && config.layers[layerName]['request_params']['exp_filter'] ) ?
                                 config.layers[layerName]['request_params']['exp_filter'] : null;
 
-                            const tableSelector = '#attribute-layer-table-' + cleanName;
-
-                            // Get data and fill attribute table
-                            getDataAndFillAttributeTable(layerName, layerFilter, false, tableSelector);
-
                             const tabElement = document.getElementById('nav-tab-attribute-layer-' + cleanName);
-                            bootstrap.Tab.getOrCreateInstance(tabElement).show();
+                            // Check if the tab elment has been build correctly by addLayerDiv
+                            if (tabElement !== null) {
+                                const tableSelector = '#attribute-layer-table-' + cleanName;
+
+                                // Get data and fill attribute table
+                                getDataAndFillAttributeTable(layerName, layerFilter, false, tableSelector);
+
+                                bootstrap.Tab.getOrCreateInstance(tabElement).show();
+                            }
 
                             return false;
                         })
@@ -459,6 +463,26 @@ var lizAttributeTable = function() {
              * @param lname
              */
             function addLayerDiv(lname) {
+                if (!initialConfig.hasAttributeLayers) {
+                    console.warn(
+                        'No layer div can be build: ' +
+                        'Attribute table is not enabled in the project configuration!'
+                    );
+                    return;
+                }
+
+                // Get attribute layer config
+                const attrLayersConfig = initialConfig.attributeLayers;
+                if (attrLayersConfig.layerNames.indexOf(lname) === -1) {
+                    console.warn(
+                        'No layer div can be build: ' +
+                        `*${lname}* is not in the attribute table configuration *${attrLayersConfig.layerNames}*!`
+                    );
+                    return;
+                }
+                const attrLayerConfig = attrLayersConfig.getLayerConfigByLayerName(lname);
+                const layerState = lizMap.mainLizmap.state.layersAndGroupsCollection.getLayerByName(attrLayerConfig.name);
+
                 // Get layer config
                 var atConfig = config.attributeLayers[lname];
                 var cleanName = lizMap.cleanName(lname);
@@ -505,7 +529,7 @@ var lizAttributeTable = function() {
                 html+= '<button class="btn-unselect-attributeTable btn btn-sm' + selClass + '" value="' + cleanName + '" title="'+lizDict['attributeLayers.toolbar.btn.data.unselect.title']+'"><i class="icon-star-empty"></i></button>';
 
                 // 'Move selected to top' button
-                html+= 
+                html+=
                 `<button
                     class="btn-moveselectedtotop-attributeTable btn btn-sm ${selClass}"
                     data-layerid="${config.layers[lname].id}"
@@ -521,7 +545,7 @@ var lizAttributeTable = function() {
                 }
 
                 // Filter data by extent button
-                html+= 
+                html+=
                 `<button class="btn-filterbyextent-attributeTable btn btn-sm" data-layerid="${config.layers[lname].id}" data-bs-toggle="button" value="${cleanName}" title="${lizDict['attributeLayers.toolbar.btn.filterByExtent.title']}">
                     <svg>
                         <use href="${lizUrls.svgSprite}#filter-square"/>
@@ -580,23 +604,23 @@ var lizAttributeTable = function() {
                 }
 
                 // Export tools
-                if ( 'export_enabled' in atConfig && atConfig.export_enabled == 'True' ) {
-                    html+= '<div class="export-formats dropdown float-end" role="group" >';
-                    html+= '    <button type="button" class="btn btn-sm dropdown-toggle exportLayer" data-bs-toggle="dropdown" aria-expanded="false">';
-                    html+= lizDict['attributeLayers.toolbar.btn.data.export.title'];
-                    html+= '    </button>';
-                    html+= '    <ul class="dropdown-menu" role="menu">';
-                    html+= '        <li><button type="button" class="dropdown-item btn-export-attributeTable">GeoJSON</button></li>';
-                    html+= '        <li><button type="button" class="dropdown-item btn-export-attributeTable">GML</button></li>';
-                    var exportFormats = lizMap.mainLizmap.initialConfig.vectorLayerResultFormat;
-                    for ( var i=0, len=exportFormats.length; i<len; i++ ) {
-                        var format = exportFormats[i].toLowerCase();
-                        if ( format != 'gml2' && format != 'gml3' && format != 'geojson' ) {
-                            html += '        <li><button type="button" class="dropdown-item btn-export-attributeTable">'+format+'</button></li>';
-                        }
+                if ( attrLayerConfig.exportEnabled ) {
+                    // Get the list of effective format for file export
+                    const exportFormats = attrLayerConfig.getEffectiveExportFormats(
+                        initialConfig.vectorLayerResultFormat
+                    );
+                    if (exportFormats) {
+                        html+= '<div class="export-formats dropdown float-end" role="group" >';
+                        html+= '    <button type="button" class="btn btn-sm dropdown-toggle exportLayer" data-bs-toggle="dropdown" aria-expanded="false">';
+                        html+= lizDict['attributeLayers.toolbar.btn.data.export.title'];
+                        html+= '    </button>';
+                        html+= '    <ul class="dropdown-menu" role="menu">';
+                        exportFormats.forEach(format => {
+                            html += `        <li><button type="button" class="dropdown-item btn-export-attributeTable">${format}</button></li>`;
+                        });
+                        html+= '    </ul>';
+                        html+= '</div>';
                     }
-                    html+= '    </ul>';
-                    html+= '</div>';
                 }
 
                 // Atlas print button for selected features
@@ -655,7 +679,7 @@ var lizAttributeTable = function() {
                 html+= '<div class="attribute-layer-content'+alc+'">';
                 html+= '    <input type="hidden" class="attribute-table-hidden-layer" value="'+cleanName+'">';
                 const classes = 'attribute-table-table table table-hover table-sm table-striped table-bordered';
-                html+= '    <table id="attribute-layer-table-' + cleanName + '" data-layerid="' + atConfig.layerId + '" class="' + classes + '" width="100%"></table>';
+                html+= '    <table id="attribute-layer-table-' + cleanName + '" data-layerid="' + attrLayerConfig.id + '" class="' + classes + '" width="100%"></table>';
 
                 html+= '</div>';  // attribute-layer-content
 
@@ -689,7 +713,38 @@ var lizAttributeTable = function() {
 
                 $('#attribute-table-container').append(html);
 
+                /**
+                 * Listener for `layer.selection.changed` to enable/disable the export layer button
+                 * @param {LayerSelectionChanged} evt
+                 */
+                const layerSelectionChanged = (evt) => {
+                    if (evt.selectedFeatures.length > 0 && evt.selectedFeatures.length <= attrLayerConfig.exportMaxFeatures) {
+                        $('#attribute-layer-'+ cleanName + ' button.exportLayer').prop('disabled', false);
+                    } else {
+                        $('#attribute-layer-'+ cleanName + ' button.exportLayer').prop('disabled', true);
+                    }
+                }
+                /**
+                 * Listener for `layer.filter.changed` to enable/disable not the export layer button
+                 * @param {LayerFilterChanged} evt
+                 */
+                const layerFilterChanged = (evt) => {
+                    if (layerState.isFiltered) {
+                        const filteredFeaturesLength = config.layers[lname]['filteredFeatures'].length;
+                        if (filteredFeaturesLength > 0 && filteredFeaturesLength <= attrLayerConfig.exportMaxFeatures) {
+                            $('#attribute-layer-'+ cleanName + ' button.exportLayer').prop('disabled', false);
+                        } else {
+                            $('#attribute-layer-'+ cleanName + ' button.exportLayer').prop('disabled', true);
+                        }
+                    }
+                }
+
                 $('.btn-close-attribute-tab').click(function(){
+                    // Remove listeners about enable/disable export button
+                    if (attrLayerConfig.exportLimited) {
+                        layerState.removeListener(layerSelectionChanged, 'layer.selection.changed');
+                        layerState.removeListener(layerFilterChanged, 'layer.filter.changed');
+                    }
                     //there are multiple elements which has .closeTab icon so close the tab whose close icon is clicked
                     var tabContentId = $(this).parent().attr("data-bs-target");
                     $(this).parent().parent().remove(); //remove li of tab
@@ -769,6 +824,25 @@ var lizAttributeTable = function() {
                             }
                             return false;
                         });
+                }
+
+                // Add listeners about enable/disable export button
+                if (attrLayerConfig.exportLimited) {
+                    // Disable by default the export layer button because export is limited to some features.
+                    $('#attribute-layer-'+ cleanName + ' button.exportLayer').prop('disabled', true);
+                    // Check if there are already selected features to enable the export button
+                    if (layerState.selectedFeatures.length > 0 && layerState.selectedFeatures.length <= attrLayerConfig.exportMaxFeatures) {
+                            $('#attribute-layer-'+ cleanName + ' button.exportLayer').prop('disabled', false);
+                    }
+                    // Check if there are already filtered features to enable the export button
+                    if (layerState.isFiltered) {
+                        const filteredFeaturesLength = config.layers[lname]['filteredFeatures'].length;
+                        if (filteredFeaturesLength > 0 && filteredFeaturesLength <= attrLayerConfig.exportMaxFeatures) {
+                            $('#attribute-layer-'+ cleanName + ' button.exportLayer').prop('disabled', false);
+                        }
+                    }
+                    layerState.addListener(layerSelectionChanged, 'layer.selection.changed');
+                    layerState.addListener(layerFilterChanged, 'layer.filter.changed');
                 }
 
                 // Bind click on export buttons
@@ -1069,7 +1143,7 @@ var lizAttributeTable = function() {
                 // The calculation is performed on all filtered features, ignoring pagination
                 $('#attribute-layer-'+ cleanName + ' button.btn-fit-filtered-extent').click(async function(){
                     let targetExtent = [];
-                    var tableName = attributeLayersDic[ $(this).val() ];
+                    var tableName = $(this).val();
                     if (!DataTable.isDataTable(`#attribute-layer-table-${tableName}`)) return;
 
                     const dtTable = new DataTable.Api(`#attribute-layer-table-${tableName}`);
@@ -1085,7 +1159,7 @@ var lizAttributeTable = function() {
                         // filter in criteria
                         'filteredfeatureids' in dtParams
                     if (!hasFilter) {
-                        const layerConfig = lizMap.config.layers[$(this).val()];
+                        const layerConfig = lizMap.config.layers[lname];
                         if (layerConfig && 'extent' in layerConfig && 'crs' in layerConfig) {
                             targetExtent = lizMap.ol.proj.transformExtent(
                                 layerConfig.extent,
@@ -1096,7 +1170,7 @@ var lizAttributeTable = function() {
                     } else {
                         const datatablesUrl = globalThis['lizUrls'].dataTablesFilteredFeaturesExtent;
                         const params = {...globalThis['lizUrls'].params};
-                        params['layerId'] = config.attributeLayers[cleanName].layerId;
+                        params['layerId'] = config.attributeLayers[lname].layerId;
 
                         // Using the same parameters as the search builder ensures that the extent calculation
                         // is consistent with the filtered features.
@@ -1789,7 +1863,9 @@ var lizAttributeTable = function() {
              * @returns {MutationObserver}
              */
             function observeDomSearchBuilderMutation(name, oTable, allColumnsKeyValues){
-                const observedNode = document.querySelector(`#attribute-layer-${name} .dt-buttons.btn-group.flex-wrap`);
+                // lizmap internal js cleaned name - used for html ids
+                const cleanName = lizMap.cleanName(name);
+                const observedNode = document.querySelector(`#attribute-layer-${cleanName} .dt-buttons.btn-group.flex-wrap`);
                 // table does not have search builder
                 if(!observedNode) return;
                 const config = { childList: true, subtree: true };
@@ -2477,7 +2553,7 @@ var lizAttributeTable = function() {
                 // Assure selectedFeatures property exists for the layer
                 if( !config.layers[featureType]['selectedFeatures'] )
                     config.layers[featureType]['selectedFeatures'] = [];
-                const table = document.getElementById(`attribute-layer-table-${featureType}`);
+                const table = document.getElementById(`attribute-layer-table-${lizMap.cleanName(featureType)}`);
                 if (!table || !DataTable.isDataTable( $(table) )) return;
                 const eTable = new DataTable.Api(table);
                 const { pages, recordsDisplay } = {...eTable.page.info()};

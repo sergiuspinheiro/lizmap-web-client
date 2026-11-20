@@ -2,13 +2,13 @@
 
 use Lizmap\App;
 use Lizmap\Project\Qgis;
+use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\TestCase;
 
 /**
  * @internal
- *
- * @coversNothing
  */
+#[CoversNothing]
 class ProjectInfoTest extends TestCase
 {
     public function testFromXmlReader(): void
@@ -182,6 +182,8 @@ Data is licensed under ODbl, OpenStreetMap contributors',
         $this->assertEquals(297, $layouts[0]['width']);
         $this->assertEquals(210, $layouts[0]['height']);
         $this->assertCount(2, $layouts[0]['maps']);
+        $this->assertCount(4, $layouts[0]['maps'][0]['extent']);
+        $this->assertCount(4, $layouts[0]['maps'][1]['extent']);
         $this->assertCount(2, $layouts[0]['labels']);
         $this->assertFalse($layouts[0]['atlas']['enabled']);
         $this->assertEquals('District card', $layouts[1]['title']);
@@ -190,6 +192,9 @@ Data is licensed under ODbl, OpenStreetMap contributors',
         $this->assertCount(2, $layouts[1]['maps']);
         $this->assertCount(1, $layouts[1]['labels']);
         $this->assertTrue($layouts[1]['atlas']['enabled']);
+        $this->assertEquals('VilleMTP_MTP_Quartiers_2011_432620130116112610876', $layouts[1]['atlas']['coverageLayer']);
+        $this->assertEquals("'output_'||@atlas_featurenumber", $layouts[1]['atlas']['filenamePattern']);
+        $this->assertEquals('', $layouts[1]['atlas']['pageNameExpression']);
     }
 
     public function testFromQgisPath(): void

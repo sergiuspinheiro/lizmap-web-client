@@ -39,72 +39,18 @@ class WMSRequest extends OGCRequest
         return $this->forceRequest = $forced;
     }
 
+    /**
+     * Get the WMS request parameters, with the Lizmap extra parameters.
+     *
+     * The filter by login is not added to the FILTER parameter: it is applied
+     * by the lizmap_server plugin of QGIS Server, with the user and the groups
+     * given in the Lizmap extra parameters.
+     *
+     * @return array the WMS request parameters
+     */
     public function parameters()
     {
-        $params = parent::parameters();
-
-        // Filter data by login if necessary
-        // as configured in the plugin for login filtered layers.
-
-        // Filter data by login for request: GetMap, GetFeatureInfo, GetPrint, GetPrintAtlas
-        $wmsRequest = strtolower($this->param('request'));
-        if (!in_array($wmsRequest, array('getmap', 'getfeatureinfo', 'getprint', 'getprintatlas'))) {
-            return $params;
-        }
-
-        // No filter data by login rights
-        if ($this->appContext->aclCheck('lizmap.tools.loginFilteredLayers.override', $this->repository->getKey())) {
-            return $params;
-        }
-
-        // filter data by login
-        $layers = $this->param('layers');
-
-        // 'GetPrintAtlas' request has param 'layer' and not 'layers'
-        if ($wmsRequest == 'getprintatlas') {
-            $layers = $this->param('layer');
-        }
-
-        if (is_string($layers)) {
-            $layers = explode(',', $layers);
-        }
-
-        // get login filters
-        $loginFilters = array();
-
-        if ($layers) {
-            $loginFilters = $this->project->getLoginFilters($layers);
-        }
-
-        // login filters array is empty
-        if (empty($loginFilters)) {
-            return $params;
-        }
-
-        // merge client filter parameter
-        $clientFilter = $this->param('filter', '');
-        if (!empty($clientFilter)) {
-            $clientFilterExpression = explode(';', $clientFilter);
-            foreach ($clientFilterExpression as $a) {
-                $b = explode(':', $a);
-                $layerName = trim($b[0]);
-                $layerFilter = trim($b[1]);
-                if (array_key_exists($layerName, $loginFilters)) {
-                    $loginFilters[$layerName]['filter'] .= ' AND ( '.$layerFilter.' )';
-                } else {
-                    $loginFilters[$layerName] = array('filter' => '( '.$layerFilter.' )', 'layername' => $layerName);
-                }
-            }
-        }
-
-        // update filter parameter
-        $filters = array();
-        foreach ($loginFilters as $layerName => $layerFilter) {
-            $filters[] = $layerName.':'.$layerFilter['filter'];
-        }
-        $params['filter'] = implode(';', $filters);
-
-        return $params;
+        return parent::parameters();
     }
 
     /**
@@ -457,6 +403,11 @@ class WMSRequest extends OGCRequest
         $qgisQueryLayers = array();
         foreach ($queryLayers as $queryLayer) {
             $configLayer = $this->project->findLayerByAnyName($queryLayer);
+            if (!$configLayer) {
+                \jMessage::add('The QUERY_LAYERS parameter contain unknown layer.', 'BadRequest');
+
+                return $this->serviceException();
+            }
             if (property_exists($configLayer, 'externalAccess')
                 && $configLayer->externalAccess != 'False'
                 && property_exists($configLayer->externalAccess, 'url')
@@ -471,6 +422,20 @@ class WMSRequest extends OGCRequest
 
         // External WMS
         foreach ($externalWMSConfigLayers as $configLayer) {
+            // Check the external URL
+            $url = $configLayer->externalAccess->url;
+            // Mitigate SSRF: only fetch external WMS layers from safe public URLs.
+            // The URL comes from the project configuration, which is not necessarily
+            // authored by the server operator.
+            if (!Proxy::isAllowedRemoteUrl($url)) {
+                Proxy::getAppContext()->logMessage(
+                    'Refused external WMS GetFeatureInfo access to an unsafe URL: '.$url,
+                    'lizmapadmin'
+                );
+
+                continue;
+            }
+            // Build external WMS request
             $externalWMSLayerParams = array_merge(array(), $this->params);
             if (array_key_exists('map', $externalWMSLayerParams)) {
                 unset($externalWMSLayerParams['map']);
@@ -490,7 +455,6 @@ class WMSRequest extends OGCRequest
             $externalWMSLayerParams['info_format'] = 'application/vnd.ogc.gml';
 
             // build Query string
-            $url = $configLayer->externalAccess->url;
             if (!preg_match('/\?/', $url)) {
                 $url .= '?';
             } elseif (!preg_match('/&$/', $url)) {
@@ -498,8 +462,8 @@ class WMSRequest extends OGCRequest
             }
             $querystring = Proxy::constructUrl($externalWMSLayerParams, $this->services, $url);
 
-            // Query external WMS layers
-            list($data, $mime, $code) = Proxy::getRemoteData($querystring);
+            // Query external WMS layers (do not follow redirects to avoid SSRF bypass)
+            list($data, $mime, $code) = Proxy::getRemoteData($querystring, array('allow_redirects' => false));
 
             $rep .= $this->gfiGmlToHtml($data, $configLayer);
         }
@@ -507,6 +471,13 @@ class WMSRequest extends OGCRequest
         $toHtml = ($this->param('info_format') == 'text/html');
         if ($toHtml) {
             $this->params['info_format'] = 'text/xml';
+        }
+
+        // Request the feature display name only when the client asks for it
+        if ($this->param('with_display_name') === 'true') {
+            $this->params['with_display_name'] = 'true';
+        } else {
+            unset($this->params['with_display_name']);
         }
 
         // force layers
@@ -792,9 +763,12 @@ class WMSRequest extends OGCRequest
             $hiddenGeometry = '';
             $featureToolbarExtent = '';
             $maptipValue = null;
+            $displayName = '';
 
             foreach ($feature->Attribute as $attribute) {
-                if ($attribute['name'] == 'maptip') {
+                if ($attribute['name'] == 'displayName') {
+                    $displayName = (string) $attribute['value'];
+                } elseif ($attribute['name'] == 'maptip') {
                     // first replace all "media/bla/bla/media.ext" by full url
                     $maptipValue = preg_replace_callback(
                         self::$regexp_media_urls,
@@ -876,6 +850,7 @@ class WMSRequest extends OGCRequest
 
             $content[] = $this->getViewTpl('view~popup', $layerName, $layerId, $layerTitle, array(
                 'featureId' => $id,
+                'featureDisplayName' => $displayName,
                 'popupContent' => $hiddenFeatureId.$hiddenGeometry.$featureToolbar.$finalContent,
             ));
         } // loop features
@@ -921,7 +896,7 @@ class WMSRequest extends OGCRequest
             $values = array();
             foreach ($featureAttributes as $attribute) {
                 $name = (string) $attribute['name'];
-                if ($name === 'geometry' || $name === 'maptip') {
+                if ($name === 'geometry' || $name === 'maptip' || $name === 'displayName') {
                     continue;
                 }
                 $value = (string) $attribute['value'];
@@ -971,6 +946,9 @@ class WMSRequest extends OGCRequest
 
         return $this->getViewTpl('view~popup', $layerName, $layerId, $layerTitle, array(
             'popupContent' => $popupRasterContent,
+            // Raster features have no ID nor display name, but the template reads them
+            'featureId' => null,
+            'featureDisplayName' => null,
         ));
     }
 
@@ -1187,10 +1165,7 @@ class WMSRequest extends OGCRequest
                 $tile = false;
             }
             if ($tile) {
-                $mime = 'image/jpeg';
-                if (preg_match('#png#', $params['format'])) {
-                    $mime = 'image/png';
-                }
+                $mime = 'image/'.$this->getTileImageType($params['format']);
 
                 \lizmap::logMetric('LIZMAP_PROXY_HIT_CACHE', 'WMS', array(
                     'qgisParams' => $params,
@@ -1201,6 +1176,42 @@ class WMSRequest extends OGCRequest
         }
 
         return $key;
+    }
+
+    /**
+     * Get the image type of the tiles from the WMS FORMAT parameter.
+     *
+     * @param string $format The WMS FORMAT parameter, i.e. image/png; mode=8bit
+     *
+     * @return string png, webp or jpeg
+     */
+    protected function getTileImageType($format)
+    {
+        if (preg_match('#png#', $format)) {
+            return 'png';
+        }
+        if (preg_match('#webp#', $format)) {
+            return 'webp';
+        }
+
+        return 'jpeg';
+    }
+
+    /**
+     * Check that gd is installed and is able to crop the tiles of the given format.
+     *
+     * @param string $format The WMS FORMAT parameter
+     *
+     * @return bool
+     */
+    protected function canCropTile($format)
+    {
+        if (!extension_loaded('gd') || !function_exists('gd_info')) {
+            return false;
+        }
+
+        // The WebP support is optional in gd
+        return $this->getTileImageType($format) != 'webp' || function_exists('imagewebp');
     }
 
     /**
@@ -1272,8 +1283,10 @@ class WMSRequest extends OGCRequest
         // create new gd image
         $image = imagecreatetruecolor($newWidth, $newHeight);
 
+        $imageType = $this->getTileImageType($params['format']);
+
         // save transparency if needed
-        if (preg_match('#png#', $params['format'])) {
+        if ($imageType != 'jpeg') {
             imagesavealpha($original, true);
             imagealphablending($image, false);
             $color = imagecolortransparent($image, imagecolorallocatealpha($image, 0, 0, 0, 127));
@@ -1286,8 +1299,10 @@ class WMSRequest extends OGCRequest
 
         // Output the image as a string (use PHP buffering)
         ob_start();
-        if (preg_match('#png#', $params['format'])) {
+        if ($imageType == 'png') {
             imagepng($image, null, 9);
+        } elseif ($imageType == 'webp') {
+            imagewebp($image, null, 90);
         } else {
             imagejpeg($image, null, 90);
         }
@@ -1384,13 +1399,12 @@ class WMSRequest extends OGCRequest
             }
         }
 
-        // Also checks if gd is installed
+        // Also checks if gd is installed and supports the image format
         $originalParams = array();
         $xFactor = -1;
         $yFactor = -1;
-        if ($metatileSize && $useCache && $wmsClient == 'web'
-            && extension_loaded('gd') && function_exists('gd_info')
-        ) {
+        $canCropTile = $this->canCropTile($params['format']);
+        if ($metatileSize && $useCache && $wmsClient == 'web' && $canCropTile) {
             list($params, $originalParams, $xFactor, $yFactor) = $this->getMetaTileData($params, $metatileSize);
         }
 
@@ -1411,9 +1425,7 @@ class WMSRequest extends OGCRequest
         }
 
         // Metatile : if needed, crop the metatile into a single tile
-        if ($metatileSize && $useCache && $wmsClient == 'web'
-            && extension_loaded('gd') && function_exists('gd_info')
-        ) {
+        if ($metatileSize && $useCache && $wmsClient == 'web' && $canCropTile) {
             $data = $this->getImageData($data, $params, $originalParams, $xFactor, $yFactor);
         }
 

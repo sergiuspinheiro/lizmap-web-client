@@ -10,10 +10,12 @@ import { Utils } from './Utils.js';
 import { Config } from './Config.js';
 import { MapState } from './state/Map.js';
 import { BaseLayersState, BaseLayerTypes } from './config/BaseLayer.js';
+import { WmtsBaseLayerState } from './state/BaseLayer.js';
 import { MapLayerLoadStatus, MapLayerState, MapRootState } from './state/MapLayer.js';
 import olMap from 'ol/Map.js';
 import View from 'ol/View.js';
 import { ADJUSTED_DPI } from '../utils/Constants.js';
+import { StaticWmsGetMapParamList } from './WMS.js';
 import { get as getProjection, getPointResolution } from 'ol/proj.js';
 import { Attribution } from 'ol/control.js';
 import ImageWMS from 'ol/source/ImageWMS.js';
@@ -283,11 +285,13 @@ export default class map extends olMap {
                             });
 
                             // Force no cache w/ Firefox
+                            /* Disable
                             if(navigator.userAgent.includes("Firefox")){
                                 layer.getSource().setTileLoadFunction((image, src) => {
                                     (image.getImage()).src = src + '&ts=' + Date.now();
                                 });
                             }
+                            */
                         } else if (!node.layerConfig.singleTile) {
                             layer = new TileLayer({
                                 minResolution: minResolution,
@@ -324,11 +328,13 @@ export default class map extends olMap {
                             });
 
                             // Force no cache w/ Firefox
+                            /* Disable
                             if(navigator.userAgent.includes("Firefox")){
                                 layer.getSource().setImageLoadFunction((image, src) => {
                                     (image.getImage()).src = src + '&ts=' + Date.now();
                                 });
                             }
+                            */
                         }
                     }
                 }
@@ -478,11 +484,20 @@ export default class map extends olMap {
                     url = url.replaceAll('{key}', baseLayerState.key);
                 }
 
+                // The hardcoded EPSG:3857 tile grid and KVP requests on the layer url only
+                // fit KVP services in EPSG:3857. A tile matrix set in another CRS or a url
+                // pointing to a static capabilities document (RESTful services) needs the
+                // tile grid and the tile url template from the capabilities.
+                const useCapabilities = baseLayerState.hasLayerConfig
+                    && (baseLayerState.crs !== 'EPSG:3857'
+                        || new URL(url).pathname.toLowerCase().endsWith('.xml'));
+
                 baseLayer = new TileLayer({
                     minResolution: layerMinResolution,
                     maxResolution: layerMaxResolution,
                     source: new WMTS({
-                        url: url,
+                        // Without url no tile is requested until the capabilities are read
+                        url: useCapabilities ? undefined : url,
                         layer: baseLayerState.layer,
                         matrixSet: baseLayerState.matrixSet,
                         format: baseLayerState.format,
@@ -491,6 +506,10 @@ export default class map extends olMap {
                         style: baseLayerState.style
                     })
                 });
+
+                if (useCapabilities) {
+                    this._setWmtsSourceFromCapabilities(baseLayer, baseLayerState, url, serviceURL);
+                }
             } else if (baseLayerState.type === BaseLayerTypes.Bing) {
                 baseLayer = new TileLayer({
                     minResolution: layerMinResolution,
@@ -604,7 +623,9 @@ export default class map extends olMap {
                 baseLayer.getSource().setAttributions(attribution);
             }
 
-            const visible = initialConfig.baseLayers.startupBaselayerName === baseLayerState.name;
+            // Use the selected base layer from the state, not the startup one from the config:
+            // it may already have been restored from the permalink before the map was created
+            const visible = baseLayersState.selectedBaseLayerName === baseLayerState.name;
 
             baseLayer.setProperties({
                 name: baseLayerState.name,
@@ -820,10 +841,15 @@ export default class map extends olMap {
 
                 // Delete entries in `wmsParams` not in `state.wmsParameters`
                 for(const key of Object.keys(wmsParams)){
+                    // Do not removed static WMS GetMap parameters from the list of parameters
+                    if(StaticWmsGetMapParamList.indexOf(key.toLowerCase()) !== -1) continue;
                     if(!Object.hasOwn(state.wmsParameters, key)){
                         delete wmsParams[key];
                     }
                 }
+                // Add a timestamp parameter to force browser to fetch image
+                wmsParams['ts'] = `${Date.now()}`;
+                // Merge parameters
                 Object.assign(wmsParams, state.wmsParameters);
 
                 olLayer.getSource().updateParams(wmsParams);
@@ -1016,6 +1042,64 @@ export default class map extends olMap {
      */
     get isDragZoomActive(){
         return this._dragZoom.getActive();
+    }
+
+    /**
+     * Replace the source of an external WMTS base layer by one built from its capabilities.
+     * If the capabilities cannot be read by the browser (CORS, network, unknown layer)
+     * the layer is fetched through QGIS Server instead.
+     * @param {TileLayer}          baseLayer      - the OpenLayers base layer
+     * @param {WmtsBaseLayerState} baseLayerState - the WMTS base layer state
+     * @param {string}             url            - the WMTS url
+     * @param {string}             serviceURL     - the lizmap service URL
+     */
+    async _setWmtsSourceFromCapabilities(baseLayer, baseLayerState, url, serviceURL) {
+        const placeholderSource = baseLayer.getSource();
+        let source;
+        try {
+            const capabilitiesUrl = new URL(url);
+            if (!capabilitiesUrl.pathname.toLowerCase().endsWith('.xml')) {
+                capabilitiesUrl.searchParams.set('SERVICE', 'WMTS');
+                capabilitiesUrl.searchParams.set('REQUEST', 'GetCapabilities');
+                capabilitiesUrl.searchParams.set('VERSION', '1.0.0');
+            }
+            const response = await fetch(capabilitiesUrl);
+            if (!response.ok) {
+                throw new Error(`${response.status} ${response.statusText}`);
+            }
+            const capabilities = new WMTSCapabilities().read(await response.text());
+            const options = optionsFromCapabilities(capabilities, {
+                layer: baseLayerState.layer,
+                matrixSet: baseLayerState.matrixSet,
+                format: baseLayerState.format,
+                style: baseLayerState.style,
+            });
+            if (!options) {
+                throw new Error(`layer ${baseLayerState.layer} with matrix set ${baseLayerState.matrixSet} not found`);
+            }
+            source = new WMTS(options);
+        } catch (error) {
+            console.warn(`WMTS capabilities of base layer ${baseLayerState.name} not loaded, use QGIS Server instead: ${error}`);
+            if (!baseLayerState.hasItemState) {
+                return;
+            }
+            source = new TileWMS({
+                url: serviceURL,
+                projection: this._lizmap3.map.getProjection(),
+                serverType: 'qgis',
+                tileGrid: this._useCustomTileWms ? this._customTileGrid : undefined,
+                params: {
+                    LAYERS: baseLayerState.itemState.wmsName,
+                    FORMAT: baseLayerState.layerConfig.imageFormat,
+                    DPI: 96,
+                    TILED: 'true'
+                },
+                wrapX: false,
+                hidpi: this._hidpi,
+            });
+        }
+        source.setAttributions(placeholderSource.getAttributions());
+        baseLayer.setSource(source);
     }
 
     /**

@@ -239,17 +239,20 @@ export const expect = baseExpect.extend({
     /**
      * Expecting the response is a valid HTML
      * @param {APIResponse|Response|null} response the response to test
+     * @param {number} status the response status
      *
      * @returns {MatcherReturnType} the result
      */
-    toBeHtml(response) {
+    toBeHtml(response, status=200) {
         const assertionName = 'toBeHtml';
         let pass = response !== null;
         try {
             if (pass) {
                 // check response status
-                expect(response?.ok()).toBeTruthy();
-                expect(response?.status()).toBe(200);
+                if (status < 300) {
+                    expect(response?.ok()).toBeTruthy();
+                }
+                expect(response?.status()).toBe(status);
                 // check content-type header
                 expect(response?.headers()['content-type']).toContain('text/html');
             }
@@ -417,6 +420,13 @@ export const expect = baseExpect.extend({
         };
     },
 
+    /**
+     * Expecting the response contains expected headers
+     * @param {APIResponse|Response|null} response the response to test
+     * @param {{[key: string]: string|RegExp}} expectedHeaders  List of expected headers
+     *
+     * @returns {MatcherReturnType} the result
+     */
     toContainHeaders(response, expectedHeaders) {
         const assertionName = 'toContainHeaders';
         let pass = true;
@@ -478,6 +488,59 @@ export const expect = baseExpect.extend({
     },
 
     /**
+     * Expecting the response is a GeoJSON with expected features property length
+     * @param {APIResponse|Response|null} response the response to test
+     * @param {number} expected the expected value of features property length
+     *
+     * @returns {Promise<MatcherReturnType>} the result
+     */
+    async toHaveGeoJsonFeaturesLength(response, expected) {
+        const assertionName = 'toHaveGeoJsonFeaturesLength';
+        let pass = true;
+        let theMessage = '';
+        /** @type {MatcherReturnType} matcherResult */
+        let matcherResult = {
+            message: () => theMessage,
+            pass: pass,
+            name: assertionName,
+            expected: expected,
+            actual: '',
+        };
+        const response_body = await response?.body();
+        try {
+            let body = await response?.json();
+            expect(body).toHaveProperty('type', 'FeatureCollection');
+            expect(body).toHaveProperty('features');
+            expect(body.features).toHaveLength(expected);
+        } catch(/** @type {any} */ e) {
+            theMessage = e.matcherResult.message;
+            pass = false;
+        }
+
+        if (this.isNot) {
+            pass =!pass;
+        }
+
+        const message = pass
+            ? () => this.utils.matcherHint(assertionName, undefined, undefined, { isNot: this.isNot }) +
+                '\n\n' +
+                `Expected: Response not to be JSON with property numberOfFeatures: ${this.utils.printExpected(expected)}\n`+
+                `Actual: ${response_body} - ${matcherResult.message()}`
+            : () => this.utils.matcherHint(assertionName, undefined, undefined, { isNot: this.isNot }) +
+                '\n\n' +
+                `Expected: Response to be JSON with property numberOfFeatures: ${this.utils.printExpected(expected)}\n`+
+                `Actual: ${response_body} - ${matcherResult.message()}`
+
+        return {
+            message,
+            pass,
+            name: assertionName,
+            expected: expected,
+            actual: matcherResult?.actual,
+        };
+    },
+
+    /**
      * Expecting the response is a GeoJSON with numberOfFeatures property to expected
      * @param {APIResponse} response the response to test
      * @param {number} expected the expected value of numberOfFeatures property
@@ -487,9 +550,10 @@ export const expect = baseExpect.extend({
     async toHaveGeoJsonNumberOfFeatures(response, expected) {
         const assertionName = 'toBeGeoJsonNumberOfFeatures';
         let pass = true;
+        let theMessage = '';
         /** @type {MatcherReturnType} matcherResult */
         let matcherResult = {
-            message: () => '',
+            message: () => theMessage,
             pass: pass,
             name: assertionName,
             expected: expected,
@@ -502,7 +566,7 @@ export const expect = baseExpect.extend({
             expect(body).toHaveProperty('timeStamp');
             expect(body).toHaveProperty('numberOfFeatures', expected);
         } catch(/** @type {any} */ e) {
-            matcherResult = e.matcherResult;
+            theMessage = e.matcherResult.message;
             pass = false;
         }
 
@@ -514,11 +578,11 @@ export const expect = baseExpect.extend({
             ? () => this.utils.matcherHint(assertionName, undefined, undefined, { isNot: this.isNot }) +
                 '\n\n' +
                 `Expected: Response not to be JSON with property numberOfFeatures: ${this.utils.printExpected(expected)}\n`+
-                `Actual: ${response_body} - ${matcherResult?.message()}`
+                `Actual: ${response_body} - ${matcherResult.message()}`
             : () => this.utils.matcherHint(assertionName, undefined, undefined, { isNot: this.isNot }) +
                 '\n\n' +
                 `Expected: Response to be JSON with property numberOfFeatures: ${this.utils.printExpected(expected)}\n`+
-                `Actual: ${response_body} - ${matcherResult?.message()}`
+                `Actual: ${response_body} - ${matcherResult.message()}`
 
         return {
             message,
@@ -526,6 +590,53 @@ export const expect = baseExpect.extend({
             name: assertionName,
             expected: expected,
             actual: matcherResult?.actual,
+        };
+    },
+
+    /**
+     * Expecting the response contains a Jelix message, as returned by the edition requests
+     *
+     * The messages are the items of the `ul.jelix-msg` list:
+     * `<li class="jelix-msg-item-{type}">{message}</li>`.
+     * @param {APIResponse|Response|null} response the response to test
+     * @param {string} expected the expected text of the message
+     * @param {string} [type] the expected type of the message, e.g. error, any type if not given
+     *
+     * @returns {Promise<MatcherReturnType>} the result
+     */
+    async toContainJelixMessage(response, expected, type = undefined) {
+        const assertionName = 'toContainJelixMessage';
+
+        // Read the messages of the response: their type and their text
+        const body = response !== null ? await response.text() : '';
+        const messages = [...body.matchAll(/<li class="jelix-msg-item-([^"]*)">([^<]*)<\/li>/g)]
+            .map(match => ({ type: match[1], text: match[2] }));
+
+        // One of the messages is the expected one
+        let pass = response !== null && response.ok() && messages.some(
+            message => message.text === expected && (type === undefined || message.type === type)
+        );
+
+        if (this.isNot) {
+            pass = !pass;
+        }
+
+        const expectedMessage = type === undefined ? expected : `${type}: ${expected}`;
+        const received = response !== null
+            ? `${response.status()} ${messages.map(message => `${message.type}: ${message.text}`).join(' | ') || body}`
+            : 'null';
+
+        const message = () => this.utils.matcherHint(assertionName, undefined, undefined, { isNot: this.isNot }) +
+            '\n\n' +
+            `Expected: Response ${this.isNot ? 'not ' : ''}to contain the Jelix message ${this.utils.printExpected(expectedMessage)}\n` +
+            `Received: ${this.utils.printReceived(received)}`;
+
+        return {
+            message,
+            pass,
+            name: assertionName,
+            expected: expectedMessage,
+            actual: received,
         };
     },
 

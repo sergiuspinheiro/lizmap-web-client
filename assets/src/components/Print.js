@@ -73,7 +73,10 @@ export default class Print extends HTMLElement {
 
                     const dpi = ADJUSTED_DPI;
                     const inchesPerMeter = 1000 / 25.4;
-                    this._printScales = mainLizmap.map.getView().getResolutions().map((r) => {return Math.round(r * inchesPerMeter * dpi);})
+                    const metersPerUnit = mainLizmap.map.getView().getProjection().getMetersPerUnit();
+                    this._printScales = mainLizmap.map.getView().getResolutions().map(
+                        r => {return Math.round(r * metersPerUnit * inchesPerMeter * dpi);}
+                    );
                     this._printScale = this._printScales[0];
 
                     //this._printScales = Array.from(mainLizmap.config.options.mapScales);
@@ -200,7 +203,8 @@ export default class Print extends HTMLElement {
     }
 
     _updateScaleFromResolution() {
-        const mapScale = mainLizmap.map.getView().getResolution() * (1000 / 25.4) * ADJUSTED_DPI;
+        const metersPerUnit = mainLizmap.map.getView().getProjection().getMetersPerUnit();
+        const mapScale = mainLizmap.map.getView().getResolution() * metersPerUnit * (1000 / 25.4) * ADJUSTED_DPI;
         for (const printScale of this._printScales) {
             if (mapScale > printScale) {
                 this._printScale = printScale;
@@ -212,9 +216,16 @@ export default class Print extends HTMLElement {
     _launch(){
         const center = mainLizmap.map.getView().getCenter();
 
-        const deltaX = (this._maskWidth * this._printScale) / 2 / INCHES_PER_METER / DOTS_PER_INCH;
-        const deltaY = (this._maskHeight * this._printScale) / 2 / INCHES_PER_METER / DOTS_PER_INCH;
+        const metersPerUnit = mainLizmap.map.getView().getProjection().getMetersPerUnit();
+        const deltaX = (this._maskWidth * this._printScale) / 2 / INCHES_PER_METER / DOTS_PER_INCH / metersPerUnit;
+        const deltaY = (this._maskHeight * this._printScale) / 2 / INCHES_PER_METER / DOTS_PER_INCH / metersPerUnit;
+
         let extent = [center[0] - deltaX, center[1] - deltaY, center[0] + deltaX, center[1] + deltaY];
+        const axisOrientation = mainLizmap.map.getView().getProjection().getAxisOrientation();
+        if (axisOrientation === 'neu') {
+            // invert extent axis
+            extent = [extent[1], extent[0], extent[3], extent[2]];
+        }
         const mapProjection = mainLizmap.config.options.projection.ref;
         const projectProjection = mainLizmap.config.options.qgisProjectProjection.ref ? mainLizmap.config.options.qgisProjectProjection.ref : mapProjection;
 
@@ -402,10 +413,34 @@ export default class Print extends HTMLElement {
 
         // Overview map
         if (this._overviewMapId) {
-            let extent = mainLizmap.config.options.bbox;
+            // Use the extent defined in the layout, it is in the map item CRS
+            let extent = this._overviewMapExtent;
 
-            if(projectProjection != mapProjection){
-                extent = transformExtent(extent, mapProjection, projectProjection);
+            if (!extent) {
+                extent = mainLizmap.config.options.bbox.map(Number);
+
+                if(projectProjection != mapProjection){
+                    extent = transformExtent(extent, mapProjection, projectProjection);
+                }
+            }
+
+            // Expand the extent to the overview map item ratio
+            // QGIS Server resizes the map item to fit the extent ratio otherwise
+            if (this._overviewMapRatio) {
+                const [minX, minY, maxX, maxY] = extent;
+                const width = maxX - minX;
+                const height = maxY - minY;
+                if (width / height > this._overviewMapRatio) {
+                    const delta = (width / this._overviewMapRatio - height) / 2;
+                    extent = [minX, minY - delta, maxX, maxY + delta];
+                } else {
+                    const delta = (height * this._overviewMapRatio - width) / 2;
+                    extent = [minX - delta, minY, maxX + delta, maxY];
+                }
+            }
+            if (axisOrientation === 'neu') {
+                // invert extent axis
+                extent = [extent[1], extent[0], extent[3], extent[2]];
             }
             wmsParams[this._overviewMapId + ':EXTENT'] = extent.join(',');
         }
@@ -498,6 +533,11 @@ export default class Print extends HTMLElement {
         const templateMap = templateMaps.filter(map => map.id == this._mainMapID)?.[0]
         this._maskWidth = templateMap?.width / 1000 * INCHES_PER_METER * DOTS_PER_INCH;
         this._maskHeight = templateMap?.height / 1000 * INCHES_PER_METER * DOTS_PER_INCH;
+
+        // Keep overview map extent and ratio to request it as defined in the layout
+        const overviewMap = templateMaps.filter(map => map.id == this._overviewMapId)?.[0];
+        this._overviewMapExtent = overviewMap?.extent;
+        this._overviewMapRatio = overviewMap?.height ? overviewMap.width / overviewMap.height : undefined;
 
         mainLizmap.map.getView().changed();
 

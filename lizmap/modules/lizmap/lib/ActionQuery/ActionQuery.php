@@ -3,7 +3,6 @@
 namespace Lizmap\ActionQuery;
 
 use Lizmap\App\AppContextInterface;
-use Lizmap\App\SqlTools;
 
 class ActionQuery
 {
@@ -14,6 +13,24 @@ class ActionQuery
     private string $repository;
     private string $project;
     private string $layerId;
+
+    protected static $blockSqlWords = array(
+        ';',
+        'select',
+        'delete',
+        'insert',
+        'update',
+        'drop',
+        'alter',
+        '--',
+        'truncate',
+        'vacuum',
+        'create',
+        'reindex',
+        'grant',
+        'revoke',
+        '/*',
+    );
 
     public function __construct($cnx, string $repository, string $project, string $layerId, AppContextInterface $appContext)
     {
@@ -70,6 +87,24 @@ class ActionQuery
     }
 
     /**
+     * Validate an string given in action parameter.
+     *
+     * The string are already used in prepared statements
+     * but we still restrain some unwanted chars
+     *
+     * @param string $filter The content to validate
+     *
+     * @return array{0: bool, 1: list<string>} returns if the string does not contain unwanted chars, and the list of blocked items
+     */
+    private function validateActionParameterString(string $filter): array
+    {
+        $block_items = array();
+        $pattern = '#'.implode('|', array_map(fn ($w): string => preg_quote($w, '#'), static::$blockSqlWords)).'#i';
+
+        return array(!preg_match($pattern, $filter, $block_items), $block_items);
+    }
+
+    /**
      * Build the SQL string and the ordered values list for the prepared statement.
      *
      * @param array<string, null|int|string> $params        Output of buildParams()
@@ -91,22 +126,37 @@ class ActionQuery
             ++$i;
         }
 
+        // Validate the client options against the action configuration
+        // If the key is not present in the configuration, it will be ignored (this is why we loop over the configuration options and not the client options)
+        // If the key is not present in the client options, the default value from the configuration will be used
+        // If the key is present in the client options, it will be validated against the configuration value
+        // If the value is invalid, the default value from the configuration will be used
+        // Note: an empty client value is considered as a valid value
         foreach ($action->options as $key => $configValue) {
             $sqlParts[] = "'{$key}', (\${$i})::text";
-            $clientValue = $clientOptions[$key] ?? '';
-            [$validFilter, $block_items] = SqlTools::validateExpressionFilter($clientValue);
-            if ($clientValue && $validFilter) {
-                $sqlValues[] = $clientValue;
+            // Default value is the configuration value
+            if (!array_key_exists($key, $clientOptions)) {
+                $clientValue = $configValue;
             } else {
-                $this->appContext->logMessage(
-                    'Choose the config value because the client option param contains dangerous chars : '.implode(', ', $block_items),
-                    'lizmapadmin'
-                );
-                $sqlValues[] = $configValue;
+                $clientValue = $clientOptions[$key] ?? '';
+
+                // Check that the given value does not contains forbidden expressions
+                if (!empty($clientValue)) {
+                    [$validFilter, $block_items] = $this->validateActionParameterString($clientValue);
+                    if (!$validFilter) {
+                        $this->appContext->logMessage(
+                            'Invalid value given for the action '.($action->name ?? '').', parameter '.$key.' in project '.$this->repository.'/'.$this->project.
+                            ', layer '.$this->layerId.
+                            ', while using the given value : '.$clientValue.' → blocked items: '.implode(', ', $block_items),
+                            'lizmapadmin'
+                        );
+                        $clientValue = $configValue;
+                    }
+                }
             }
+            $sqlValues[] = $clientValue;
             ++$i;
         }
-
         $sql = '
             SELECT public.lizmap_get_data(
                 json_build_object(
