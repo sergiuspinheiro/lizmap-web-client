@@ -253,6 +253,24 @@ export class Digitizing {
             scale: true,
         });
 
+        // History of the changes of the drawn geometries (edit, move, rotate, scale)
+        // to undo and redo them
+        this._editUndo = [];
+        this._editRedo = [];
+        this._editPending = null;
+        const editStart = (event) => this._editHistoryStart(event);
+        const editEnd = () => this._editHistoryEnd();
+        this._modifyInteraction.on('modifystart', editStart);
+        this._modifyInteraction.on('modifyend', editEnd);
+        this._translateInteraction.on('translatestart', editStart);
+        this._translateInteraction.on('translateend', editEnd);
+        for (const transform of [this._transformRotateInteraction, this._transformScaleInteraction]) {
+            for (const action of ['rotate', 'scale', 'translate']) {
+                transform.on(action + 'start', editStart);
+                transform.on(action + 'end', editEnd);
+            }
+        }
+
         this._drawStyleFunction = (feature) => {
             let color = feature.get('color') || this._drawColor;
 
@@ -320,6 +338,10 @@ export class Digitizing {
             const ctrl = event.ctrlKey || event.metaKey;
             const undoKey = (ctrl && !event.shiftKey && key === 'z') || event.key === 'Backspace';
             const redoKey = ctrl && ((event.shiftKey && key === 'z') || key === 'y');
+            // without a drawing in progress, only while a drawn geometry is being changed
+            if (!this._sketching && !(this.isEdited || this.isRotate || this.isScaling)) {
+                return;
+            }
             if ((undoKey && this.undoLastVertex()) || (redoKey && this.redoLastVertex())) {
                 event.preventDefault();
                 event.stopPropagation();
@@ -866,13 +888,128 @@ export class Digitizing {
     }
 
     /**
-     * Remove the last vertex of the drawing being drawn
+     * Keep the geometries of the features before they are changed
+     * @param {object} event - the start event of the modify, translate or transform interaction
+     * @private
+     */
+    _editHistoryStart(event) {
+        let features = event.features ?? (event.feature ? [event.feature] : []);
+        if (typeof features.getArray === 'function') {
+            features = features.getArray();
+        }
+        this._editPending = features
+            .filter(feature => feature?.getGeometry())
+            .map(feature => [feature, feature.getGeometry().clone()]);
+    }
+
+    /**
+     * Add the change to the history if a geometry changed
+     * @private
+     */
+    _editHistoryEnd() {
+        const pending = this._editPending;
+        this._editPending = null;
+        if (!pending || pending.length === 0) {
+            return;
+        }
+        const changed = pending.some(([feature, geometry]) =>
+            JSON.stringify(this._geometryState(feature.getGeometry())) !== JSON.stringify(this._geometryState(geometry)));
+        if (!changed) {
+            return;
+        }
+        this._editUndo.push(pending);
+        if (this._editUndo.length > 50) {
+            this._editUndo.shift();
+        }
+        this._editRedo = [];
+    }
+
+    /**
+     * Comparable state of a geometry
+     * @param {import('ol/geom/Geometry.js').default} geometry - the geometry
+     * @returns {Array} its coordinates (center and radius of a circle)
+     * @private
+     */
+    _geometryState(geometry) {
+        if (!geometry) {
+            return null;
+        }
+        if (geometry.getType() === 'Circle') {
+            return [geometry.getCenter(), geometry.getRadius()];
+        }
+        return geometry.getCoordinates?.() ?? null;
+    }
+
+    /**
+     * Restore the geometries of a history step, return the step to go back
+     * @param {Array} step - list of [feature, geometry]
+     * @returns {Array} the step with the current geometries
+     * @private
+     */
+    _applyEditStep(step) {
+        const source = this._drawSource;
+        const back = [];
+        for (const [feature, saved] of step) {
+            if (source && !source.hasFeature(feature)) {
+                continue;
+            }
+            const geometry = feature.getGeometry();
+            back.push([feature, geometry.clone()]);
+            if (geometry.getType() !== saved.getType()) {
+                feature.setGeometry(saved.clone());
+            } else if (geometry.getType() === 'Circle') {
+                geometry.setCenterAndRadius(saved.getCenter(), saved.getRadius());
+            } else if (typeof geometry.setCoordinates === 'function') {
+                geometry.setCoordinates(saved.getCoordinates());
+            } else {
+                feature.setGeometry(saved.clone());
+            }
+        }
+        if (back.length) {
+            this.saveFeatureDrawn();
+        }
+        return back;
+    }
+
+    /**
+     * Undo the last change of a drawn geometry (edit, move, rotate, scale)
+     * @returns {boolean} true if a change was undone
+     */
+    undoEdit() {
+        while (this._editUndo.length) {
+            const back = this._applyEditStep(this._editUndo.pop());
+            if (back.length) {
+                this._editRedo.push(back);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Redo the last change undone by undoEdit
+     * @returns {boolean} true if a change was redone
+     */
+    redoEdit() {
+        while (this._editRedo.length) {
+            const back = this._applyEditStep(this._editRedo.pop());
+            if (back.length) {
+                this._editUndo.push(back);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Remove the last vertex of the drawing being drawn,
+     * or undo the last change of a drawn geometry when nothing is being drawn
      * @returns {boolean} true if a vertex was removed
      */
     undoLastVertex() {
         const draw = this._drawInteraction;
         if (!draw || !this._sketching || !this._map.getInteractions().getArray().includes(draw)) {
-            return false;
+            return this.undoEdit();
         }
         // the last coordinate follows the cursor, the one before is the last vertex
         const coords = this._sketchCoordinates();
@@ -891,13 +1028,16 @@ export class Digitizing {
     }
 
     /**
-     * Add again the last vertex removed by undoLastVertex
+     * Add again the last vertex removed by undoLastVertex,
+     * or redo the last change of a drawn geometry when nothing is being drawn
      * @returns {boolean} true if a vertex was added
      */
     redoLastVertex() {
         const draw = this._drawInteraction;
-        if (!draw || !this._sketching || this._redoVertices.length === 0
-            || !this._map.getInteractions().getArray().includes(draw)) {
+        if (!draw || !this._sketching || !this._map.getInteractions().getArray().includes(draw)) {
+            return this.redoEdit();
+        }
+        if (this._redoVertices.length === 0) {
             return false;
         }
         const vertex = this._redoVertices.pop();

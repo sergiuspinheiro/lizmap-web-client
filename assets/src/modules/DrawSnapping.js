@@ -154,11 +154,23 @@ export default class DrawSnapping {
             'ol-layer.added', 'ol-layer.removed', 'ol-layer.visibility.changed', 'ol-layer.wmsTitle.changed']);
 
         // Drawings changed
-        this._digitizing._drawSource.on('change', () => {
+        const drawingsChanged = () => {
             if (this._active && this._checked.has(DRAWINGS_ID)) {
                 this._scheduleRebuild();
             }
-        });
+        };
+        this._digitizing._drawSource.on('change', drawingsChanged);
+        // The drawings being edited, moved, rotated or scaled are not snapping targets
+        const editedCollections = [
+            this._digitizing._selectInteraction,
+            this._digitizing._transformRotateInteraction,
+            this._digitizing._transformScaleInteraction,
+        ].map(interaction => interaction?.getFeatures?.()).filter(Boolean);
+        for (const collection of editedCollections) {
+            collection.on(['add', 'remove'], drawingsChanged);
+        }
+        mainEventDispatcher.addListener(drawingsChanged,
+            ['digitizing.editionBegins', 'digitizing.editionEnds', 'digitizing.rotate', 'digitizing.scaling']);
 
         // Stop with the draw tool and with the overlay analysis
         const stop = (e) => {
@@ -271,6 +283,24 @@ export default class DrawSnapping {
     }
 
     /**
+     * The drawings being edited, moved, rotated or scaled
+     * @returns {Set} the features
+     */
+    _editedDrawings() {
+        const digitizing = this._digitizing;
+        const edited = new Set();
+        const add = (interaction, enabled) => {
+            if (enabled && interaction?.getFeatures) {
+                interaction.getFeatures().forEach(feature => edited.add(feature));
+            }
+        };
+        add(digitizing._selectInteraction, digitizing.isEdited);
+        add(digitizing._transformRotateInteraction, digitizing.isRotate);
+        add(digitizing._transformScaleInteraction, digitizing.isScaling);
+        return edited;
+    }
+
+    /**
      * Remove the last vertex of the drawing being drawn
      */
     undoVertex() {
@@ -340,7 +370,11 @@ export default class DrawSnapping {
             : [];
 
         if (this._checked.has(DRAWINGS_ID)) {
+            const edited = this._editedDrawings();
             for (const drawn of this._digitizing._drawSource.getFeatures()) {
+                if (edited.has(drawn)) {
+                    continue;
+                }
                 const geom = drawn.getGeometry();
                 // circles have no vertices
                 if (!geom || geom.getType() === 'Circle') {
