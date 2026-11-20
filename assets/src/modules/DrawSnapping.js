@@ -137,13 +137,16 @@ export default class DrawSnapping {
             }
         });
 
-        // Stop with the draw tool
-        this._lizmap3.events.on({
-            minidockclosed: (e) => {
-                if (e.id === 'draw' && this._active) {
-                    this.active = false;
-                }
+        // Stop with the draw tool and with the overlay analysis
+        const stop = (e) => {
+            if (['draw', 'overlay'].includes(e.id) && this._active) {
+                this.active = false;
             }
+        };
+        this._lizmap3.events.on({
+            minidockclosed: stop,
+            dockclosed: stop,
+            rightdockclosed: stop,
         });
     }
 

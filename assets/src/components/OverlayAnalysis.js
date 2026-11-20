@@ -540,6 +540,7 @@ export default class OverlayAnalysis extends HTMLElement {
             <h4>${lizDict['overlay.draw']}</h4>
             <lizmap-digitizing context="overlay" selected-tool="polygon"
                 available-tools="point,line,polygon,box,circle,freehand" import-export></lizmap-digitizing>
+            <lizmap-draw-snapping prefix="overlay"></lizmap-draw-snapping>
             <p class="overlay-note">${lizDict['overlay.geometries'].replace('%s', this._geometries)}</p>
             <label class="overlay-buffer">${lizDict['overlay.buffer']} (m)
                 <input type="number" min="0" max="5000" step="1" class="form-control form-control-sm" .value=${String(this._buffer)}

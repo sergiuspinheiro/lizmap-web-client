@@ -33,7 +33,7 @@ export default class DrawSnapping extends HTMLElement {
                 ${lizDict['snapping.title'] || 'Snapping'}
                 ${snap.active ? html`<span class="badge bg-success">${lizDict['snapping.on'] || 'on'}</span>` : ''}
             </summary>
-            ${snapPanelTemplate(snap, 'draw')}
+            ${snapPanelTemplate(snap, this.getAttribute('prefix') || 'draw')}
         </details>`;
 
         this._listener = () => render(mainTemplate(), this);
